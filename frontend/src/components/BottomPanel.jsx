@@ -185,7 +185,6 @@ function AttrTable({ layers, onZoom }) {
   );
 }
 
-import SpatialPanel from "./SpatialPanel";
 
 // ═══════ BOTTOM PANEL (main export) ═══════
 export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLayer }) {
@@ -205,7 +204,6 @@ export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLay
     { key: "stats", label: "Stats" },
     { key: "histo", label: "Histogramme" },
     { key: "pie", label: "Répartition" },
-    { key: "spatial", label: "Analyse spatiale" },
   ];
 
   return (
@@ -229,12 +227,11 @@ export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLay
         {layers.length > 0 && <span style={{ fontSize: 10, color: C.dim, marginLeft: "auto", padding: "0 8px" }}>{layer?.featureCount || 0} features</span>}
       </div>
       {activeTab && (
-        <div style={{ height: activeTab === "table" ? 220 : activeTab === "spatial" ? 260 : 150, overflowY: "auto", overflowX: "auto" }}>
+        <div style={{ height: activeTab === "table" ? 220 : 150, overflowY: "auto", overflowX: "auto" }}>
           {activeTab === "table" && <AttrTable layers={layers.filter(l => l.visible)} onZoom={onZoom} />}
           {activeTab === "stats" && layer && <StatsWidget layer={layer} />}
           {activeTab === "histo" && layer && selNum && <div style={{ padding: 10 }}><Histogram layer={layer} attribute={selNum} /></div>}
           {activeTab === "pie" && layer && selCat && <div style={{ padding: 10 }}><Pie layer={layer} attribute={selCat} /></div>}
-          {activeTab === "spatial" && <SpatialPanel layers={layers} onAddLayer={onAddLayer} />}
         </div>
       )}
     </div>
