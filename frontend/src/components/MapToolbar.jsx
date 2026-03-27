@@ -17,7 +17,9 @@ const TOOL_GROUPS = [
     { key: "isochrone", label: "Isochrone", icon: "◉" },
   ]},
   { label: "Export", tools: [
-    { key: "print", label: "Impression PDF", icon: "⎙" },
+    { key: "print",    label: "Impression PDF",               icon: "⎙" },
+    { key: "database", label: "Base de données",              icon: "🗄" },
+    { key: "ogc",      label: "Services OGC (WMS/WFS/WMTS)",  icon: "📡" },
   ]},
 ];
 

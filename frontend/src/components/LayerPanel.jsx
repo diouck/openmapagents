@@ -4,7 +4,7 @@ import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
 import ClassPanel from "./ClassPanel";
 
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename }) {
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onZoomExtent }) {
   const C = getTheme();
   const [exp, setExp] = useState(null);
   const [editName, setEditName] = useState(null);
@@ -36,6 +36,19 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 title="Double-clic pour renommer">{l.name}</span>
             )}
 
+            {/* Zoom sur emprise */}
+            <button onClick={e => { e.stopPropagation(); onZoomExtent?.(l.id); }}
+              title="Zoomer sur la couche"
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, padding: "0 2px", color: C.dim, lineHeight: 1, flexShrink: 0 }}>🔍</button>
+
+            {/* Réordonner */}
+            <button onClick={e => { e.stopPropagation(); onMoveUp?.(l.id); }}
+              title="Monter"
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: "0 1px", color: C.dim, lineHeight: 1, flexShrink: 0 }}>▲</button>
+            <button onClick={e => { e.stopPropagation(); onMoveDown?.(l.id); }}
+              title="Descendre"
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: "0 1px", color: C.dim, lineHeight: 1, flexShrink: 0 }}>▼</button>
+
             <Badge color={C.mut}>{l.featureCount}</Badge>
             {l.classResult && <Badge color={C.acc}>classif.</Badge>}
             <Btn small onClick={e => { e.stopPropagation(); onToggle(l.id); }}>
@@ -45,6 +58,28 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
 
           {exp === l.id && (
             <div style={{ padding: "6px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Couche raster WMS/WMTS : uniquement opacité + suppression */}
+              {l.isRaster ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                    <span style={{ color: C.dim }}>Opacité</span>
+                    <input type="range" min="0" max="1" step="0.05" value={l.opacity}
+                      onChange={e => {
+                        const op = parseFloat(e.target.value);
+                        onStyle(l.id, { opacity: op });
+                        // Appliquer directement sur la source MapLibre
+                      }} style={{ flex: 1, height: 3 }} />
+                    <span style={{ color: C.dim, fontFamily: M }}>{Math.round((l.opacity ?? 0.85) * 100)}%</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: C.dim, fontFamily: M, wordBreak: "break-all", lineHeight: 1.4 }}>
+                    {l.tileUrl?.slice(0, 80)}…
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <Btn small color={C.red} onClick={() => onRemove(l.id)}>Suppr.</Btn>
+                  </div>
+                </>
+              ) : (
+              <>
               {/* Color + opacity */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                 <span style={{ color: C.dim }}>Couleur</span>
@@ -136,6 +171,8 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <Btn key={fmt} small onClick={() => onExportFmt(l.id, fmt)}>{fmt}</Btn>
                 ))}
               </div>
+            </>
+              )}
             </div>
           )}
         </div>

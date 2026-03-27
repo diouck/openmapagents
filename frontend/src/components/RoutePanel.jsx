@@ -59,6 +59,29 @@ export default function RoutePanel({ mode, profile, onProfileChange, onResult, o
   const [clickTarget, setClickTarget] = useState(null);
   const [lastGeoJSON, setLastGeoJSON] = useState(null);
 
+  // ── Drag ──────────────────────────────────────────────────────
+  const [pos, setPos] = useState({ x: null, y: null });
+  const dragRef       = useRef({ dragging: false, ox: 0, oy: 0 });
+  const panelRef      = useRef(null);
+
+  const onDragStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = panelRef.current?.getBoundingClientRect();
+    dragRef.current = { dragging: true, ox: e.clientX - (rect?.left ?? 0), oy: e.clientY - (rect?.top ?? 0) };
+    const onMove = (ev) => {
+      if (!dragRef.current.dragging) return;
+      setPos({ x: ev.clientX - dragRef.current.ox, y: ev.clientY - dragRef.current.oy });
+    };
+    const onUp = () => {
+      dragRef.current.dragging = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
   const exportGJ = (gj, name) => {
     if (!gj) return;
     const blob = new Blob([JSON.stringify(gj, null, 2)], { type: "application/json" });
@@ -124,16 +147,20 @@ export default function RoutePanel({ mode, profile, onProfileChange, onResult, o
   };
 
   return (
-    <div style={{
-      position: "absolute", top: 50, left: 10, zIndex: 25, width: 300,
+    <div ref={panelRef} style={{
+      position: "fixed",
+      ...(pos.x !== null ? { left: pos.x, top: pos.y } : { top: 50, left: 10 }),
+      zIndex: 25, width: 300,
       background: C.card, borderRadius: 10, border: `0.5px solid ${C.bdr}`,
       boxShadow: "0 4px 20px rgba(0,0,0,0.25)", padding: 14,
       display: "flex", flexDirection: "column", gap: 10,
+      userSelect: "none",
     }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: C.txt }}>
-          {mode === "route" ? "Itineraire" : "Isochrone"}
+      {/* Header — zone de drag */}
+      <div onMouseDown={onDragStart} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "grab" }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: C.txt, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2 }}>⠿</span>
+          {mode === "route" ? "Itinéraire" : "Isochrone"}
         </div>
         <button onClick={onClose} style={{ fontSize: 12, background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: F }}>✕</button>
       </div>
