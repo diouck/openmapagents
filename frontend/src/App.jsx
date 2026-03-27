@@ -18,6 +18,8 @@ import MapToolbar from "./components/MapToolbar";
 import MiniMap from "./components/MiniMap";
 import RoutePanel from "./components/RoutePanel";
 import PrintPanel from "./components/PrintPanel";
+import DBPanel from "./components/DBPanel";
+import OGCPanel from "./components/OGCPanel";
 
 export default function App() {
   const { name: themeName, C, toggle: toggleTheme } = useTheme();
@@ -214,9 +216,66 @@ export default function App() {
   }, [addLayer]);
 
   // ─── LAYER OPERATIONS ────────────────────────────────
-  const toggleL = id => setLayers(p => p.map(l => l.id === id ? { ...l, visible: !l.visible } : l));
-  const removeL = id => setLayers(p => p.filter(l => l.id !== id));
-  const styleL = (id, s) => setLayers(p => p.map(l => l.id === id ? { ...l, ...s } : l));
+  const toggleL = (id) => {
+    setLayers(p => p.map(l => {
+      if (l.id !== id) return l;
+      const newVisible = !l.visible;
+      // Couche raster : masquer/afficher sur la map MapLibre
+      if (l.isRaster && l.mapLayerId) {
+        try {
+          const map = mapRef.current?.getMap?.();
+          if (map?.getLayer(l.mapLayerId)) {
+            map.setLayoutProperty(l.mapLayerId, "visibility", newVisible ? "visible" : "none");
+          }
+        } catch (_) {}
+      }
+      return { ...l, visible: newVisible };
+    }));
+  };
+  const removeL = (id) => {
+    const layer = layers.find(l => l.id === id);
+    if (layer?.isRaster) {
+      try {
+        const map = mapRef.current?.getMap?.();
+        if (map) {
+          if (layer.mapLayerId && map.getLayer(layer.mapLayerId))   map.removeLayer(layer.mapLayerId);
+          if (layer.mapSourceId && map.getSource(layer.mapSourceId)) map.removeSource(layer.mapSourceId);
+          // Couches vectorielles ajoutées avec suffixes
+          ["_fill","_line","_circle","_layer"].forEach(sfx => {
+            const lid = layer.mapSourceId + sfx;
+            if (map.getLayer(lid)) map.removeLayer(lid);
+          });
+        }
+      } catch (_) {}
+    }
+    setLayers(p => p.filter(l => l.id !== id));
+  };
+  const styleL = (id, s) => {
+    setLayers(p => p.map(l => {
+      if (l.id !== id) return l;
+      // Propager l'opacité sur les couches raster MapLibre
+      if (l.isRaster && s.opacity !== undefined) {
+        try {
+          const map = mapRef.current?.getMap?.();
+          if (map) {
+            const layerId = `${id}-layer`;
+            if (map.getLayer(layerId)) {
+              map.setPaintProperty(layerId, "raster-opacity", s.opacity);
+            }
+            // Tuiles vectorielles — plusieurs layers
+            ["fill", "line", "circle"].forEach(t => {
+              const lid = `${id}-${t}`;
+              if (map.getLayer(lid)) {
+                const prop = t === "fill" ? "fill-opacity" : t === "line" ? "line-opacity" : "circle-opacity";
+                map.setPaintProperty(lid, prop, s.opacity);
+              }
+            });
+          }
+        } catch (_) {}
+      }
+      return { ...l, ...s };
+    }));
+  };
   const renameL = (id, name) => setLayers(p => p.map(l => l.id === id ? { ...l, name } : l));
   const classifyL = useCallback((id, cfg) => {
     setLayers(p => p.map(l => {
@@ -245,6 +304,118 @@ export default function App() {
       a.download = `${l.name.replace(/\s+/g, "_")}${ext}`; a.click();
     } catch (e) { alert(`Export ${fmt}: ${e.message}`); }
   };
+
+
+  // ── Réordonner les couches ─────────────────────────────────
+  const moveLayerUp   = id => setLayers(p => {
+    const i = p.findIndex(l => l.id === id);
+    if (i <= 0) return p;
+    const n = [...p]; [n[i-1], n[i]] = [n[i], n[i-1]]; return n;
+  });
+  const moveLayerDown = id => setLayers(p => {
+    const i = p.findIndex(l => l.id === id);
+    if (i < 0 || i >= p.length - 1) return p;
+    const n = [...p]; [n[i], n[i+1]] = [n[i+1], n[i]]; return n;
+  });
+
+  // ── Zoomer sur l'emprise d'une couche ──────────────────────
+  const zoomToLayer = useCallback((id) => {
+    const layer = layers.find(l => l.id === id);
+    if (!layer) return;
+
+    if (layer.isRaster) {
+      // Tenter de récupérer les features rendues depuis la source MapLibre
+      try {
+        const map = mapRef.current?.getMap?.();
+        if (!map) return;
+        // Pour WMS/WMTS : interroger le serveur GetCapabilities bbox ou utiliser la vue actuelle
+        if (layer.bbox) {
+          const [w, s, e, n] = layer.bbox;
+          map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 1000 });
+        } else {
+          // Pas de bbox connue — zoomer sur les features rendues (vector tiles) ou garder la vue
+          const feats = map.querySourceFeatures(id);
+          if (feats.length) {
+            const coords = feats.flatMap(f => {
+              const g = f.geometry;
+              if (!g) return [];
+              if (g.type === "Point") return [g.coordinates];
+              if (g.type === "LineString") return g.coordinates;
+              if (g.type === "Polygon") return g.coordinates[0] || [];
+              return [];
+            }).filter(c => c?.length >= 2);
+            if (coords.length) {
+              const lons = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+              map.fitBounds(
+                [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+                { padding: 60, duration: 1000 }
+              );
+              return;
+            }
+          }
+          // Dernier recours : message info
+          console.info("Zoom couche raster : bbox non disponible, utilisez le serveur GetCapabilities.");
+        }
+      } catch (e) { console.warn("zoomToLayer raster:", e.message); }
+      return;
+    }
+
+    // Couche vecteur GeoJSON
+    const feats = layer.geojson?.features || [];
+    if (!feats.length) return;
+    const bounds = computeBounds(feats);
+    if (bounds) mapRef.current?.getMap?.()?.fitBounds(bounds, { padding: 60, maxZoom: 17, duration: 1000 });
+  }, [layers]);
+
+  // ── Ajouter une couche raster WMS/WMTS ─────────────────────
+  const addRasterLayer = useCallback((info) => {
+    // info: { id, layerId, name, type, url, tileUrl, opacity }
+    const ci = lctr.current % LAYER_COLORS.length;
+    lctr.current++;
+    setLayers(p => [...p, {
+      id:           info.id,
+      name:         info.name,
+      theme:        info.type,   // "wms" | "wmts" | "vector"
+      isRaster:     true,
+      mapSourceId:  info.id,
+      mapLayerId:   info.layerId,
+      tileUrl:      info.tileUrl || info.url,
+      geojson:      null,
+      visible:      true,
+      color:        LAYER_COLORS[ci],
+      opacity:      info.opacity ?? 0.85,
+      featureCount: "raster",
+      classCfg:     null,
+      classResult:  null,
+      bbox:         info.bbox || null,
+    }]);
+  }, []);
+
+  // Drag state DB
+  const [dbPos,    setDbPos]    = useState({ x: null, y: null });
+  const dbDragRef  = useRef({ dragging: false, ox: 0, oy: 0 });
+  const dbPanelRef = useRef(null);
+  const onDbDragStart = useCallback((e) => {
+    if (e.button !== 0) return; e.preventDefault();
+    const rect = dbPanelRef.current?.getBoundingClientRect();
+    dbDragRef.current = { dragging: true, ox: e.clientX-(rect?.left??0), oy: e.clientY-(rect?.top??0) };
+    const mv = ev => { if(!dbDragRef.current.dragging)return; setDbPos({x:ev.clientX-dbDragRef.current.ox,y:ev.clientY-dbDragRef.current.oy}); };
+    const up = () => { dbDragRef.current.dragging=false; window.removeEventListener("mousemove",mv); window.removeEventListener("mouseup",up); };
+    window.addEventListener("mousemove",mv); window.addEventListener("mouseup",up);
+  }, []);
+
+  // Drag state OGC
+  const [ogcPos,    setOgcPos]    = useState({ x: null, y: null });
+  const ogcDragRef  = useRef({ dragging: false, ox: 0, oy: 0 });
+  const ogcPanelRef = useRef(null);
+  const onOgcDragStart = useCallback((e) => {
+    if (e.button !== 0) return; e.preventDefault();
+    const rect = ogcPanelRef.current?.getBoundingClientRect();
+    ogcDragRef.current = { dragging: true, ox: e.clientX-(rect?.left??0), oy: e.clientY-(rect?.top??0) };
+    const mv = ev => { if(!ogcDragRef.current.dragging)return; setOgcPos({x:ev.clientX-ogcDragRef.current.ox,y:ev.clientY-ogcDragRef.current.oy}); };
+    const up = () => { ogcDragRef.current.dragging=false; window.removeEventListener("mousemove",mv); window.removeEventListener("mouseup",up); };
+    window.addEventListener("mousemove",mv); window.addEventListener("mouseup",up);
+  }, []);
 
   const zoomFeat = useCallback((ln, lt) => {
     const m = mapRef.current?.getMap?.(); if (m) m.flyTo({ center: [ln, lt], zoom: 17, duration: 800 });
@@ -391,8 +562,31 @@ export default function App() {
               <NavigationControl position="top-right" />
               <ScaleControl position="bottom-left" />
 
+              {/* ── RASTER LAYERS (WMS / WMTS / Vector Tiles) ── */}
+              {layers.map(l => {
+                if (!l.isRaster) return null;
+                if (l.type === "vector") {
+                  // Tuiles vectorielles
+                  return (
+                    <Source key={l.id} id={l.id} type="vector" tiles={[l.tileUrl]} minzoom={0} maxzoom={22}>
+                      <Layer id={`${l.id}-fill`}   type="fill"   layout={{ visibility: l.visible ? "visible" : "none" }} filter={["==", ["geometry-type"], "Polygon"]}    paint={{ "fill-color": l.color || "#1D9E75", "fill-opacity": l.opacity ?? 0.3 }} />
+                      <Layer id={`${l.id}-line`}   type="line"   layout={{ visibility: l.visible ? "visible" : "none" }} filter={["any", ["==", ["geometry-type"], "LineString"], ["==", ["geometry-type"], "Polygon"]]} paint={{ "line-color": l.color || "#1D9E75", "line-width": 1.5, "line-opacity": l.opacity ?? 1 }} />
+                      <Layer id={`${l.id}-circle`} type="circle" layout={{ visibility: l.visible ? "visible" : "none" }} filter={["==", ["geometry-type"], "Point"]}       paint={{ "circle-color": l.color || "#1D9E75", "circle-radius": 4, "circle-stroke-width": 1, "circle-stroke-color": "#fff", "circle-opacity": l.opacity ?? 1 }} />
+                    </Source>
+                  );
+                }
+                // WMS / WMTS — source raster
+                return (
+                  <Source key={l.id} id={l.id} type="raster" tiles={[l.tileUrl]} tileSize={256}>
+                    <Layer id={`${l.id}-layer`} type="raster"
+                      layout={{ visibility: l.visible ? "visible" : "none" }}
+                      paint={{ "raster-opacity": l.opacity ?? 0.85 }} />
+                  </Source>
+                );
+              })}
+
               {/* ── NORMAL LAYERS (flat) ── */}
-              {layers.map(l => l.visible && !l.heatmap && !l.extrude && !l.cluster && (
+              {layers.map(l => l.visible && !l.isRaster && !l.heatmap && !l.extrude && !l.cluster && (
                 <Source key={l.id} id={l.id} type="geojson" data={l.geojson}>
                   <Layer id={`${l.id}-fill`} type="fill" filter={["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]]} paint={getPaint(l, "fill")} />
                   <Layer id={`${l.id}-outline`} type="line" filter={["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]]} paint={getPaint(l, "line")} />
@@ -403,7 +597,7 @@ export default function App() {
               ))}
 
               {/* ── 3D EXTRUSION LAYERS ── */}
-              {layers.map(l => l.visible && l.extrude && (
+              {layers.map(l => l.visible && !l.isRaster && l.extrude && (
                 <Source key={`${l.id}-3d`} id={`${l.id}-3d`} type="geojson" data={l.geojson}>
                   <Layer id={`${l.id}-extrude`} type="fill-extrusion"
                     filter={["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]]}
@@ -420,7 +614,7 @@ export default function App() {
               ))}
 
               {/* ── CLUSTER LAYERS ── */}
-              {layers.map(l => l.visible && l.cluster && (
+              {layers.map(l => l.visible && !l.isRaster && l.cluster && (
                 <Source key={`${l.id}-cl`} id={`${l.id}-cl`} type="geojson" data={l.geojson}
                   cluster={true} clusterMaxZoom={14} clusterRadius={50}>
                   <Layer id={`${l.id}-clusters`} type="circle"
@@ -437,7 +631,7 @@ export default function App() {
               ))}
 
               {/* ── HEATMAP LAYERS ── */}
-              {layers.map(l => l.visible && l.heatmap && (
+              {layers.map(l => l.visible && !l.isRaster && l.heatmap && (
                 <Source key={`${l.id}-hm`} id={`${l.id}-hm`} type="geojson" data={l.geojson}>
                   <Layer id={`${l.id}-heat`} type="heatmap" paint={{
                     "heatmap-weight": 1,
@@ -556,12 +750,53 @@ export default function App() {
                 }} />
             )}
 
+
+            {/* Database Panel — draggable */}
+            {tool === "database" && (
+              <div ref={dbPanelRef} style={{
+                position: "fixed",
+                ...(dbPos.x !== null ? { left: dbPos.x, top: dbPos.y } : { top: 50, left: 10 }),
+                zIndex: 25, width: 340, maxHeight: "80vh",
+                background: C.card, borderRadius: 10,
+                border: `0.5px solid ${C.bdr}`, boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+                display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none",
+              }}>
+                <div onMouseDown={onDbDragStart} style={{ padding: "10px 14px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, cursor: "grab" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: C.txt, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2 }}>⠿</span>🗄 Base de données
+                  </div>
+                  <button onClick={() => { setTool("pointer"); setDbPos({ x: null, y: null }); }} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 16 }}>✕</button>
+                </div>
+                <DBPanel onAddLayer={addLayer} />
+              </div>
+            )}
+
+            {/* OGC Panel — WMS/WMTS/WFS/Tuiles vectorielles — draggable */}
+            {tool === "ogc" && (
+              <div ref={ogcPanelRef} style={{
+                position: "fixed",
+                ...(ogcPos.x !== null ? { left: ogcPos.x, top: ogcPos.y } : { top: 50, left: 10 }),
+                zIndex: 25, width: 360, maxHeight: "82vh",
+                background: C.card, borderRadius: 10,
+                border: `0.5px solid ${C.bdr}`, boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+                display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none",
+              }}>
+                <div onMouseDown={onOgcDragStart} style={{ padding: "10px 14px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, cursor: "grab" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: C.txt, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2 }}>⠿</span>📡 Services OGC
+                  </div>
+                  <button onClick={() => { setTool("pointer"); setOgcPos({ x: null, y: null }); }} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 16 }}>✕</button>
+                </div>
+                <OGCPanel mapRef={mapRef} onAddLayer={addLayer} onAddRasterLayer={addRasterLayer} />
+              </div>
+            )}
+
             {/* Print Panel */}
             {tool === "print" && (
               <PrintPanel mapRef={mapRef} layers={layers} viewState={vs}
                 onClose={() => setTool("pointer")} />
             )}
-            <LayerPanel layers={layers} onToggle={toggleL} onRemove={removeL} onStyle={styleL} onExport={exportL} onClassify={classifyL} onExportFmt={exportFmt} onRename={renameL} />
+            <LayerPanel layers={layers} onToggle={toggleL} onRemove={removeL} onStyle={styleL} onExport={exportL} onClassify={classifyL} onExportFmt={exportFmt} onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown} onZoomExtent={zoomToLayer} />
             <Legend layers={layers} />
             <MiniMap center={[vs.longitude, vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]} />
             {layers.length === 0 && tool === "pointer" && (

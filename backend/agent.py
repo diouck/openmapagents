@@ -18,6 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from litellm import completion
 
+from db_routes import router as db_router
+
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("overture-agent")
@@ -609,7 +612,12 @@ app.add_middleware(
     allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
-
+# ── DB routes ──────────────────────────────────────────────────
+try:
+    from db_routes import router as db_router
+    app.include_router(db_router)
+except ImportError:
+    pass
 
 class ChatRequest(BaseModel):
     messages: list  # [{role, content}, ...]
