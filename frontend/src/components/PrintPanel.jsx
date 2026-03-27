@@ -28,22 +28,50 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
   if (showLegend) {
     const visLayers = layers.filter(l => l.visible);
     if (visLayers.length > 0) {
+      // Construire les lignes de légende selon le type de classification
       let lines = [];
       visLayers.forEach(l => {
         lines.push({ type: "layer", layer: l });
-        if (l.classResult?.type === "categorized")
-          l.classResult.entries?.slice(0, 6).forEach(e =>
+        const cr = l.classResult;
+
+        if (cr?.type === "categorized") {
+          cr.entries?.slice(0, 6).forEach(e =>
             lines.push({ type: "class", color: e.color, label: `${e.value} (${e.count})` })
           );
-        if (l.classResult?.type === "graduated")
-          l.classResult.classes?.forEach(c =>
+        } else if (cr?.type === "graduated") {
+          cr.classes?.forEach(c =>
             lines.push({ type: "class", color: c.color, label: `${c.min.toFixed(1)}–${c.max.toFixed(1)} (${c.count})` })
           );
+        } else if (cr?.type === "proportional") {
+          // Un seul bloc : cercles emboîtés style SIG
+          const med = Math.round((cr.minVal + cr.maxVal) / 2);
+          const medR = (cr.minSize + cr.maxSize) / 2;
+          lines.push({
+            type: "prop_circles_nested", color: l.color,
+            entries: [
+              { r: cr.maxSize, label: cr.maxVal?.toLocaleString("fr") + " (max)" },
+              { r: medR,       label: med?.toLocaleString("fr") },
+              { r: cr.minSize, label: cr.minVal?.toLocaleString("fr") + " (min)" },
+            ],
+            maxR: cr.maxSize,
+          });
+        } else if (cr?.type === "proportional_line") {
+          const med = Math.round((cr.minVal + cr.maxVal) / 2);
+          const medW = (cr.minSize + cr.maxSize) / 2;
+          lines.push({
+            type: "prop_lines_nested", color: l.color,
+            entries: [
+              { w: cr.maxSize, label: cr.maxVal?.toLocaleString("fr") + " (max)" },
+              { w: medW,       label: med?.toLocaleString("fr") },
+              { w: cr.minSize, label: cr.minVal?.toLocaleString("fr") + " (min)" },
+            ],
+          });
+        }
       });
 
-      const lineH  = FONT * 1.7;
-      const boxW   = Math.round(W * 0.22);
-      const boxH   = PAD + lines.length * lineH;
+      const lineH  = FONT * 1.9;
+      const boxW   = Math.round(W * 0.24);
+      const boxH   = PAD + lines.length * lineH + PAD;
       const margin = PAD * 2.5;
 
       let bx, by;
@@ -53,33 +81,114 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
       if (legendPos === "top-right")    { bx = W - margin - boxW; by = margin; }
 
       ctx.save();
-      let ly = by + FONT;
+      let ly = by + PAD + FONT;
+
       lines.forEach(line => {
+        setShadow(ctx, SH);
+
         if (line.type === "layer") {
-          const l = line.layer;
-          // Carré couleur avec ombre
-          setShadow(ctx, SH * 1.5);
-          ctx.fillStyle = l.color || "#888";
+          // En-tête couche — carré couleur + nom
+          ctx.fillStyle = line.layer.color || "#888";
           ctx.beginPath();
           ctx.roundRect(bx, ly - FONT * 0.78, FONT * 0.85, FONT * 0.85, 2);
           ctx.fill();
-          // Texte nom couche
           ctx.fillStyle = "#ffffff";
           ctx.font = `600 ${FONT}px sans-serif`;
-          const name = l.name.length > 22 ? l.name.slice(0, 22) + "…" : l.name;
-          ctx.fillText(`${name} (${l.featureCount})`, bx + FONT * 1.2, ly);
-        } else {
-          setShadow(ctx, SH);
+          const name = line.layer.name.length > 22 ? line.layer.name.slice(0, 22) + "…" : line.layer.name;
+          ctx.fillText(`${name} (${line.layer.featureCount})`, bx + FONT * 1.2, ly);
+
+        } else if (line.type === "class") {
+          // Classe couleur (catégorisée / graduée)
           ctx.fillStyle = line.color || "#888";
           ctx.fillRect(bx + PAD * 1.2, ly - FONT * 0.68, FONT * 0.72, FONT * 0.72);
           ctx.fillStyle = "#ffffff";
           ctx.font = `${SMALL}px sans-serif`;
-          const lbl = line.label.length > 26 ? line.label.slice(0, 26) + "…" : line.label;
+          const lbl = line.label.length > 28 ? line.label.slice(0, 28) + "…" : line.label;
           ctx.fillText(lbl, bx + PAD * 1.2 + FONT, ly);
+
+        } else if (line.type === "prop_circles_nested") {
+          // Cercles SUPERPOSÉS style SIG :
+          // Le grand cercle en bas, les petits dessinés par-dessus, alignés par le bas.
+          // Tous partagent la même ligne de base et le même centre X.
+          const scale  = FONT / 10;
+          const maxR   = Math.max(4, Math.min(FONT * 2.2, line.maxR * scale));
+          const col    = bx + PAD + maxR;          // centre X commun
+          const base   = ly + maxR * 2 + PAD * 0.5; // ligne de base (bas du grand cercle)
+          const textX  = col + maxR + PAD * 1.5;
+
+          // Dessiner du plus grand au plus petit (ordre de rendu)
+          line.entries.forEach(({ r, label }) => {
+            const dr = Math.max(2, r * scale);
+            const cy = base - dr;  // centre Y = base - rayon → aligné par le bas
+
+            // Fond couleur opaque
+            ctx.fillStyle = line.color || "#888";
+            ctx.globalAlpha = 0.85;
+            ctx.beginPath();
+            ctx.arc(col, cy, dr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+
+            // Contour blanc pour séparer les cercles superposés
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth   = Math.max(1, scale * 0.6);
+            ctx.beginPath();
+            ctx.arc(col, cy, dr, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Trait de cote horizontal — part du bord droit du cercle
+            ctx.strokeStyle = "rgba(255,255,255,0.7)";
+            ctx.lineWidth   = Math.max(0.5, scale * 0.4);
+            ctx.setLineDash([Math.round(scale * 1.5), Math.round(scale * 1.5)]);
+            ctx.beginPath();
+            ctx.moveTo(col + dr, cy);
+            ctx.lineTo(textX - 2, cy);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Label
+            setShadow(ctx, SH);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = `${SMALL}px sans-serif`;
+            ctx.fillText(label, textX, cy + SMALL * 0.38);
+            clearShadow(ctx);
+          });
+
+          ly += maxR * 2 + PAD * 2;
+          return;
+
+        } else if (line.type === "prop_lines_nested") {
+          // Lignes empilées d'épaisseur croissante
+          const scale  = FONT / 12;
+          const lineLen = FONT * 2.5;
+          const lx     = bx + PAD * 1.2;
+
+          line.entries.forEach(({ w, label }, i) => {
+            const drawW = Math.max(0.5, Math.min(12, w * scale));
+            const rowY  = ly + i * (SMALL * 1.8);
+            setShadow(ctx, SH * 0.5);
+            ctx.strokeStyle = line.color || "#888";
+            ctx.lineWidth   = drawW;
+            ctx.lineCap     = "round";
+            ctx.beginPath();
+            ctx.moveTo(lx, rowY);
+            ctx.lineTo(lx + lineLen, rowY);
+            ctx.stroke();
+            clearShadow(ctx);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = `${SMALL}px sans-serif`;
+            ctx.fillText(label, lx + lineLen + 5, rowY + SMALL * 0.35);
+          });
+
+          ly += line.entries.length * (SMALL * 1.8) + PAD;
+          return;
         }
+
         ctx.font = `${FONT}px sans-serif`;
+        // prop_circles_nested et prop_lines_nested gèrent leur propre avancement via return
         ly += lineH;
       });
+
       clearShadow(ctx);
       ctx.restore();
     }
@@ -449,11 +558,11 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 16 }}>✕</button>
         </div>
 
-        {/* Prérequis 
+        {/* Prérequis */}
         <div style={{ fontSize: 9, color: C.dim, background: C.hover, border: `0.5px solid ${C.bdr}`, borderRadius: 5, padding: "3px 7px" }}>
           App.jsx → <code style={{ fontFamily: M, color: C.acc, fontSize: 9 }}>{"<Map preserveDrawingBuffer={true}>"}</code>
         </div>
-        */}
+
         {/* Titre */}
         <div>
           <div style={{ fontSize: 9, color: C.dim, marginBottom: 2, textTransform: "uppercase", letterSpacing: ".05em" }}>Titre</div>

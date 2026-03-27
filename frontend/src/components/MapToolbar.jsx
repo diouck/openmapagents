@@ -16,6 +16,9 @@ const TOOL_GROUPS = [
     { key: "route", label: "Itineraire", icon: "⤳" },
     { key: "isochrone", label: "Isochrone", icon: "◉" },
   ]},
+  { label: "Analyse", tools: [
+    { key: "spatial", label: "Analyse spatiale", icon: "📊" },
+  ]},
   { label: "Export", tools: [
     { key: "print",    label: "Impression PDF",               icon: "⎙" },
     { key: "database", label: "Base de données",              icon: "🗄" },

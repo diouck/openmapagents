@@ -92,6 +92,54 @@ export function buildClassification(layer, cfg) {
     return { type: "categorized", attribute, entries, expression: expr };
   }
 
+  // ── Symboles proportionnels (cercles) ────────────────────────
+  if (type === "proportional") {
+    const vals = getNumVals(layer, attribute);
+    if (!vals.length) return null;
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    const minSize = cfg.minSize ?? 3;
+    const maxSize = cfg.maxSize ?? 30;
+    // Expression MapLibre : interpolate linéaire entre minVal→minSize et maxVal→maxSize
+    const expr = [
+      "interpolate", ["linear"],
+      ["to-number", ["get", attribute], 0],
+      minVal, minSize,
+      maxVal, maxSize,
+    ];
+    return {
+      type: "proportional",
+      attribute,
+      minVal, maxVal, minSize, maxSize,
+      radiusExpression: expr,
+      // Pas d'expression couleur — la couleur de base reste
+      expression: null,
+    };
+  }
+
+  // ── Traits proportionnels (line-width) ────────────────────────
+  if (type === "proportional_line") {
+    const vals = getNumVals(layer, attribute);
+    if (!vals.length) return null;
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    const minSize = cfg.minSize ?? 1;
+    const maxSize = cfg.maxSize ?? 12;
+    const expr = [
+      "interpolate", ["linear"],
+      ["to-number", ["get", attribute], 0],
+      minVal, minSize,
+      maxVal, maxSize,
+    ];
+    return {
+      type: "proportional_line",
+      attribute,
+      minVal, maxVal, minSize, maxSize,
+      widthExpression: expr,
+      expression: null,
+    };
+  }
+
   if (type === "graduated") {
     const vals = getNumVals(layer, attribute);
     if (!vals.length) return null;
