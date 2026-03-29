@@ -5,6 +5,7 @@
 
 **Stack :** React 18 + Vite · FastAPI · DuckDB · LiteLLM · MapLibre GL · Turf.js · MCP Server · Google Earth Engine
 
+[![Voir la démo](./images/map.png)](https://openmapagents.geoafrica.fr/)
 ---
 
 ## Architecture réelle du projet
