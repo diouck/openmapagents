@@ -21,6 +21,20 @@ import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
 import { loadMakiIcon } from "./utils/makiLoader";
 
+
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+
+function useAnalytics() {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.gtag("config", "G-TV8HRDDDTN", {
+      page_path: location.pathname + location.search,
+    });
+  }, [location]);
+}
+
 // ─── Icônes SVG — cohérentes et sémantiques ──────────────────
 // Règle : une icône = une signification unique dans toute l'appli
 const Ic = ({ d, d2, size = 15, sw = 1.8 }) => (
