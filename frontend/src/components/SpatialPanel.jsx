@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { SPATIAL_OPS, SPATIAL_GROUPS, executeSpatialOp } from "../utils/spatial";
 import { getLayerAttrs } from "../utils/classification";
@@ -17,7 +17,7 @@ const GROUP_ICONS = {
 };
 
 export default function SpatialPanel({ layers, onAddLayer }) {
-  const C = getTheme();
+  const C = useThemeContext();
   const [opId,        setOpId]        = useState("intersection");
   const [layerAId,    setLayerAId]    = useState("");
   const [layerBId,    setLayerBId]    = useState("");

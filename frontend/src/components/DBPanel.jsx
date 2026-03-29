@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -28,7 +28,7 @@ const SQL_TEMPLATES = {
 
 // ── Composant champ de formulaire ─────────────────────────────
 function Field({ label, children }) {
-  const C = getTheme();
+  const C = useThemeContext();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
@@ -39,7 +39,7 @@ function Field({ label, children }) {
 
 // ── Composant badge statut ────────────────────────────────────
 function StatusBadge({ status, message }) {
-  const C = getTheme();
+  const C = useThemeContext();
   const colors = { ok: C.acc, error: C.red, testing: C.amb };
   const icons  = { ok: "✓", error: "✕", testing: "⏳" };
   const col = colors[status] || C.dim;
@@ -55,7 +55,7 @@ function StatusBadge({ status, message }) {
 }
 
 export default function DBPanel({ onAddLayer }) {
-  const C = getTheme();
+  const C = useThemeContext();
 
   // Connexion
   const [dbType,    setDbType]    = useState("postgresql");

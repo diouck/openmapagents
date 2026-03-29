@@ -9,7 +9,7 @@
  * Dépendance : npm install proj4
  */
 import { useState, useCallback, useRef } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 
 // ── Presets de services connus ────────────────────────────────
@@ -215,7 +215,7 @@ function buildWMTSUrl(url, layer, tileMatrixSet, format = "image/png") {
 
 // ── Composant champ ───────────────────────────────────────────
 function Field({ label, children }) {
-  const C = getTheme();
+  const C = useThemeContext();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
@@ -226,7 +226,7 @@ function Field({ label, children }) {
 
 // ── Composant principal ───────────────────────────────────────
 export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
-  const C = getTheme();
+  const C = useThemeContext();
 
   // Config service
   const [serviceType, setServiceType] = useState("wms");

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, createContext, useContext } from "react";
 
 export const THEMES = {
   dark: {
@@ -13,7 +13,19 @@ export const THEMES = {
   },
 };
 
-// Global mutable ref for components outside React tree
+// ── Context React — permet la propagation réactive du thème ───
+export const ThemeContext = createContext(THEMES.dark);
+
+/**
+ * Hook réactif à utiliser dans tous les sous-composants (panneaux, etc.)
+ * Se re-rend automatiquement quand le thème change.
+ * Remplace getTheme() qui est statique et ne déclenche pas de re-rendu.
+ */
+export function useThemeContext() {
+  return useContext(ThemeContext);
+}
+
+// Global mutable ref — fallback non-réactif pour code hors arbre React
 let _current = null;
 export function getTheme() {
   return _current || THEMES.dark;
@@ -35,3 +47,4 @@ export function useTheme() {
   useEffect(() => { _current = C; }, [C]);
   return { name, C, toggle };
 }
+

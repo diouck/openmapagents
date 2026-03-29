@@ -189,15 +189,23 @@ function AttrTable({ layers, onZoom }) {
 // ═══════ BOTTOM PANEL (main export) ═══════
 export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLayer }) {
   const C = getTheme();
+
+  // Couche sélectionnée pour Stats/Histo/Répartition
+  const visLayers = layers.filter(l => l.visible && !l.isRaster);
+  const [selLayerId, setSelLayerId] = useState(null);
   const [selNum, setSelNum] = useState("");
   const [selCat, setSelCat] = useState("");
-  const layer = layers.filter(l => l.visible)[0];
+
+  // Couche active : celle sélectionnée, ou la première visible
+  const layer = visLayers.find(l => l.id === selLayerId) || visLayers[0] || null;
+
   const attrs = useMemo(() => layer ? getLayerAttrs(layer) : { num: [], cat: [] }, [layer]);
 
+  // Réinitialiser attributs quand la couche change
   useEffect(() => {
-    if (attrs.num.length && !selNum) setSelNum(attrs.num[0]);
-    if (attrs.cat.length && !selCat) setSelCat(attrs.cat[0]);
-  }, [attrs]);
+    setSelNum(attrs.num[0] || "");
+    setSelCat(attrs.cat[0] || "");
+  }, [layer?.id, attrs.num[0], attrs.cat[0]]);
 
   const tabs = [
     { key: "table", label: "Table" },
@@ -206,9 +214,13 @@ export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLay
     { key: "pie", label: "Répartition" },
   ];
 
+  const showLayerSelect = activeTab && activeTab !== "table" && visLayers.length > 1;
+  const showAttrSelect  = activeTab && (activeTab === "histo" || activeTab === "pie");
+
   return (
     <div style={{ borderTop: `0.5px solid ${C.bdr}`, background: C.card }}>
-      <div style={{ display: "flex", alignItems: "center", padding: "0 10px", borderBottom: activeTab ? `0.5px solid ${C.bdr}` : "none", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "0 10px", borderBottom: activeTab ? `0.5px solid ${C.bdr}` : "none", flexShrink: 0, gap: 4, flexWrap: "wrap" }}>
+        {/* Onglets */}
         {tabs.map(t => (
           <button key={t.key} onClick={() => onTab(activeTab === t.key ? null : t.key)} style={{
             fontFamily: F, fontSize: 11, fontWeight: 500, padding: "7px 14px", border: "none", cursor: "pointer",
@@ -217,21 +229,52 @@ export default function BottomPanel({ layers, activeTab, onTab, onZoom, onAddLay
             borderBottom: activeTab === t.key ? `2px solid ${C.acc}` : "2px solid transparent",
           }}>{t.label}</button>
         ))}
-        {activeTab && (activeTab === "histo" || activeTab === "pie") && (
+
+        {/* Sélecteur de couche (Stats / Histo / Répartition) */}
+        {showLayerSelect && (
+          <select value={layer?.id || ""} onChange={e => setSelLayerId(e.target.value)}
+            style={{ fontFamily: F, fontSize: 10, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.acc}55`, outline: "none", marginLeft: 4 }}>
+            {visLayers.map(l => <option key={l.id} value={l.id}>{l.name} ({l.featureCount})</option>)}
+          </select>
+        )}
+
+        {/* Sélecteur d'attribut (Histo / Répartition) */}
+        {showAttrSelect && (
           <select value={activeTab === "histo" ? selNum : selCat}
             onChange={e => activeTab === "histo" ? setSelNum(e.target.value) : setSelCat(e.target.value)}
-            style={{ fontFamily: F, fontSize: 10, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", marginLeft: 8 }}>
+            style={{ fontFamily: F, fontSize: 10, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", marginLeft: 4 }}>
             {(activeTab === "histo" ? attrs.num : attrs.cat).map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         )}
-        {layers.length > 0 && <span style={{ fontSize: 10, color: C.dim, marginLeft: "auto", padding: "0 8px" }}>{layer?.featureCount || 0} features</span>}
+
+        {/* Compteur features */}
+        {layer && activeTab && activeTab !== "table" && (
+          <span style={{ fontSize: 10, color: C.dim, marginLeft: "auto", padding: "0 8px" }}>
+            {layer.featureCount} features · {attrs.num.length} num · {attrs.cat.length} cat
+          </span>
+        )}
       </div>
+
       {activeTab && (
         <div style={{ height: activeTab === "table" ? 220 : 150, overflowY: "auto", overflowX: "auto" }}>
-          {activeTab === "table" && <AttrTable layers={layers.filter(l => l.visible)} onZoom={onZoom} />}
-          {activeTab === "stats" && layer && <StatsWidget layer={layer} />}
-          {activeTab === "histo" && layer && selNum && <div style={{ padding: 10 }}><Histogram layer={layer} attribute={selNum} /></div>}
-          {activeTab === "pie" && layer && selCat && <div style={{ padding: 10 }}><Pie layer={layer} attribute={selCat} /></div>}
+          {activeTab === "table" && <AttrTable layers={visLayers} onZoom={onZoom} />}
+          {activeTab === "stats" && (
+            layer
+              ? <StatsWidget layer={layer} />
+              : <div style={{ padding: 10, fontSize: 11, color: C.dim }}>Aucune couche vectorielle visible</div>
+          )}
+          {activeTab === "histo" && layer && selNum && (
+            <div style={{ padding: 10 }}><Histogram layer={layer} attribute={selNum} /></div>
+          )}
+          {activeTab === "histo" && layer && !selNum && (
+            <div style={{ padding: 10, fontSize: 11, color: C.dim }}>Aucun attribut numérique dans cette couche</div>
+          )}
+          {activeTab === "pie" && layer && selCat && (
+            <div style={{ padding: 10 }}><Pie layer={layer} attribute={selCat} /></div>
+          )}
+          {activeTab === "pie" && layer && !selCat && (
+            <div style={{ padding: 10, fontSize: 11, color: C.dim }}>Aucun attribut catégoriel dans cette couche</div>
+          )}
         </div>
       )}
     </div>

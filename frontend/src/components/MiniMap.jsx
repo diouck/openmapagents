@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import maplibregl from "maplibre-gl";
 
 /**
@@ -7,7 +7,7 @@ import maplibregl from "maplibre-gl";
  * Renders a tiny MapLibre instance synced with the main map's center/zoom.
  */
 export default function MiniMap({ center, zoom, mapStyle }) {
-  const C = getTheme();
+  const C = useThemeContext();
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
