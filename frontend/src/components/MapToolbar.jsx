@@ -1,35 +1,40 @@
 import { useState } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 
 const TOOL_GROUPS = [
-  { label: "Selection", tools: [{ key: "pointer", label: "Selection", icon: "▷" }] },
+  { label: "Sélection", tools: [
+    { key: "pointer", label: "Sélection", icon: "▷" },
+  ]},
   { label: "Mesure", tools: [
-    { key: "measure_dist", label: "Distance", icon: "↔" },
-    { key: "measure_area", label: "Surface", icon: "⬡" },
+    { key: "measure_dist", label: "Distance",         icon: "↔" },
+    { key: "measure_area", label: "Surface",          icon: "⬡" },
   ]},
   { label: "Dessin", tools: [
-    { key: "buffer", label: "Buffer / zone tampon", icon: "◎" },
-    { key: "draw", label: "Dessiner polygone", icon: "✎" },
+    { key: "buffer", label: "Buffer / zone tampon",   icon: "◎" },
+    { key: "draw",   label: "Dessiner polygone",      icon: "✎" },
   ]},
   { label: "Routing", tools: [
-    { key: "route", label: "Itineraire", icon: "⤳" },
-    { key: "isochrone", label: "Isochrone", icon: "◉" },
+    { key: "route",     label: "Itinéraire",          icon: "⤳" },
+    { key: "isochrone", label: "Isochrone",           icon: "◉" },
   ]},
   { label: "Analyse", tools: [
-    { key: "spatial", label: "Analyse spatiale", icon: "📊" },
+    { key: "spatial",   label: "Analyse spatiale",    icon: "📊" },
+    { key: "gee",       label: "Google Earth Engine", icon: "🛰️" },
+  ]},
+  { label: "Données", tools: [
+    { key: "ogc",      label: "Services OGC (WMS/WFS/WMTS)", icon: "📡" },
+    { key: "database", label: "Base de données",             icon: "🗄" },
   ]},
   { label: "Export", tools: [
-    { key: "print",    label: "Impression PDF",               icon: "⎙" },
-    { key: "database", label: "Base de données",              icon: "🗄" },
-    { key: "ogc",      label: "Services OGC (WMS/WFS/WMTS)",  icon: "📡" },
+    { key: "print", label: "Impression PDF", icon: "⎙" },
   ]},
 ];
 
 const ALL_TOOLS = TOOL_GROUPS.flatMap(g => g.tools);
 
 export default function MapToolbar({ activeTool, onTool, measureResult, bufferRadius, onBufferRadius, routeProfile, onRouteProfile, isoTime, onIsoTime }) {
-  const C = getTheme();
+  const C = useThemeContext();
   const [open, setOpen] = useState(false);
   const activeDef = ALL_TOOLS.find(t => t.key === activeTool);
 

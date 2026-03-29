@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mapbox/maki": "^8.2.0",
     "@turf/turf": "^7.3.4",
     "d3": "^7.9.0",
     "html2canvas": "^1.4.1",

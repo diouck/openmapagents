@@ -1,19 +1,19 @@
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F } from "../config";
 
 export const Badge = ({ children, color }) => {
-  const C = getTheme();
+  const C = useThemeContext();
   const cl = color || C.acc;
   return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: cl + "20", color: cl, fontWeight: 500 }}>{children}</span>;
 };
 
 export const Spinner = () => {
-  const C = getTheme();
+  const C = useThemeContext();
   return <span style={{ display: "inline-block", width: 14, height: 14, border: `2px solid ${C.bdr}`, borderTop: `2px solid ${C.acc}`, borderRadius: "50%", animation: "spin .8s linear infinite" }} />;
 };
 
 export const Sel = ({ value, onChange, options, style: s = {} }) => {
-  const C = getTheme();
+  const C = useThemeContext();
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
       style={{ fontFamily: F, fontSize: 11, padding: "5px 8px", borderRadius: 6, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", cursor: "pointer", width: "100%", ...s }}>
@@ -25,12 +25,12 @@ export const Sel = ({ value, onChange, options, style: s = {} }) => {
 };
 
 export const Lbl = ({ children }) => {
-  const C = getTheme();
+  const C = useThemeContext();
   return <div style={{ fontSize: 10, color: C.dim, marginBottom: 3, textTransform: "uppercase", letterSpacing: ".05em" }}>{children}</div>;
 };
 
 export const Btn = ({ children, onClick, active, small, color, style: s = {} }) => {
-  const C = getTheme();
+  const C = useThemeContext();
   const cl = color || C.acc;
   return (
     <button onClick={onClick} style={{

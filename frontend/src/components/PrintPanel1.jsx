@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useThemeContext } from "../theme";
+import { useThemeStore } from "../theme";
 import { F, M } from "../config";
 
 // ── Helper : applique une ombre de texte forte pour lisibilité sans fond ──
@@ -474,7 +474,7 @@ async function buildPreviewCanvas(mapRef, layers, viewState, opts) {
 
 // ── Veil plein écran ────────────────────────────────────────────
 function PreviewVeil({ dataUrl, legendPos, onLegendPos, onClose, previewing }) {
-  const C = useThemeContext();
+  const C = useThemeStore();
   const corners = [
     { key: "top-left",     style: { top: 8,    left: 8    } },
     { key: "top-right",    style: { top: 8,    right: 44  } }, // décalé à gauche du ✕
@@ -517,10 +517,10 @@ function PreviewVeil({ dataUrl, legendPos, onLegendPos, onClose, previewing }) {
 
 // ── Composant principal ─────────────────────────────────────────
 export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
-  const C = useThemeContext();
+  const C = useThemeStore();
   const [title, setTitle]             = useState("Carte Overture Maps");
   const [subtitle, setSubtitle]       = useState("");
-  const [sources, setSources]         = useState("OpenMapAgents | OpenStreetMap | OpenFreeMap");
+  const [sources, setSources]         = useState("Overture Maps Foundation | OpenStreetMap | OpenFreeMap");
   const [showLegend, setShowLegend]   = useState(true);
   const [legendPos, setLegendPos]     = useState("bottom-left");
   const [showNorth, setShowNorth]     = useState(true);

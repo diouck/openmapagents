@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getTheme } from "../theme";
+import { useThemeContext } from "../theme";
 import { F } from "../config";
 
 /**
@@ -8,7 +8,7 @@ import { F } from "../config";
  * Shows waveform animation while listening.
  */
 export default function VoiceInput({ onResult, lang = "fr-FR" }) {
-  const C = getTheme();
+  const C = useThemeContext();
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [supported, setSupported] = useState(true);

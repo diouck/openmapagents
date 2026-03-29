@@ -92,6 +92,19 @@ export function buildClassification(layer, cfg) {
     return { type: "categorized", attribute, entries, expression: expr };
   }
 
+  // ── Icône / Emoji ────────────────────────────────────────────
+  if (type === "symbol") {
+    return {
+      type: "symbol",
+      symbolMode:  cfg.symbolMode  || "emoji",
+      emoji:       cfg.emoji       || "📍",
+      emojiSize:   cfg.emojiSize   || 20,
+      customImage: cfg.customImage || null,
+      imageSize:   cfg.imageSize   || 1,
+      expression:  null, // pas d'expression couleur
+    };
+  }
+
   // ── Symboles proportionnels (cercles) ────────────────────────
   if (type === "proportional") {
     const vals = getNumVals(layer, attribute);
