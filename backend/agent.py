@@ -18,9 +18,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from litellm import completion
 
+# 1. Imports en haut
+from resilience.llm_resilience import get_resilient_client, resilience_router
+from memory.session_memory import get_session_memory, memory_router
+
+from observability.metrics import metrics_router
+
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("overture-agent")
+
+# ─── Orchestrateur multi-agent (RAG → Router → Agent → Validation) ───────────
+try:
+    from orchestrator import get_orchestrator, orchestrate
+    ORCHESTRATOR_ENABLED = True
+    log.info("✓ Orchestrateur multi-agent activé")
+except ImportError as e:
+    ORCHESTRATOR_ENABLED = False
+    log.warning(f"Orchestrateur non disponible, mode legacy : {e}")
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIG — tout vient du .env
@@ -244,6 +260,91 @@ TOOLS = [
             },
         },
     },
+        {
+        "type": "function",
+        "function": {
+            "name": "thematic_analysis",
+            "description": (
+                "Apply a thematic cartographic analysis on an EXISTING layer already loaded on the map. "
+                "Use for: proportional symbols (graduated circles), choropleth maps, classification, "
+                "graduated colors, heatmaps, or any visual styling based on a numeric attribute of a layer. "
+                "ALWAYS use this tool (never GEE) when the user mentions an existing layer by name "
+                "(e.g. 'Africa_cities', 'couche X', 'la couche Y'). "
+                "No bbox required — the layer is already on the map."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "layer_name": {
+                        "type": "string",
+                        "description": "Exact name of the existing layer on the map (from map context)"
+                    },
+                    "analysis_type": {
+                        "type": "string",
+                        "enum": [
+                            "proportional_symbols",
+                            "choropleth",
+                            "classification",
+                            "graduated_colors",
+                            "heatmap"
+                        ],
+                        "description": (
+                            "Type of thematic analysis: "
+                            "'proportional_symbols' for graduated circles sized by a numeric field, "
+                            "'choropleth' for polygon fill color by value, "
+                            "'classification' for class-based coloring (jenks/quantile/equal), "
+                            "'graduated_colors' for continuous color ramp on points/lines, "
+                            "'heatmap' for density visualization."
+                        )
+                    },
+                    "attribute": {
+                        "type": "string",
+                        "description": "Name of the numeric attribute/field to map (e.g. 'population', 'pop', 'value')"
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": ["jenks", "quantile", "equal", "manual"],
+                        "description": "Classification method. Default: jenks"
+                    },
+                    "n_classes": {
+                        "type": "integer",
+                        "description": "Number of classes (3-7). Default: 5"
+                    },
+                    "color_ramp": {
+                        "type": "string",
+                        "enum": ["viridis", "spectral", "blues", "reds", "oranges", "greens", "purples", "diverging"],
+                        "description": "Color ramp. Default: viridis"
+                    },
+                    "min_radius": {
+                        "type": "number",
+                        "description": "Min circle radius in pixels for proportional_symbols. Default: 4"
+                    },
+                    "max_radius": {
+                        "type": "number",
+                        "description": "Max circle radius in pixels for proportional_symbols. Default: 30"
+                    },
+                },
+                "required": ["layer_name", "analysis_type", "attribute"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "world_bank_indicator",
+            "description": "Affiche un indicateur World Bank sur une carte choroplèthe mondiale (population, PIB, espérance de vie, CO2, chômage, forêt, électricité, alphabétisation...). Utiliser pour toute demande de données mondiales par pays.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "indicator": {"type": "string", "description": "Code WB: SP.POP.TOTL, NY.GDP.PCAP.CD, SP.DYN.LE00.IN, EN.ATM.CO2E.PC, AG.LND.FRST.ZS, EG.ELC.ACCS.ZS, SE.ADT.LITR.ZS, SH.DYN.MORT, SI.POV.GINI, SL.UEM.TOTL.ZS, SP.URB.TOTL.IN.ZS, EN.POP.DNST, NY.GDP.MKTP.CD, NY.GDP.MKTP.KD.ZG, SP.POP.GROW, SP.POP.65UP.TO.ZS, SH.XPD.CHEX.GD.ZS, SE.XPD.TOTL.GD.ZS, SH.STA.WASH.P5, AG.LND.ARBL.ZS"},
+                    "year": {"type": "integer", "description": "Année (ex: 2022). Omis = dernière année dispo."},
+                    "keyword": {"type": "string", "description": "Mot-clé si code inconnu (ex: 'mortalité')"},
+                },
+                "required": [],
+            },
+        },
+    },
+    
 ]
 
 SYSTEM_PROMPT = """Tu es un assistant cartographique expert en données Overture Maps.
@@ -288,6 +389,45 @@ BBOX VILLES (sans lieu précis):
   Nantes: xmin=-1.72, ymin=47.15, xmax=-1.42, ymax=47.32
   Paris: xmin=2.22, ymin=48.81, xmax=2.47, ymax=48.90
   Dakar: xmin=-17.55, ymin=14.63, xmax=-17.33, ymax=14.82
+
+CARTES THÉMATIQUES SUR COUCHES EXISTANTES — OBLIGATOIRE (thematic_analysis):
+Tu DOIS appeler thematic_analysis (JAMAIS GEE, JAMAIS query_overture) quand l'utilisateur
+mentionne UNE COUCHE DÉJÀ CHARGÉE par son nom ET demande une représentation visuelle.
+Pas besoin de bbox — la couche est déjà sur la carte.
+
+Exemples OBLIGATOIRES :
+- "carte de symboles proportionnels de la population de Africa_cities"
+  → thematic_analysis(layer_name="Africa_cities", analysis_type="proportional_symbols", attribute="population")
+- "carte choroplèthe par PIB sur la couche pays"
+  → thematic_analysis(layer_name="pays", analysis_type="choropleth", attribute="gdp")
+- "classifie la couche batiments par hauteur"
+  → thematic_analysis(layer_name="batiments", analysis_type="classification", attribute="height")
+- "heatmap de densité sur les points"
+  → thematic_analysis(layer_name="points", analysis_type="heatmap", attribute="value")
+- "symboles gradués par population" (couche visible dans le contexte carte)
+  → thematic_analysis(layer_name="<nom exact du contexte>", analysis_type="proportional_symbols", attribute="population")
+
+RÈGLE ABSOLUE : si le nom d'une couche existante est mentionné → thematic_analysis.
+JAMAIS de GEE/compute_* pour des données déjà chargées.
+
+DONNÉES MONDIALES — OBLIGATOIRE (world_bank_indicator):
+Tu DOIS appeler world_bank_indicator pour TOUTE question sur des données par pays.
+Ne JAMAIS répondre en texte sur ces sujets — appeler le tool DIRECTEMENT.
+
+Exemples OBLIGATOIRES :
+- "PIB par pays" → world_bank_indicator(indicator="NY.GDP.PCAP.CD")
+- "PIB mondial" → world_bank_indicator(indicator="NY.GDP.MKTP.CD")
+- "population mondiale" → world_bank_indicator(indicator="SP.POP.TOTL")
+- "espérance de vie" → world_bank_indicator(indicator="SP.DYN.LE00.IN")
+- "émissions CO2 par pays" → world_bank_indicator(indicator="EN.ATM.CO2E.PC")
+- "taux de chômage mondial" → world_bank_indicator(indicator="SL.UEM.TOTL.ZS")
+- "couverture forestière" → world_bank_indicator(indicator="AG.LND.FRST.ZS")
+- "accès électricité" → world_bank_indicator(indicator="EG.ELC.ACCS.ZS")
+- "alphabétisation" → world_bank_indicator(indicator="SE.ADT.LITR.ZS")
+- "mortalité infantile" → world_bank_indicator(indicator="SH.DYN.MORT")
+- "densité population" → world_bank_indicator(indicator="EN.POP.DNST")
+- "inégalités gini" → world_bank_indicator(indicator="SI.POV.GINI")
+Le résultat est un GeoJSON affiché directement sur la carte. Pas besoin de fly_to.
 
 RÈGLES: carte vide au départ, fly_to APRÈS query, français, concis."""
 
@@ -376,7 +516,7 @@ def execute_query_overture(args: dict, map_context: dict = None) -> dict:
     ptype = THEMES[theme]["types"][0]
     columns = THEMES[theme]["columns"]
     path = f"{S3_BASE}/theme={theme}/type={ptype}/*"
-    limit = args.get("limit", 500)
+    limit = min(args.get("limit", 2000), 5000)
 
     where = [
         f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
@@ -492,6 +632,39 @@ def execute_tool(name: str, args: dict, map_context: dict = None) -> dict:
             "time_minutes": args.get("time_minutes", 10),
             "profile": args.get("profile", "foot"),
         }
+
+    elif name == "thematic_analysis":
+        return {
+            "action": "thematic_analysis",
+            "layer_name":     args.get("layer_name"),
+            "analysis_type":  args.get("analysis_type", "proportional_symbols"),
+            "attribute":      args.get("attribute"),
+            "method":         args.get("method", "jenks"),
+            "n_classes":      args.get("n_classes", 5),
+            "color_ramp":     args.get("color_ramp", "viridis"),
+            "min_radius":     args.get("min_radius", 4),
+            "max_radius":     args.get("max_radius", 30),
+        }
+
+    elif name == "world_bank_indicator":
+        from worldbank.indicators import INDICATORS, find_indicator_by_keyword
+        from worldbank.fetcher import build_choropleth, fetch_latest_year
+
+        code    = args.get("indicator", "")
+        year    = args.get("year")
+        keyword = args.get("keyword")
+
+        if keyword and (not code or code not in INDICATORS):
+            code = find_indicator_by_keyword(keyword)
+        if not code or code not in INDICATORS:
+            code = "SP.POP.TOTL"
+
+        meta = INDICATORS[code]
+        if not year:
+            year, _ = fetch_latest_year(code)
+
+        return build_choropleth(code, year, meta["label_fr"], meta["unit"])
+  
     return {"error": f"Unknown tool: {name}"}
 
 
@@ -600,6 +773,12 @@ def call_llm(messages: list, map_context: dict = None) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.connect()
+    # Warmup orchestrateur : charge modele embedding + router au demarrage
+    if ORCHESTRATOR_ENABLED:
+        try:
+            get_orchestrator().warmup()
+        except Exception as e:
+            log.warning(f"Orchestrateur warmup ignore : {e}")
     yield
     db.close()
 
@@ -625,6 +804,67 @@ try:
 except Exception as e:
     log.warning(f"⚠ GEE router : {e}")
 
+try:
+    from gee_timelapse import router as tl_router
+    app.include_router(tl_router)
+    log.info("✓ Timelapse router chargé (/api/gee/timelapse)")
+except Exception as e:
+    log.warning(f"⚠ Timelapse router : {e}")
+
+
+try:
+    from elevation_routes import router as elev_router
+    app.include_router(elev_router)
+    log.info("✓ Elevation router chargé (/api/elevation/profile)")
+except Exception as e:
+    log.warning(f"⚠ Elevation router : {e}")
+
+
+try:
+    from gee_change_detection import router as change_router
+    app.include_router(change_router)
+    log.info("✓ Elevation router chargé (/api/gee/change-detection)")
+except Exception as e:
+    log.warning(f"⚠ change-detection : {e}")
+
+try:
+    from gee_classification import router as classif_router
+    app.include_router(classif_router)
+    log.info("✓ Classification router chargé (/api/gee/classify)")
+except Exception as e:
+    log.warning(f"⚠ gee-classification : {e}")
+
+try:
+    from worldbank.wb_routes import router as wb_router
+    app.include_router(wb_router)
+    log.info("✓ WorldBank router chargé (/api/worldbank/*)")
+except Exception as e:
+    log.warning(f"⚠ WorldBank router : {e}")
+
+try:
+    from auth.routes import router as auth_router
+    from maps.routes import router as maps_router
+    from auth.core   import init_db
+    app.include_router(auth_router)
+    app.include_router(maps_router)
+    init_db()
+    log.info("✓ Auth + Maps router chargés (/api/auth/*, /api/maps/*)")
+except Exception as e:
+    log.warning(f"⚠ Auth/Maps router : {e}")
+
+
+
+from osm_routes import router as osm_router
+app.include_router(osm_router)
+
+
+# 2. Routers
+app.include_router(resilience_router)
+app.include_router(memory_router)
+
+
+app.include_router(metrics_router)
+# Dans lifespan() : rien à faire, le logger s'initialise lazily
 
 class ChatRequest(BaseModel):
     messages: list  # [{role, content}, ...]
@@ -663,9 +903,90 @@ def get_config():
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    """Main chat endpoint — sends messages to LLM with tool calling."""
-    result = call_llm(req.messages, req.map_context)
+    """Main chat endpoint — orchestrateur multi-agent ou fallback legacy."""
+    if ORCHESTRATOR_ENABLED:
+        # Pipeline complet : RAG → Router → Sous-agent → Validation → GeoJSON
+        return orchestrate(req.messages, req.map_context)
+    # Fallback legacy (call_llm direct, si orchestrateur non disponible)
+    return call_llm(req.messages, req.map_context)
+
+  
+from fastapi import Header
+
+@app.post("/api/chat")
+def chat(req: ChatRequest, x_session_id: str = Header(None)):
+    sid  = x_session_id or (req.map_context or {}).get("session_id", "anon")
+
+    mem  = get_session_memory()
+    sess = mem.load(sid)
+    mem.update_from_map_context(sess, req.map_context)
+
+    if ORCHESTRATOR_ENABLED:
+        result = orchestrate(req.messages, req.map_context)
+    else:
+        result = call_llm(req.messages, req.map_context)
+
+    user_msg = next((m["content"] for m in reversed(req.messages)
+                     if m.get("role") == "user"), "")
+
+    mem.update_from_response(sess, result, user_msg)
+    mem.save(sess)
+
     return result
+
+
+@app.post("/api/debug/route")
+def debug_route(req: ChatRequest):
+    """Debug : inspecte le routing RAG + domaine sans executer les tools."""
+    if not ORCHESTRATOR_ENABLED:
+        return {"error": "Orchestrateur non disponible"}
+    from agents.router import classify
+    from rag.retriever import retrieve_tools
+    query = next(
+        (m["content"] for m in reversed(req.messages) if m.get("role") == "user"), ""
+    )
+    rag_tools    = retrieve_tools(query, top_k=5)
+    route_result = classify(query)
+    return {
+        "query":      query,
+        "rag_tools":  [{"id": t["id"], "score": round(t.get("score", 0), 3)} for t in rag_tools],
+        "domain":     route_result["domain"],
+        "confidence": route_result["confidence"],
+        "method":     route_result["method"],
+        "latency_ms": route_result.get("latency_ms", 0),
+    }
+
+
+@app.get("/api/debug/orchestrator")
+def debug_orchestrator():
+    """Statut de l orchestrateur et de ses composants."""
+    status = {
+        "orchestrator_enabled": ORCHESTRATOR_ENABLED,
+        "llm_provider":  LLM_PROVIDER,
+        "llm_model":     LLM_MODEL,
+        "enable_rag":    os.getenv("ENABLE_RAG", "true"),
+        "enable_multi":  os.getenv("ENABLE_MULTI_AGENT", "true"),
+    }
+    # pgvector
+    try:
+        from rag.retriever import _pool
+        conn = _pool.get()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT tool_id) FROM rag_tools")
+            total, tools = cur.fetchone()
+        status["pgvector"] = "ok"
+        status["rag_vectors"] = total
+        status["rag_tools"]   = tools
+    except Exception as e:
+        status["pgvector"] = f"indisponible : {e}"
+    # GEE
+    try:
+        import requests as _req
+        resp = _req.get("http://localhost:8000/api/gee/health", timeout=3)
+        status["gee"] = resp.json().get("status", "unknown")
+    except Exception:
+        status["gee"] = "indisponible"
+    return status
 
 
 @app.post("/api/query/{theme}")
@@ -697,6 +1018,82 @@ def export_data(req: ExportRequest):
             "xmax": req.bbox[2], "ymax": req.bbox[3], "limit": req.limit}
     return execute_query_overture(args)
 
+
+
+# ─── LLM Proxy pour AgriPanel et autres modules frontend ──────────────────────
+# Expose /api/llm/chat/completions compatible OpenAI
+# AgriPanel l'utilise directement (VITE_LITELLM_API_URL=/api/llm)
+from fastapi import Request as FARequest
+from fastapi.responses import JSONResponse, StreamingResponse
+import json as _json
+
+@app.post("/api/llm/chat/completions")
+async def llm_proxy_completions(request: FARequest):
+    """
+    Proxy LLM pour les modules frontend (AgriPanel, etc.).
+    Forward vers LiteLLM avec le modèle configuré.
+    Supporte streaming et non-streaming.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    messages = body.get("messages", [])
+    stream   = body.get("stream", False)
+    model    = body.get("model", LLM_MODEL)
+    # Forcer notre modèle configuré (ignorer celui du client)
+    model = LLM_MODEL
+
+    kwargs = {
+        "model":       model,
+        "messages":    messages,
+        "temperature": body.get("temperature", 0.3),
+        "max_tokens":  body.get("max_tokens", 1500),
+        "stream":      stream,
+    }
+    if LLM_PROVIDER == "ollama":
+        kwargs["api_base"] = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+
+    try:
+        if stream:
+            # Streaming SSE
+            def generate():
+                for chunk in completion(**kwargs):
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta and delta.content:
+                        data = _json.dumps({
+                            "choices": [{"delta": {"content": delta.content}, "finish_reason": None}]
+                        })
+                        yield f"data: {data}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(generate(), media_type="text/event-stream")
+        else:
+            resp = completion(**kwargs)
+            # Retourner format OpenAI standard
+            return {
+                "id":      resp.id,
+                "object":  "chat.completion",
+                "model":   model,
+                "choices": [{
+                    "index":         0,
+                    "message":       {"role": "assistant", "content": resp.choices[0].message.content},
+                    "finish_reason": resp.choices[0].finish_reason,
+                }],
+                "usage": dict(resp.usage) if resp.usage else {},
+            }
+    except Exception as e:
+        log.error(f"LLM proxy error: {e}")
+        return JSONResponse(
+            {"error": {"message": str(e), "type": "llm_error"}},
+            status_code=500
+        )
+
+
+@app.get("/api/llm/models")
+def llm_models():
+    """Liste les modèles disponibles (compatibilité OpenAI)."""
+    return {"data": [{"id": LLM_MODEL, "object": "model"}], "object": "list"}
 
 if __name__ == "__main__":
     import uvicorn

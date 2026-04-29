@@ -11,7 +11,12 @@ import { executeSpatialOp } from "./utils/spatial";
 import { computeRoute, computeIsochrone } from "./utils/routing";
 import Legend from "./components/Legend";
 import LayerPanel from "./components/LayerPanel";
-import ChatPanel from "./components/ChatPanel";
+import ChatPanel    from "./components/ChatPanel";
+import AuthModal    from "./components/AuthModal";
+import SaveMapModal from "./components/SaveMapModal";
+import Dashboard    from "./components/Dashboard";
+import { useAuth }  from "./useAuth";
+import TimelapseModal from "./components/TimelapseModal";
 import BottomPanel from "./components/BottomPanel";
 import MiniMap from "./components/MiniMap";
 import PrintPanel from "./components/PrintPanel";
@@ -19,10 +24,18 @@ import SpatialPanel from "./components/SpatialPanel";
 import DBPanel from "./components/DBPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
+import ProfilPanel from "./components/ProfilPanel";
+import EditorPanel from "./components/EditorPanel";
+import TimelapsePanel from "./components/TimelapsePanel";
+import ChangeDetectionPanel from "./components/ChangeDetectionPanel";
+import ComparatorPanel from "./components/ComparatorPanel";
+import OsmPanel from "./components/OsmPanel";
+import AgriPanel from "./components/AgriPanel";
+import ClassifSupPanel from "./components/ClassifSupPanel";
 import { loadMakiIcon } from "./utils/makiLoader";
 
 
-import { useEffect } from "react";
+ 
 import { useLocation } from "react-router-dom";
 
 function useAnalytics() {
@@ -64,10 +77,25 @@ const IcVenn      = () => <Ic d="M9 3a6 6 0 100 18A6 6 0 009 3zm6 0a6 6 0 100 18
 const IcDatabase  = () => <Ic d="M12 2C7 2 3 4 3 6v12c0 2 4 4 9 4s9-2 9-4V6c0-2-4-4-9-4z" d2="M3 6c0 2 4 4 9 4s9-2 9-4M3 12c0 2 4 4 9 4s9-2 9-4" />; // base de données
 const IcSatellite = () => <Ic d="M12 12m-1 0a1 1 0 102 0 1 1 0 10-2 0M4.5 4.5c4.5-4.5 11.5-4.5 16 0M7.5 7.5c3-3 7-3 9 0M15 12a3 3 0 11-6 0 3 3 0 016 0" />; // GEE / satellite
 const IcServer    = () => <Ic d="M2 6a2 2 0 012-2h16a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM2 14a2 2 0 012-2h16a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2z" />; // OGC / services web
+const IcMountain  = () => <Ic d="M8 3l4 8 5-5 5 15H2L8 3z" />; // Profil altimétrique
+const IcEdit      = () => <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z" />; // Éditeur vectoriel
+const IcFilm      = () => <Ic d="M15 10l-4 2.5L15 15V10zM2 8v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2H4a2 2 0 00-2 2z" />; // Timelapse
+const IcDiff      = () => <Ic d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10m0 0h10M9 13H5m0 0v6a2 2 0 002 2h10a2 2 0 002-2v-6M5 13H3" />; // Détection changement
+const IcCompare   = () => <Ic d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h4M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M12 3v18" />; // Comparateur A/B
+const IcOSM       = () => <Ic d="M12 2a10 10 0 100 20A10 10 0 0012 2zM2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />; // OpenStreetMap
+const IcLeaf = () => <Ic d="M6.5 20C4 20 2 18 2 15.5c0-3 2-5 5-7 1.5-1 3-2.5 4-4.5 1 2 2.5 3.5 4 4.5 3 2 5 4 5 7C20 18 18 20 15.5 20c-1.5 0-3-.7-3.5-2-.5 1.3-2 2-3.5 2z" />;//AgriPanel
+const IcClassif = () => (
+  <svg width={15} height={15} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="7"  cy="7"  r="2.5"/>
+    <circle cx="17" cy="17" r="2.5"/>
+    <path d="M14.5 5h4v4M5 19l14-14"/>
+  </svg>
+); // Classification supervisée
 // Actions
 const IcPrint     = () => <Ic d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z" />;
 const IcUpload    = () => <Ic d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />;
-const IcShare     = () => <Ic d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />;
+const IcShare     = () => <Ic d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />;
 const IcSun       = () => <Ic d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 6a6 6 0 100 12A6 6 0 0012 6z" />;
 const IcMoon      = () => <Ic d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />;
 const IcChat      = () => <Ic d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />;
@@ -77,47 +105,75 @@ const IcX         = () => <Ic d="M18 6L6 18M6 6l12 12" />;
 const RAIL_GROUPS = [
   {
     id: "nav",
-    items: [{ id: "pointer", label: "Sélection", Icon: IcArrow, hasPanel: false }],
+    label: null,
+    items: [
+      { id: "pointer",  sub: "Sélect.", label: "Sélection", Icon: IcArrow, hasPanel: false },
+    ],
   },
   {
     id: "measure",
+    label: "Mesure",
     items: [
-      { id: "measure_dist", label: "Mesure distance",  Icon: IcRulerTool, hasPanel: false },
-      { id: "measure_area", label: "Mesure surface",   Icon: IcHexagon,   hasPanel: false },
-      { id: "buffer",       label: "Zone tampon",      Icon: IcCircleDot, hasPanel: false },
-      { id: "draw",         label: "Dessin libre",     Icon: IcPencil,    hasPanel: false },
+      { id: "measure_dist", sub: "Distance", label: "Mesure distance", Icon: IcRulerTool, hasPanel: false },
+      { id: "measure_area", sub: "Surface",  label: "Mesure surface",  Icon: IcHexagon,   hasPanel: false },
+      { id: "buffer",       sub: "Tampon",   label: "Zone tampon",     Icon: IcCircleDot, hasPanel: false },
+      { id: "draw",         sub: "Dessin",   label: "Dessin libre",    Icon: IcPencil,    hasPanel: false },
     ],
   },
   {
     id: "routing",
+    label: "Routage",
     items: [
-      { id: "route",     label: "Itinéraire", Icon: IcNavigation, hasPanel: true },
-      { id: "isochrone", label: "Isochrone",  Icon: IcRadar,      hasPanel: true },
+      { id: "route",     sub: "Itinér.",  label: "Itinéraire", Icon: IcNavigation, hasPanel: true },
+      { id: "isochrone", sub: "Iso.",     label: "Isochrone",  Icon: IcRadar,      hasPanel: true },
     ],
   },
   {
-    id: "view",
+    id: "layers",
+    label: "Couches",
     items: [
-      { id: "layers", label: "Couches",       Icon: IcStack,   hasPanel: true },
-      { id: "stats",  label: "Statistiques",  Icon: IcBarChart, hasPanel: true },
-      { id: "export", label: "Export",        Icon: IcArrowDown, hasPanel: true },
+      { id: "layers",  sub: "Gérer",   label: "Gestionnaire",  Icon: IcStack,    hasPanel: true },
+      { id: "stats",   sub: "Stats",   label: "Statistiques",  Icon: IcBarChart, hasPanel: true },
+      { id: "compare", sub: "Compar.", label: "Comparateur A/B", Icon: IcCompare,  hasPanel: true },
     ],
   },
   {
-    id: "data",
+    id: "analysis",
+    label: "Analyse",
     items: [
-      { id: "spatial",  label: "Analyse spatiale", Icon: IcVenn,      hasPanel: true },
-      { id: "database", label: "Base de données",  Icon: IcDatabase,  hasPanel: true },
-      { id: "gee",      label: "Google Earth Eng", Icon: IcSatellite, hasPanel: true },
-      { id: "ogc",      label: "Services OGC",     Icon: IcServer,    hasPanel: true },
+      { id: "spatial",  sub: "Spatial",  label: "Analyse spatiale",          Icon: IcVenn,     hasPanel: true },
+      { id: "profil",   sub: "Profil",   label: "Profil altimétrique",       Icon: IcMountain, hasPanel: true },
+      { id: "classif",  sub: "Classif.", label: "Classification supervisée", Icon: IcClassif,  hasPanel: true },
     ],
   },
   {
-    id: "misc",
+    id: "remote",
+    label: "Données",
     items: [
-      { id: "print", label: "Exporter carte", Icon: IcPrint, hasPanel: false },
+      { id: "database",  sub: "BDD",       label: "Base de données",      Icon: IcDatabase,  hasPanel: true },
+      { id: "ogc",       sub: "OGC",       label: "Services OGC/WMS",     Icon: IcServer,    hasPanel: true },
+      { id: "osm",       sub: "OSM",       label: "Import OSM",           Icon: IcOSM,       hasPanel: true },
+      { id: "gee",       sub: "GEE",       label: "Google Earth Engine",  Icon: IcSatellite, hasPanel: true },
+      { id: "timelapse", sub: "Timelapse", label: "Timelapse GEE",        Icon: IcFilm,      hasPanel: true },
+      { id: "change",    sub: "Diff",      label: "Détection changement", Icon: IcDiff,      hasPanel: true },
     ],
   },
+
+  {
+    id: "agri",
+    label: "Agri",
+    items: [
+      { id: "agri", sub: "Précision", label: "Agriculture de précision", Icon: IcLeaf, hasPanel: true },
+    ],
+  },
+  {
+    id: "edit",
+    label: "Édition",
+    items: [
+      { id: "editor", sub: "Éditeur", label: "Éditeur vectoriel", Icon: IcEdit, hasPanel: true },
+    ],
+  },
+
 ];
 
 const ALL_ITEMS = RAIL_GROUPS.flatMap(g => g.items);
@@ -381,6 +437,7 @@ const PANEL_SIZES = {
   database:  { w: 380, h: 480 },
   gee:       { w: 360, h: 500 },
   ogc:       { w: 360, h: 480 },
+  agri:      { w: 440, h: 640 },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -525,11 +582,35 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// ── Wrapper Stats — gère l'état activeTab localement ─────────
+function StatsPanelWrapper({ layers, onZoom, onAddLayer }) {
+  const [activeTab, setActiveTab] = useState("stats");
+  const visLayers = layers.filter(l => l.visible && !l.isRaster);
+  return (
+    <BottomPanel
+      layers={visLayers}
+      activeTab={activeTab}
+      onTab={tab => setActiveTab(tab === activeTab ? activeTab : tab)}
+      onZoom={onZoom}
+      onAddLayer={onAddLayer}
+    />
+  );
+}
+
 export default function App() {
   const { name: themeName, C, toggle: toggleTheme } = useTheme();
 
   // ── Map ───────────────────────────────────────────────────
   const [layers, setLayers] = useState([]);
+  const [notification, setNotification] = useState(null); // {message, type}
+  const [showAuth,   setShowAuth]   = useState(false);
+  const [showSave,   setShowSave]   = useState(false);
+  const [showDash,   setShowDash]   = useState(false);
+  const [currentMap, setCurrentMap] = useState(null);
+  const [saveThumb,      setSaveThumb]     = useState("");
+  const [pendingRestore, setPendingRestore] = useState(null); // viewport à restaurer après re-render
+  const { user } = useAuth();
+  const [timelapse,     setTimelapse]     = useState(null); // données timelapse pour modale
   const [mapSt,  setMapSt]  = useState("positron");
   const [vs,     setVs]     = useState({ longitude: -1.55, latitude: 47.22, zoom: 12, pitch: 0, bearing: 0 });
   const [popup,  setPopup]  = useState(null);
@@ -538,6 +619,7 @@ export default function App() {
   const [activeTool,   setActiveTool]   = useState("pointer");
   const [sidebarOpen,  setSidebarOpen]  = useState(false); // conservé pour compat (tools sans panel)
   const [openPanels,   setOpenPanels]   = useState(new Set()); // ids des panneaux ouverts
+  const [openGroup,    setOpenGroup]    = useState(() => new Set(RAIL_GROUPS.filter(g => g.label).map(g => g.id))); // tous les groupes ouverts par défaut
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEF);
   const sbResizing  = useRef(false);
   const sbStartX    = useRef(0);
@@ -556,6 +638,9 @@ export default function App() {
   const [bufferLayer,  setBufferLayer]  = useState(null);
   const [drawPts,      setDrawPts]      = useState([]);
   const [bufferRadius, setBufferRadius] = useState(500);
+  const [drawProfilPts, setDrawProfilPts] = useState([]); // points tracés pour le profil altimétrique
+  const [profilSlopeLayer, setProfilSlopeLayer] = useState(null); // couche colorée par pente
+  const [profilDrawMode, setProfilDrawMode] = useState(null); // "polyline" | "twopoints" | null
 
   // ── Routing ───────────────────────────────────────────────
   const [routeProfile, setRouteProfile] = useState("foot");
@@ -574,9 +659,10 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
 
   // ── Refs ──────────────────────────────────────────────────
-  const mapRef  = useRef(null);
-  const fileRef = useRef(null);
-  const lctr    = useRef(0);
+  const mapRef           = useRef(null);
+  const fileRef          = useRef(null);
+  const lctr             = useRef(0);
+  const classifClickRef  = useRef(null);  // handler de clic pour ClassifSupPanel
 
   // ── Changement de style carte via API MapLibre ────────────
   useEffect(() => {
@@ -585,6 +671,49 @@ export default function App() {
     const style = MAP_STYLES[mapSt];
     try { map.setStyle(style); } catch (_) {}
   }, [mapSt]);
+
+  // ── Restauration viewport différée (après fermeture Dashboard) ────
+  useEffect(() => {
+    if (!pendingRestore) return;
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+
+    const { features, viewport, mapStyle: style } = pendingRestore;
+
+    const doZoom = () => {
+      if (features?.length) {
+        // Priorité : emprise réelle des données
+        const b = computeBounds(features);
+        if (b) {
+          map.fitBounds(b, {
+            padding:  { top:60, bottom:60, left:70, right:70 },
+            maxZoom:  17,
+            duration: 1000,
+          });
+          return;
+        }
+      }
+      // Fallback : viewport sauvegardé
+      if (viewport?.longitude != null) {
+        map.flyTo({
+          center:   [viewport.longitude, viewport.latitude],
+          zoom:     viewport.zoom    ?? 12,
+          pitch:    viewport.pitch   ?? 0,
+          bearing:  viewport.bearing ?? 0,
+          duration: 1000,
+        });
+      }
+    };
+
+    if (style && style !== mapSt) {
+      try { map.setStyle(style); } catch {}
+      map.once("styledata", doZoom);
+    } else {
+      // Petit délai pour laisser les couches se monter dans le DOM React
+      setTimeout(doZoom, 200);
+    }
+    setPendingRestore(null);
+  }, [pendingRestore, mapSt]);
 
   // ── Mobile ────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -646,7 +775,20 @@ export default function App() {
 
   const closePanel = useCallback((id) => {
     setOpenPanels(prev => { const next = new Set(prev); next.delete(id); return next; });
-  }, []);
+    // Fermeture du panel profil → nettoyer le tracé carte
+    if (id === "profil") {
+      setDrawProfilPts([]);
+      setProfilDrawMode(null);
+      // Nettoyer le curseur GEE s'il reste
+      try {
+        const map = mapRef.current?.getMap?.();
+        if (map) {
+          if (map.getLayer("profil-cursor-layer")) map.removeLayer("profil-cursor-layer");
+          if (map.getSource("profil-cursor"))      map.removeSource("profil-cursor");
+        }
+      } catch(_) {}
+    }
+  }, [mapRef]);
 
   // ── Helpers couches ───────────────────────────────────────
   const moveLayerUp   = id => setLayers(p => { const i = p.findIndex(l => l.id === id); if (i <= 0) return p; const n = [...p]; [n[i-1], n[i]] = [n[i], n[i-1]]; return n; });
@@ -699,13 +841,54 @@ export default function App() {
 
   const mapCtx = useMemo(() => ({
     layers: layers.map(l => {
-      const feats = l.geojson?.features || [];
+      const feats    = l.geojson?.features || [];
       const geomTypes = [...new Set(feats.map(f => f.geometry?.type).filter(Boolean))];
-      const b = computeBounds(feats);
+      const b    = computeBounds(feats);
       const bbox = l.geojson?.metadata?.bbox || (b ? [b[0][0],b[0][1],b[1][0],b[1][1]] : null);
-      return { id:l.id, name:l.name, featureCount:l.featureCount, visible:l.visible, theme:l.theme, geomTypes, bbox };
+
+      // Attributs complets (numériques + string) pour le LLM
+      const firstFeat  = feats[0];
+      const allAttrs   = firstFeat
+        ? Object.entries(firstFeat.properties || {}).map(([k, v]) => ({
+            name:   k,
+            type:   typeof v === "number" ? "number" : typeof v === "string" ? "string" : "other",
+            sample: typeof v === "number" ? v : String(v).slice(0, 30),
+          }))
+        : [];
+      const numericAttrs  = allAttrs.filter(a => a.type === "number").map(a => a.name);
+      const stringAttrs   = allAttrs.filter(a => a.type === "string").map(a => a.name);
+      const classCfg      = l.classCfg || null;
+
+      return {
+        id:           l.id,
+        name:         l.name,
+        featureCount: l.featureCount,
+        visible:      l.visible,
+        theme:        l.theme,
+        geomTypes,
+        bbox,
+        // Attributs disponibles pour le stylage
+        numeric_attributes: numericAttrs,
+        string_attributes:  stringAttrs,
+        all_attributes:     allAttrs,
+        // Style actuel
+        current_style: {
+          color:     l.color,
+          opacity:   l.opacity,
+          classCfg:  classCfg ? { type: classCfg.type, attribute: classCfg.attribute, ramp: classCfg.ramp } : null,
+        },
+      };
     }),
-    center: [vs.longitude, vs.latitude], zoom: vs.zoom,
+    center: [vs.longitude, vs.latitude],
+    zoom:   vs.zoom,
+    bbox:   (() => {
+      const map = mapRef.current?.getMap?.();
+      if (!map) return null;
+      try {
+        const b = map.getBounds();
+        return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+      } catch { return null; }
+    })(),
   }), [layers, vs]);
 
   const fitFeatures = useCallback((feats) => {
@@ -717,28 +900,200 @@ export default function App() {
     }), 100);
   }, [sidebarOpen, sidebarWidth, chatOpen, chatWidth]);
 
+  // ── detectBestClassification — choisit la meilleure classification auto ──
+  const detectBestClassification = useCallback((geojson, name) => {
+    const feats = geojson?.features || [];
+    if (!feats.length) return null;
+    const props = feats[0]?.properties || {};
+    // Chercher un attribut numérique pertinent
+    const numAttrs = Object.entries(props)
+      .filter(([k, v]) => typeof v === "number" && isFinite(v))
+      .map(([k]) => k);
+    if (!numAttrs.length) return null;
+
+    // Priorité : attribut qui ressemble à une population / valeur
+    const preferred = numAttrs.find(k =>
+      /pop|popu|population|value|val|area|surface|count|nb|nombre|hab|density|income|gdp|pib/i.test(k)
+    ) || numAttrs[0];
+
+    // Choisir le type selon la géométrie
+    const geomType = feats[0]?.geometry?.type || "";
+    const isPoint  = geomType === "Point" || geomType === "MultiPoint";
+    const isPoly   = geomType === "Polygon" || geomType === "MultiPolygon";
+
+    if (isPoint && feats.length > 1) {
+      return { type: "proportional", attribute: preferred, method: "quantile", nClasses: 5, ramp: "viridis" };
+    } else if (isPoly) {
+      return { type: "graduated",   attribute: preferred, method: "quantile", nClasses: 5, ramp: "viridis" };
+    }
+    return null;
+  }, []);
+
   const addLayer = useCallback((geojson, name, theme = "data") => {
+    const ci  = lctr.current % LAYER_COLORS.length;
+    const lid = `layer_${Date.now()}_${lctr.current++}`;
+    const _THEME_COLORS = { isochrone:"#4A90E2", route:"#E74C3C", analysis:"#27AE60", world_data:"#8E44AD" };
+    const layerColor   = _THEME_COLORS[theme] || LAYER_COLORS[ci];
+    const layerOpacity = theme === "isochrone" ? 0.35 : 0.8;
+    const layer = {
+      id:lid, name, theme, geojson, visible:true,
+      color:layerColor, opacity:layerOpacity, radius:6,
+      featureCount: geojson.features?.length || 0,
+      classCfg:null, classResult:null,
+      heatmap:false, extrude:false, extrudeAttr:"", extrudeScale:1,
+      cluster:false, labels:false, labelAttr:"name",
+    };
+    setLayers(p => [...p, layer]);
+    if (geojson.features?.length) fitFeatures(geojson.features);
+
+    // Auto-classification si attributs numériques détectés
+    const autoCfg = detectBestClassification(geojson, name);
+    if (autoCfg) {
+      setTimeout(() => {
+        const cr = buildClassification({ ...layer, geojson }, autoCfg);
+        if (cr?.classes?.length || cr?.entries?.length) {
+          setLayers(p => p.map(l => l.id === lid ? { ...l, classCfg: autoCfg, classResult: cr } : l));
+        }
+      }, 200);
+    }
+  }, [fitFeatures, detectBestClassification]);
+
+  // addLayerSilent — comme addLayer mais sans fitFeatures (pour restauration)
+  const addLayerSilent = useCallback((geojson, name, theme = "data", overrides = {}) => {
     const ci = lctr.current % LAYER_COLORS.length;
     const lid = `layer_${Date.now()}_${lctr.current++}`;
-    setLayers(p => [...p, { id:lid, name, theme, geojson, visible:true, color:LAYER_COLORS[ci], opacity:0.8, radius:6, featureCount:geojson.features?.length||0, classCfg:null, classResult:null, heatmap:false, extrude:false, extrudeAttr:"", extrudeScale:1, cluster:false, labels:false, labelAttr:"name" }]);
-    if (geojson.features?.length) fitFeatures(geojson.features);
-  }, [fitFeatures]);
+    setLayers(p => [...p, {
+      id:lid, name, theme, geojson, visible:true,
+      color: overrides.color || LAYER_COLORS[ci],
+      opacity: overrides.opacity ?? 0.8,
+      radius: overrides.radius ?? 6,
+      featureCount: geojson.features?.length || 0,
+      classCfg: overrides.classCfg || null,
+      classResult: null,
+      heatmap:false, extrude:false, extrudeAttr:"", extrudeScale:1,
+      cluster:false, labels:false, labelAttr:"name",
+    }]);
+  }, []);
 
   const layersRef = useRef(layers);
   useEffect(() => { layersRef.current = layers; }, [layers]);
 
-  const clipToPolygonLayer = useCallback((gj, polyLayer) => {
-    const polys = (polyLayer.geojson?.features || []).filter(f => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon");
+  // ── Précharger les icônes Maki + forcer re-render quand prêtes ──
+  const [makiTick, setMakiTick] = useState(0);
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+    const tryLoad = () => {
+      let loaded = 0;
+      layersRef.current.forEach(l => {
+        const cr = l.classResult;
+        if (cr?.type === "symbol" && cr.symbolMode === "maki" && cr.makiName) {
+          const id = loadMakiIcon(map, cr.makiName, cr.makiColor || "#ffffff", parseInt(cr.makiSize) || 30);
+          if (id && map.hasImage(id)) loaded++;
+        }
+      });
+      if (loaded > 0) setMakiTick(t => t + 1);
+    };
+    if (map.isStyleLoaded()) tryLoad();
+    else map.once("styledata", tryLoad);
+  }, [layers]);
+  // ── Précharger les icônes Maki quand les couches changent ────
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.();
+    if (!map || !map.isStyleLoaded()) return;
+    layers.forEach(l => {
+      const cr = l.classResult;
+      if (cr?.type === "symbol" && cr.symbolMode === "maki" && cr.makiName) {
+        loadMakiIcon(map, cr.makiName, cr.makiColor || "#ffffff", cr.makiSize || 30);
+      }
+    });
+  }, [layers]);
+  
+  // ── Synchronisation ordre MapLibre ↔ state layers ──────────
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.();
+    if (!map || !map.isStyleLoaded()) return;
+    const orderedIds = [];
+    layers.forEach(l => {
+      if (l.isRaster) {
+        if (l.theme === "vector") orderedIds.push(`${l.id}-fill`, `${l.id}-line`, `${l.id}-circle`);
+        else orderedIds.push(`${l.id}-layer`);
+      } else if (l.heatmap)  { orderedIds.push(`${l.id}-heat`); }
+      else if (l.extrude)    { orderedIds.push(`${l.id}-extrude`); if (l.labels) orderedIds.push(`${l.id}-3dlabel`); }
+      else if (l.cluster)    { orderedIds.push(`${l.id}-clusters`, `${l.id}-cluster-count`, `${l.id}-unclustered`); }
+      else {
+        orderedIds.push(`${l.id}-fill`, `${l.id}-outline`, `${l.id}-road`, `${l.id}-circle`);
+        if (l.labels) orderedIds.push(`${l.id}-label`);
+        if (l.classResult?.type === "symbol") orderedIds.push(`${l.id}-icon`, `${l.id}-sym`, `${l.id}-sym-fb`);
+      }
+    });
+    const existingIds = orderedIds.filter(id => map.getLayer(id));
+    for (let i = 0; i < existingIds.length; i++) {
+      try { map.moveLayer(existingIds[i], existingIds[i + 1]); } catch (_) {}
+    }
+  }, [layers]);
+
+  const clipToPolygonLayer = useCallback((gj, polyLayer, bufferM = 0) => {
+    const features = polyLayer.geojson?.features || [];
+    if (!features.length) return gj;
+
+    // ── Construire les masques selon le type de géométrie ──
+    let polys = [];
+
+    const polygonFeatures = features.filter(f =>
+      f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon"
+    );
+    const lineFeatures = features.filter(f =>
+      f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString"
+    );
+
+    if (polygonFeatures.length > 0) {
+      // ── CAS 1 : Isochrone / polygone ──────────────────────
+      // Tester chaque feature contre TOUS les polygones (OR logique)
+      // Gère les isochrones concentriques (5min + 10min)
+      polys = polygonFeatures;
+
+    } else if (lineFeatures.length > 0 && bufferM > 0) {
+      // ── CAS 2 : Itinéraire + buffer demandé ───────────────
+      try {
+        polys = lineFeatures
+          .map(f => turf.buffer(f, bufferM / 1000, { units: "kilometers" }))
+          .filter(Boolean);
+      } catch (e) {
+        console.warn("[clip] buffer LineString échoué:", e);
+        polys = [];
+      }
+
+    } else if (lineFeatures.length > 0 && bufferM === 0) {
+      // ── CAS 3 : Itinéraire sans buffer → demander distance ─
+      // Ne pas clipper — l'orchestrateur aurait dû demander la distance
+      console.warn("[clip] LineString sans buffer_m → clip ignoré");
+      return gj;
+    }
+
     if (!polys.length) return gj;
-    const mask = polys[0];
+
+    // ── Appliquer le clip (OR logique sur tous les masques) ──
     const clipped = (gj.features || []).filter(f => {
       try {
-        if (f.geometry?.type === "Point") return turf.booleanPointInPolygon(f, mask);
-        if (f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon") return !!turf.intersect(turf.featureCollection([f, mask]));
+        if (f.geometry?.type === "Point") {
+          return polys.some(poly => turf.booleanPointInPolygon(f, poly));
+        }
+        if (f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon") {
+          return polys.some(poly => {
+            try { return !!turf.intersect(turf.featureCollection([f, poly])); }
+            catch { return false; }
+          });
+        }
         return true;
       } catch { return false; }
     });
-    return { ...gj, features: clipped, metadata: { ...gj.metadata, clipped: true, clip_layer: polyLayer.name } };
+
+    return {
+      ...gj,
+      features: clipped,
+      metadata: { ...gj.metadata, clipped: true, clip_layer: polyLayer.name }
+    };
   }, []);
 
   const handleToolResult = useCallback((action) => {
@@ -746,50 +1101,380 @@ export default function App() {
       let gj = action.data;
       const params = gj.metadata?.query_params || {};
       const theme = gj.metadata?.theme || "data";
-      const cur = layersRef.current;
-      const polyL = cur.find(l => l.visible && (l.geojson?.features||[]).some(f => f.geometry?.type==="Polygon"||f.geometry?.type==="MultiPolygon"));
-      const hasPoints = gj.features?.some(f => f.geometry?.type === "Point");
-      if (polyL && hasPoints) {
-        const pb = turf.bbox(polyL.geojson);
-        const qb = gj.metadata?.bbox;
-        const ok = qb && qb[0]<=pb[0] && qb[1]<=pb[1] && qb[2]>=pb[2] && qb[3]>=pb[3];
-        if (!ok) {
-          const pad = 0.005;
-          fetch(`${API}/query?theme=${params.theme||theme}&xmin=${pb[0]-pad}&ymin=${pb[1]-pad}&xmax=${pb[2]+pad}&ymax=${pb[3]+pad}&limit=1000${params.category?`&category=${params.category}`:""}`)
-            .then(r=>r.json()).then(fg => { addLayer(clipToPolygonLayer(fg.features?.length?fg:gj, polyL), params.category?`${params.category} (clipped)`:`${theme} (clipped)`, theme); })
-            .catch(() => addLayer(clipToPolygonLayer(gj, polyL), params.category?`${params.category} (${theme})`:theme, theme));
+
+      // ── World Bank : classification automatique ───────────────────────────
+      if (theme === "world_data" && gj.metadata?.indicator) {
+        // Validation : erreur API ou pas de correspondance
+        if (gj.metadata?.error) {
+          const msg = gj.metadata.message || "Erreur World Bank";
+          setNotification({ message: `⚠️ ${msg}`, msgType: "warning" });
+          setTimeout(() => setNotification(null), 8000);
           return;
         }
-        gj = clipToPolygonLayer(gj, polyL);
+        // Validation : 0 features retournées
+        if (!gj.features?.length) {
+          setNotification({ message: "⚠️ Aucune donnée disponible pour cet indicateur.", msgType: "warning" });
+          setTimeout(() => setNotification(null), 6000);
+          return;
+        }
+        const label     = gj.metadata.label || gj.metadata.indicator;
+        const unit      = gj.metadata.unit  || "";
+        const matched   = gj.metadata.matched || gj.features.length;
+        const layerName = `${label} (${gj.metadata.year || ""})`;
+        addLayer(gj, layerName, "world_data");
+        // Zoom monde
+        mapRef.current?.getMap?.()?.flyTo({ center: [0, 20], zoom: 2, duration: 1500 });
+        // Notification avec stats
+        setNotification({
+          message: `✅ ${label} — ${matched} pays avec données`,
+          msgType: "info"
+        });
+        setTimeout(() => setNotification(null), 5000);
+        setTimeout(() => {
+          const l = layersRef.current.find(x => x.name === layerName);
+          if (l) {
+            const cfg = { type: "graduated", attribute: "value",
+                          method: "quantile", nClasses: 5, ramp: "viridis" };
+            const cr = buildClassification(l, cfg);
+            if (cr?.classes?.length) {
+              setLayers(p => p.map(x => x.id === l.id ? { ...x, classCfg: cfg, classResult: cr } : x));
+            }
+          }
+        }, 400);
+        return;
       }
-      addLayer(gj, params.category ? `${params.category} (${theme})` : theme, theme);
+      const cur = layersRef.current;
+      // Chercher la couche de clip : par metadata.clip_to_layer d'abord,
+      // sinon la couche isochrone/polygone visible la plus récente
+      const clipName = action.data?.metadata?.clip_to_layer || params.clip_to_layer;
+
+      const isValidIsoLayer = (l) =>
+        l.visible &&
+        l.name &&
+        !l.name.includes(" — ") &&
+        !l.name.includes(" - ") &&
+        (
+          // Isochrone (polygones)
+          l.theme === "isochrone" ||
+          l.name.toLowerCase().includes("sochrone") ||
+          // Itinéraire (lignes — utilisable avec buffer)
+          l.theme === "route" ||
+          l.name.toLowerCase().includes("itin")
+        ) &&
+        (l.geojson?.features || []).some(f =>
+          f.geometry?.type === "Polygon" ||
+          f.geometry?.type === "MultiPolygon" ||
+          f.geometry?.type === "LineString" ||
+          f.geometry?.type === "MultiLineString"
+        );
+
+      let polyL = [...cur].reverse().find(l => isValidIsoLayer(l)) || null;
+
+      console.log("[clip] clipName=", clipName, "→ polyL=", polyL?.name, "polys=", polyL?.geojson?.features?.filter(f=>f.geometry?.type==="Polygon").length);
+      const hasPoints = gj.features?.some(f => f.geometry?.type === "Point");
+      const layerDisplayName = action.data?.metadata?.layer_name
+        || action.data?.layer_name
+        || params.layer_name
+        || (polyL ? `${(params.category || theme).replace(/_/g," ")} dans ${polyL.name}` : null)
+        || (params.category ? params.category.replace(/_/g," ") : theme);
+
+      if (polyL && hasPoints) {
+        const pb  = turf.bbox(polyL.geojson);
+        const pad = 0.005;
+        const qb  = gj.metadata?.bbox;
+        const coversAll = qb &&
+          qb[0] <= pb[0]+pad && qb[1] <= pb[1]+pad &&
+          qb[2] >= pb[2]-pad && qb[3] >= pb[3]-pad;
+
+        const doClipAndAdd = (source) => {
+          const bufM = action?.data?._buffer_m
+            || action?.data?.metadata?._buffer_m
+            || action?._buffer_m
+            || 0;
+          const clipped = clipToPolygonLayer(source, polyL, bufM);
+          // Corriger feature_count avec le vrai nombre après clip
+          const realCount = clipped.features?.length || 0;
+          clipped.metadata = {
+            ...clipped.metadata,
+            total:         realCount,
+            feature_count: realCount,
+          };
+          // Mettre à jour aussi dans tool_results pour que le message chat soit correct
+          clipped._clipped_count = realCount;
+          addLayer(clipped, layerDisplayName, theme);
+        };
+
+        if (!coversAll) {
+          fetch(`${API}/query?theme=${params.theme||theme}&xmin=${pb[0]-pad}&ymin=${pb[1]-pad}&xmax=${pb[2]+pad}&ymax=${pb[3]+pad}&limit=2000${params.category?`&category=${params.category}`:""}`)
+            .then(r => r.json())
+            .then(fg => doClipAndAdd(fg.features?.length ? fg : gj))
+            .catch(()  => doClipAndAdd(gj));
+          return;
+        }
+        doClipAndAdd(gj);
+        return;
+      }
+      addLayer(gj, layerDisplayName, theme);
     } else if (action.type === "fly_to") {
       mapRef.current?.getMap?.()?.flyTo({ center:[action.longitude,action.latitude], zoom:action.zoom||14, pitch:action.pitch||0, duration:1500 });
     } else if (action.type === "remove_layer") {
       if (action.layer_id === "all") setLayers([]); else setLayers(p => p.filter(l => l.id !== action.layer_id));
     } else if (action.type === "spatial_analysis") {
       try {
-        const lA = layers.find(l => l.name === action.layer_a_name);
-        const lB = action.layer_b_name ? layers.find(l => l.name === action.layer_b_name) : null;
-        if (!lA) return;
-        const r = executeSpatialOp(action.operation, lA, lB, action.params || {});
-        if (r?.features?.length) addLayer(r, action.result_name || `${action.operation}_result`, "analysis");
-      } catch (e) { console.error(e); }
+        const lA = layersRef.current.find(l => l.name === action.layer_a_name
+          || l.name?.toLowerCase() === action.layer_a_name?.toLowerCase()
+          || l.name?.toLowerCase().includes(action.layer_a_name?.toLowerCase()));
+        const lB = action.layer_b_name
+          ? layersRef.current.find(l => l.name === action.layer_b_name
+              || l.name?.toLowerCase().includes(action.layer_b_name?.toLowerCase()))
+          : null;
+        if (!lA) {
+          console.warn("[spatial] Couche introuvable:", action.layer_a_name, "Disponibles:", layersRef.current.map(l=>l.name));
+          return;
+        }
+        const op     = action.operation;
+        const params = action.params || {};
+        const attr   = params.attribute || params.attr || "";
+
+        // ── Opérations thématiques (classification) ──────────────
+        if (op === "proportional_symbols" || op === "thematic_proportional") {
+          const ramp    = params.ramp    || "viridis";
+          const minSize = params.minSize || 4;
+          const maxSize = params.maxSize || 40;
+          const cfg = { type: "proportional", attribute: attr, minSize, maxSize, ramp };
+          const cr  = buildClassification(lA, cfg);
+          if (cr) setLayers(p => p.map(l => l.id === lA.id ? { ...l, classCfg: cfg, classResult: cr } : l));
+          return;
+        }
+        if (op === "thematic_choropleth" || op === "choropleth" || op === "graduated") {
+          const ramp     = params.ramp     || "viridis";
+          const nClasses = params.nClasses || 5;
+          const method   = params.method   || "quantile";
+          const cfg = { type: "graduated", attribute: attr, method, nClasses, ramp };
+          const cr  = buildClassification(lA, cfg);
+          if (cr) setLayers(p => p.map(l => l.id === lA.id ? { ...l, classCfg: cfg, classResult: cr } : l));
+          return;
+        }
+        if (op === "categorized" || op === "thematic_categorized") {
+          const cfg = { type: "categorized", attribute: attr };
+          const cr  = buildClassification(lA, cfg);
+          if (cr) setLayers(p => p.map(l => l.id === lA.id ? { ...l, classCfg: cfg, classResult: cr } : l));
+          return;
+        }
+
+        // ── Opérations géospatiales classiques ───────────────────
+        const r = executeSpatialOp(op, lA, lB, params);
+        if (r?.features?.length) addLayer(r, action.result_name || `${op}_result`, "analysis");
+      } catch (e) { console.error("[spatial_analysis]", e); }
     } else if (action.type === "compute_route") {
+      // layer_name vient du routing_agent (ex: Itinéraire_Rennes_vers_Dinard_car)
+      const _rName = action.layer_name || `Itinéraire_${action.profile||"foot"}`;
       computeRoute(action.waypoints, action.profile || "foot")
-        .then(gj => { setRouteLayer(gj); if (gj.features?.length) fitFeatures(gj.features); addLayer(gj, `Route ${action.profile||"foot"}`, "route"); })
+        .then(gj => {
+          if (gj.features?.length) fitFeatures(gj.features);
+          // Injecter theme + layer_name dans metadata pour que _is_route() fonctionne
+          if (!gj.metadata) gj.metadata = {};
+          gj.metadata.theme      = "route";
+          gj.metadata.layer_name = _rName;
+          setRouteLayer(gj);
+          addLayer(gj, _rName, "route");
+        })
         .catch(console.error);
     } else if (action.type === "compute_isochrone") {
-      computeIsochrone(action.center, action.time_minutes || 10, action.profile || "foot")
-        .then(gj => { setIsoLayer(gj); if (gj.features?.length) fitFeatures(gj.features); addLayer(gj, `Isochrone ${action.time_minutes||10}min`, "isochrone"); })
+      const _isoName = (action.layer_name || `Isochrone_${action.time_minutes||10}min_${action.profile||"foot"}`).replace(/\s+/g, "_");
+      computeIsochrone(action.center, action.time_minutes || 10, action.profile || "foot", action.intervals)
+        .then(gj => {
+          if (!gj.metadata) gj.metadata = {};
+          gj.metadata.theme = "isochrone";
+          setIsoLayer(gj);
+          if (gj.features?.length) fitFeatures(gj.features);
+          addLayer(gj, _isoName, "isochrone");
+        })
         .catch(console.error);
+    } else if (action.type === "add_isochrone") {
+      const gj = action.geojson;
+      if (gj?.features?.length) {
+        const name = (action.layer_name || `Isochrone_${action.time_minutes||10}min`).replace(/\s+/g, "_");
+        setIsoLayer(gj); fitFeatures(gj.features); addLayer(gj, name, "isochrone");
+      }
+    } else if (action.type === "add_raster_layer") {
+      // Couche raster GEE (NDVI, LST, WorldCover...) — tile_url XYZ
+      const layerId = `gee_${action.dataset || "raster"}_${(action.index||"").replace(/\s/g,"_")}_${Date.now()}`;
+      // _geeParams : paramètres complets pour permettre le restyle depuis LayerPanel
+      const geeParams = {
+        dataset:    action.dataset,
+        index:      action.index,
+        date_start: action.date_start || action.date || null,
+        date_end:   action.date_end   || action.date || null,
+        cloud_max:  action.cloud_max  || 20,
+        composite:  action.composite  || "median",
+        bbox:       action.clip_bbox  || action.bbox || null,
+        roi_geojson: null,
+      };
+      addRasterLayer({
+        id:        layerId,
+        name:      action.name      || `${action.dataset} — ${action.index}` || "GEE layer",
+        tileUrl:   action.tile_url,
+        bbox:      action.clip_bbox || action.bbox  || null,
+        visParams: action.vis_params || null,
+        geeParams,
+        opacity:   0.85,
+      });
+      // Zoomer sur la bbox si disponible
+      const bb = action.clip_bbox || action.bbox;
+      if (bb && bb.length === 4) {
+        const [w,s,e,n] = bb;
+        mapRef.current?.getMap?.()?.fitBounds([[w,s],[e,n]], { padding:60, duration:1500 });
+      }
+    } else if (action.type === "set_3d_extrusion") {
+      const layerName = action.layer_name;
+      const layer = layersRef.current.find(l =>
+        l.name === layerName ||
+        l.name?.toLowerCase() === layerName?.toLowerCase() ||
+        l.name?.toLowerCase().includes(layerName?.toLowerCase()) ||
+        layerName?.toLowerCase().includes(l.name?.toLowerCase())
+      );
+      if (layer) {
+        const attribute  = action.attribute;
+        const scale      = action.scale   || 1;
+        const pitch      = action.pitch   || 45;
+        const color      = action.color   || null;
+        // Activer extrusion sur la couche
+        setLayers(p => p.map(l => l.id === layer.id
+          ? { ...l, extrude: true, extrudeAttr: attribute, extrudeScale: scale,
+              ...(color ? { color } : {}) }
+          : l));
+        // Basculer vue 3D
+        const map = mapRef.current?.getMap?.();
+        if (map) {
+          map.easeTo({ pitch, bearing: -20, duration: 1200 });
+        }
+        setNotification({
+          message: `🏗️ Extrusion 3D activée — ${layer.name} (${attribute})`,
+          msgType: "info"
+        });
+        setTimeout(() => setNotification(null), 5000);
+      } else {
+        setNotification({
+          message: `⚠️ Couche "${action.layer_name}" introuvable. Couches disponibles : ${layers.map(l=>l.name).join(", ")}`,
+          msgType: "warning"
+        });
+        setTimeout(() => setNotification(null), 8000);
+      }
+
+    } else if (action.type === "thematic_analysis") {
+      const layerName = action.layer_name;
+      const currentLayers = layersRef.current;
+      const layer = currentLayers.find(l =>
+        l.name === layerName ||
+        l.name?.toLowerCase() === layerName?.toLowerCase() ||
+        l.name?.toLowerCase().includes(layerName?.toLowerCase()) ||
+        layerName?.toLowerCase().includes(l.name?.toLowerCase())
+      );
+      console.log("[thematic_analysis] op=", action.operation, "attr=", action.attribute, "layer=", !!layer);
+      if (!layer) {
+        console.warn(`[thematic] Couche "${layerName}" introuvable. Disponibles:`, currentLayers.map(l => l.name));
+      }
+      if (layer) {
+        const operation = action.operation;
+        const attribute = action.attribute;
+        const palette   = action.palette   || "viridis";
+        const method    = action.method    || "jenks";
+        const nClasses  = action.n_classes || 5;
+        const minSize   = action.min_size  || 3;
+        const maxSize   = action.max_size  || 40;
+        const vals = (layer.geojson?.features || [])
+          .map(f => f.properties?.[attribute]).filter(v => v != null);
+        const isNumeric = vals.length > 0 && vals.every(v => typeof v === "number" || !isNaN(Number(v)));
+        const applyClass = (targetLayer, cfg) => {
+          const freshLayer = { ...targetLayer, classResult: null, classCfg: null };
+          const cr = buildClassification(freshLayer, cfg);
+          console.log("[thematic] buildClassification cr=", cr ? "ok" : "null", "cfg=", cfg);
+          setLayers(p => p.map(l => l.id === targetLayer.id ? { ...l, classCfg: cfg, classResult: cr } : l));
+          return cr;
+        };
+        if (operation === "proportional_symbols") {
+          const cfg = { type: "proportional", attribute, minSize, maxSize };
+          const geomTypes = (layer.geojson?.features || []).map(f => f.geometry?.type);
+          const isPolygon = geomTypes.some(t => ["Polygon","MultiPolygon"].includes(t));
+          const cfgColor  = { type: "graduated", attribute, method, nClasses, ramp: palette };
+          const rawLayer  = { ...layer, classResult: null, classCfg: null };
+          const crColor   = buildClassification(rawLayer, cfgColor);
+          const crProp    = buildClassification(rawLayer, cfg);
+          const crFinal   = { ...crProp, expression: crColor?.expression || null,
+                               classes: crColor?.classes || [], breaks: crColor?.breaks || [] };
+          const cfgFinal  = { ...cfgColor, minSize, maxSize };
+          if (!isPolygon) {
+            setLayers(p => p.map(l => l.id === layer.id ? { ...l, classCfg: cfgFinal, classResult: crFinal } : l));
+          } else {
+            const centroids = { type: "FeatureCollection",
+              features: (layer.geojson.features || []).map(f => {
+                const c = turf.centroid(f); c.properties = { ...f.properties }; return c;
+              }).filter(Boolean) };
+            const ptName = action.result_name || `${layerName} — symboles`;
+            addLayer(centroids, ptName, "analysis");
+            setTimeout(() => {
+              const ptLayer = layersRef.current.find(l => l.name === ptName);
+              if (ptLayer) {
+                const crP2 = buildClassification(ptLayer, cfg);
+                const crC2 = buildClassification(ptLayer, cfgColor);
+                const crF2 = { ...crP2, expression: crC2?.expression || null,
+                                classes: crC2?.classes || [], breaks: crC2?.breaks || [] };
+                setLayers(p => p.map(l => l.id === ptLayer.id
+                  ? { ...l, classCfg: { ...cfgColor, minSize, maxSize }, classResult: crF2 } : l));
+              }
+            }, 300);
+          }
+        } else if (operation === "choropleth" || operation === "graduated_colors") {
+          applyClass(layer, isNumeric
+            ? { type: "graduated",   attribute, method, nClasses, ramp: palette }
+            : { type: "categorized", attribute, ramp: palette });
+        } else if (operation === "classification") {
+          applyClass(layer, isNumeric
+            ? { type: "graduated",   attribute, method, nClasses, ramp: palette }
+            : { type: "categorized", attribute, ramp: palette });
+        } else if (operation === "categorized") {
+          applyClass(layer, { type: "categorized", attribute, ramp: palette });
+        } else if (operation === "heatmap") {
+          setLayers(p => p.map(l => l.id === layer.id ? { ...l, heatmap: true, heatmapAttribute: attribute } : l));
+        } else {
+          console.warn("[thematic] operation inconnue:", operation, "→ fallback choropleth");
+          applyClass(layer, isNumeric
+            ? { type: "graduated",   attribute, method, nClasses, ramp: palette }
+            : { type: "categorized", attribute, ramp: palette });
+        }
+      }
+
+    } else if (action.type === "add_timelapse") {
+      // Ouvrir la modale TimelapseModal avec les données du GIF
+      if (action.gif_url) {
+        setTimelapse(action);
+      }
+    } else if (action.type === "notify") {
+      // Notification éphémère — warning (erreur) ou info (date alternative)
+      const msgType = action.msgType || "warning";
+      setNotification({ message: action.message, msgType });
+      setTimeout(() => setNotification(null), msgType === "info" ? 8000 : 6000);
     }
-  }, [addLayer, layers, fitFeatures, clipToPolygonLayer]);
+  }, [addLayer, addRasterLayer, layers, fitFeatures, clipToPolygonLayer]);
 
   // Layer ops
   const toggleL = id => setLayers(p => p.map(l => {
     if (l.id !== id) return l; const nv = !l.visible;
-    if (l.isRaster) { try { const map = mapRef.current?.getMap?.(); if (map) [`${id}-layer`,`${id}-fill`,`${id}-line`,`${id}-circle`].forEach(lid => { if (map.getLayer(lid)) map.setLayoutProperty(lid, "visibility", nv?"visible":"none"); }); } catch(_){} }
+    try {
+      const map = mapRef.current?.getMap?.();
+      if (map) {
+        const vis = nv ? "visible" : "none";
+        const candidates = l.isRaster
+          ? [`${id}-layer`, `${id}-fill`, `${id}-line`, `${id}-circle`]
+          : l.heatmap  ? [`${id}-heat`]
+          : l.extrude  ? [`${id}-extrude`, `${id}-3dlabel`]
+          : l.cluster  ? [`${id}-clusters`, `${id}-cluster-count`, `${id}-unclustered`]
+          : [`${id}-fill`, `${id}-outline`, `${id}-road`, `${id}-circle`,
+             `${id}-label`, `${id}-icon`, `${id}-sym`, `${id}-sym-fb`];
+        candidates.forEach(lid => { if (map.getLayer(lid)) map.setLayoutProperty(lid, "visibility", vis); });
+      }
+    } catch(_) {}
     return { ...l, visible: nv };
   }));
   const removeL = id => {
@@ -804,7 +1489,23 @@ export default function App() {
   }));
   const renameL   = (id, name) => setLayers(p => p.map(l => l.id === id ? {...l, name} : l));
   const classifyL = useCallback((id, cfg) => {
-    setLayers(p => p.map(l => { if (l.id !== id) return l; const r = cfg ? buildClassification(l, cfg) : null; return {...l, classCfg:cfg, classResult:r}; }));
+    setLayers(p => p.map(l => {
+      if (l.id !== id) return l;
+      const r = cfg
+        ? (cfg.type === "symbol" ? cfg : buildClassification(l, cfg))
+        : null;
+      return {...l, classCfg: cfg, classResult: r};
+    }));
+  }, []);
+  // ── Filtre attributaire — met à jour geojson affiché sur la carte ──
+  const filterL = useCallback((id, { filterState, geojson, _sourceGeojson }) => {
+    setLayers(p => p.map(l => l.id !== id ? l : {
+      ...l,
+      geojson,          // geojson filtré (ou source complète si filtre effacé)
+      _sourceGeojson,   // source originale préservée pour re-filtrage
+      filterState,
+      featureCount: geojson?.features?.length ?? l.featureCount,
+    }));
   }, []);
   const exportL = id => {
     const l = layers.find(x => x.id === id); if (!l) return;
@@ -838,13 +1539,15 @@ export default function App() {
     const cr = layer.classResult; const ce = cr?.expression || layer.color;
     if (gt==="fill") return {"fill-color":ce,"fill-opacity":layer.opacity*0.4};
     if (gt==="line") { if (cr?.type==="proportional_line"&&cr.widthExpression) return {"line-color":layer.color,"line-width":cr.widthExpression,"line-opacity":layer.opacity}; return {"line-color":ce,"line-width":1.5,"line-opacity":layer.opacity}; }
-    if (gt==="circle") { if (cr?.type==="symbol") return {"circle-radius":0,"circle-opacity":0}; if (cr?.type==="proportional"&&cr.radiusExpression) return {"circle-radius":cr.radiusExpression,"circle-color":layer.color,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.4}; return {"circle-radius":layer.radius||5,"circle-color":ce,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}; }
+    if (gt==="circle") { if (cr?.type==="symbol"&&cr.symbolMode==="maki") { const _map=mapRef.current?.getMap?.(); const _mkSz=parseInt(cr.makiSize)||30; const _imgId=cr.makiImageId||(`maki_${cr.makiName}_${(cr.makiColor||"#ffffff").replace("#","").toLowerCase()}_${_mkSz}`); const _imgReady=_imgId&&_map&&_map.isStyleLoaded()&&_map.hasImage(_imgId); if(_imgReady) return {"circle-radius":0,"circle-opacity":0}; return {"circle-radius":Math.max(4,_mkSz/6),"circle-color":cr.makiColor||layer.color,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}; } if(cr?.type==="symbol"&&cr.symbolMode==="image") return {"circle-radius":0,"circle-opacity":0}; if (cr?.type==="proportional"&&cr.radiusExpression) return {"circle-radius":cr.radiusExpression,"circle-color":cr.expression||layer.color,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.4}; return {"circle-radius":layer.radius||5,"circle-color":ce,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}; }
     return {};
   }, []);
 
   // Map click — gère aussi la sélection de point pour route/iso
   const handleMapClick = useCallback((e) => {
     const lng = e.lngLat.lng, lat = e.lngLat.lat;
+    // Classification supervisée — intercept si le panel est en mode dessin
+    if (classifClickRef.current) { classifClickRef.current(lng, lat); return; }
     if (routePickMode) {
       const coord = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       if (routePickMode === "origin") { setRouteOrigin(coord); if (activeTool==="route") { const feats = routeMarkers?.features?.filter(f=>f.properties?.type!=="origin")||[]; feats.unshift({type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"A"}}); setRouteMarkers({type:"FeatureCollection",features:feats}); } else { setRouteMarkers({type:"FeatureCollection",features:[{type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"●"}}]}); setIsoCenter(coord); } }
@@ -856,8 +1559,17 @@ export default function App() {
     else if (activeTool==="measure_area") { const pts=[...measurePts,[lng,lat]]; setMeasurePts(pts); if(pts.length>=3){const a=turf.area(turf.polygon([[...pts,pts[0]]]));setMeasureRes(a<10000?`${Math.round(a)} m²`:`${(a/10000).toFixed(2)} ha`);} }
     else if (activeTool==="buffer") { const buf=turf.buffer(turf.point([lng,lat]),bufferRadius/1000,{units:"kilometers"}); setBufferLayer({type:"FeatureCollection",features:[buf,{type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{}}]}); }
     else if (activeTool==="draw") { setDrawPts(p=>[...p,[lng,lat]]); }
+    else if (activeTool==="profil") {
+      if (profilDrawMode==="twopoints") {
+        // Max 2 points — remplace le deuxième si déjà 2
+        setDrawProfilPts(p => p.length < 2 ? [...p,[lng,lat]] : [p[0],[lng,lat]]);
+      } else {
+        // Polyline libre — ajouter le point
+        setDrawProfilPts(p=>[...p,[lng,lat]]);
+      }
+    }
     else { if (!e.features?.length){setPopup(null);return;} const f=e.features[0]; setPopup({lng,lat,properties:f.properties,layerName:f.layer?.id||""}); }
-  }, [activeTool, measurePts, bufferRadius, routePickMode, routeMarkers]);
+  }, [activeTool, measurePts, bufferRadius, routePickMode, routeMarkers, profilDrawMode]);
 
   useEffect(() => { setMeasurePts([]); setMeasureRes(null); setBufferLayer(null); setDrawPts([]); setRoutePickMode(null); if (!openPanels.has("route")&&!openPanels.has("isochrone")) { setRouteLayer(null); setIsoLayer(null); setRouteMarkers(null); } }, [activeTool, openPanels]);
 
@@ -927,7 +1639,7 @@ export default function App() {
       const gj = await computeIsochrone(C2, isoTime, routeProfile);
       setIsoLayer(gj); setRouteLayer(null);
       if (gj.features?.length) fitFeatures(gj.features);
-      addLayer(gj, `Isochrone ${isoTime}min ${routeProfile}`, "isochrone");
+      addLayer(gj, `Isochrone_${isoTime}min_${routeProfile}`, "isochrone");
     } catch (e) { alert("Erreur : " + e.message); }
     finally { setRouteLoading(false); }
   }, [isoCenter, isoTime, routeProfile, fitFeatures, addLayer]);
@@ -947,7 +1659,27 @@ export default function App() {
     const row   = { display:"flex", gap:6 };
 
     // ── Itinéraire ──────────────────────────────────────────
-    if (activeTool === "route") return (
+    // ── Agriculture de précision ─────────────────────────────
+    if (activeTool === "agri") return (
+        <AgriPanel
+          mapRef={mapRef}
+          addLayer={addLayer}
+          C={C}
+          F={F}
+          M={M}
+        />
+      );
+
+    if (activeTool === "classif") return (
+      <ClassifSupPanel
+        mapRef={mapRef}
+        layers={layers}
+        addRasterLayer={addRasterLayer}
+        classifClickRef={classifClickRef}
+      />
+    );
+
+      if (activeTool === "route") return (
       <div style={sbAuto}>
         <div style={secAuto}>
           {/* Mode de transport */}
@@ -1062,7 +1794,7 @@ export default function App() {
             <div style={{background:C.hover,borderRadius:8,padding:"10px 12px"}}>
               <div style={{fontSize:11,color:C.acc,fontWeight:500,marginBottom:6}}>Isochrone calculée</div>
               <div style={{display:"flex",gap:4,marginTop:4}}>
-                <button onClick={()=>addLayer(isoLayer,`Isochrone ${isoTime}min`,"isochrone")} style={{fontFamily:F,flex:1,fontSize:10,padding:"5px 0",borderRadius:6,border:`0.5px solid ${C.acc}55`,background:C.acc+"18",color:C.acc,cursor:"pointer"}}>Ajouter couche</button>
+                <button onClick={()=>addLayer(isoLayer,`Isochrone_${isoTime}min`,"isochrone")} style={{fontFamily:F,flex:1,fontSize:10,padding:"5px 0",borderRadius:6,border:`0.5px solid ${C.acc}55`,background:C.acc+"18",color:C.acc,cursor:"pointer"}}>Ajouter couche</button>
                 <button onClick={()=>{setIsoLayer(null);setRouteMarkers(null);setIsoCenter("");}} style={{fontFamily:F,flex:1,fontSize:10,padding:"5px 0",borderRadius:6,border:`0.5px solid ${C.bdr}`,background:"transparent",color:C.mut,cursor:"pointer"}}>Effacer</button>
               </div>
             </div>
@@ -1079,6 +1811,7 @@ export default function App() {
           onExport={exportL} onClassify={classifyL} onExportFmt={exportFmt}
           onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown}
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
+          onFilter={filterL}
         />
       </Embed>
     );
@@ -1086,7 +1819,7 @@ export default function App() {
     // ── Statistiques ────────────────────────────────────────
     if (activeTool === "stats") return (
       <Embed>
-        <BottomPanel layers={layers.filter(l=>l.visible)} activeTab={null} onTab={()=>{}} onZoom={zoomFeat} onAddLayer={addLayer} />
+        <StatsPanelWrapper layers={layers} onZoom={zoomFeat} onAddLayer={addLayer} />
       </Embed>
     );
 
@@ -1142,6 +1875,82 @@ export default function App() {
       </Embed>
     );
 
+    // ── Profil altimétrique ─────────────────────────────────
+    if (activeTool === "profil") return (
+      <Embed>
+        <ProfilPanel
+          mapRef={mapRef}
+          layers={layers}
+          drawPoints={drawProfilPts}
+          onClearDraw={() => setDrawProfilPts([])}
+          onDrawModeChange={m => setProfilDrawMode(m)}
+          onSetProfilLayer={gj => {
+            setProfilSlopeLayer(gj);
+            addLayer(gj, "Profil — pente", "profil");
+          }}
+        />
+      </Embed>
+    );
+
+    // ── Détection de changement GEE ─────────────────────────
+    if (activeTool === "change") return (
+      <Embed>
+        <ChangeDetectionPanel
+          mapRef={mapRef}
+          layers={layers}
+          onAddRasterLayer={addRasterLayer}
+        />
+      </Embed>
+    );
+
+    // ── Comparateur A/B ──────────────────────────────────────
+    if (activeTool === "compare") return (
+      <Embed>
+        <ComparatorPanel
+          layers={layers}
+          vs={vs}
+          mapStyle={MAP_STYLES[mapSt]}
+        />
+      </Embed>
+    );
+
+    // ── Timelapse GEE ────────────────────────────────────────
+    if (activeTool === "timelapse") return (
+      <Embed>
+        <TimelapsePanel mapRef={mapRef} layers={layers} />
+      </Embed>
+    );
+
+    // ── Éditeur vectoriel ────────────────────────────────────
+    if (activeTool === "editor") return (
+      <Embed>
+        <EditorPanel
+          mapRef={mapRef}
+          layers={layers}
+          onSaveLayer={(gj, name, existingId) => {
+            if (existingId) {
+              // Mettre à jour une couche existante
+              setLayers(prev => prev.map(l =>
+                l.id === existingId
+                  ? { ...l, geojson: gj, name, featureCount: gj.features?.length || 0 }
+                  : l
+              ));
+            } else {
+              // Créer une nouvelle couche
+              addLayer(gj, name, "edit");
+            }
+          }}
+        />
+      </Embed>
+    );
+
+    // ── Import OSM ───────────────────────────────────────────
+    if (activeTool === "osm") return (
+      <Embed>
+        <OsmPanel layers={layers} onAddLayer={addLayer} mapRef={mapRef} />
+      </Embed>
+    );
+
     return null;
   };
 
@@ -1156,12 +1965,13 @@ export default function App() {
   return (
     <ThemeContext.Provider value={C}>
     <div
-      style={{ fontFamily:F, background:C.bg, color:C.txt, height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" }}
+      style={{ fontFamily:F, background:C.bg, color:C.txt, height:"100vh", width:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}
       onDragOver={e=>{e.preventDefault();setDragOver(true);}}
       onDragLeave={e=>{e.preventDefault();setDragOver(false);}}
       onDrop={e=>{e.preventDefault();setDragOver(false);if(e.dataTransfer?.files?.[0])doImport(e.dataTransfer.files[0]);}}>
 
       <style>{`
+        html,body,#root{margin:0;padding:0;width:100%;height:100%;overflow:hidden}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
         .rh:hover{background:${C.acc}50 !important}
@@ -1201,15 +2011,7 @@ export default function App() {
             <div style={{fontSize:13,fontWeight:600,color:C.txt,lineHeight:1}}>OpenMapAgents</div>
             <div style={{fontSize:9,color:C.dim,marginTop:1}}>Overture Maps · DuckDB · LiteLLM</div>
           </div>
-          {isMobile&&<>
-            <button className="rib" onClick={toggleTheme} style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
-              {themeName==="dark"?<IcSun/>:<IcMoon/>}
-            </button>
-            <button className="rib" onClick={()=>setChatOpen(o=>!o)}
-              style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,border:`0.5px solid ${chatOpen?C.acc+"44":C.bdr}`,background:chatOpen?C.acc+"18":"transparent",color:chatOpen?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-              <IcChat/> Chat
-            </button>
-          </>}
+
         </div>
 
         {/* ── Centre : styles carte — desktop uniquement ── */}
@@ -1230,46 +2032,157 @@ export default function App() {
           {!isMobile&&<button className="rib" onClick={toggleTheme} style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
             {themeName==="dark"?<IcSun/>:<IcMoon/>}
           </button>}
-          <button className="rib" onClick={()=>fileRef.current?.click()} style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
+          {!isMobile&&<button className="rib" onClick={shareLink} title="Partager le lien" style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
+            <IcShare/>
+          </button>}
+          {!isMobile&&<button className="rib" onClick={()=>fileRef.current?.click()} title="Importer un fichier" style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
             <IcUpload/>
-          </button>
+          </button>}
           {!isMobile&&<button className="rib" onClick={()=>setChatOpen(o=>!o)}
             style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,border:`0.5px solid ${chatOpen?C.acc+"44":C.bdr}`,background:chatOpen?C.acc+"18":"transparent",color:chatOpen?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <IcChat/> Chat
           </button>}
-          {layers.length>0&&(
-            <button className="rib" onClick={()=>activateItem("layers")}
-              style={{fontFamily:F,fontSize:11,padding:"5px 8px",borderRadius:6,border:`0.5px solid ${openPanels.has("layers")?C.acc+"44":C.bdr}`,background:openPanels.has("layers")?C.acc+"18":"transparent",color:openPanels.has("layers")?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",gap:5,position:"relative"}}>
-              <IcStack/>
-              <span style={{background:C.acc,color:"#fff",borderRadius:8,fontSize:9,padding:"0 5px",fontWeight:600,minWidth:14,textAlign:"center"}}>{layers.length}</span>
+          {user ? (<>
+            <button className="rib" onClick={() => {
+              // Capture miniature : attendre render complet WebGL
+              const map = mapRef.current?.getMap?.();
+              if (!map) { setShowSave(true); return; }
+
+              const capture = () => {
+                // triggerRepaint force un cycle WebGL complet
+                map.triggerRepaint();
+                // Attendre 3 frames pour que le GPU ait fini
+                requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+                  try {
+                    const canvas = map.getCanvas();
+                    const data = canvas.toDataURL("image/jpeg", 0.85);
+                    // < 5ko = canvas vide/noir → ne pas utiliser
+                    if (data && data.length > 5000) setSaveThumb(data);
+                    else setSaveThumb("");
+                  } catch { setSaveThumb(""); }
+                  setShowSave(true);
+                })));
+              };
+
+              // Si la carte est en mouvement, attendre idle
+              if (map.isMoving() || map.isZooming() || map.isRotating()) {
+                map.once("idle", capture);
+              } else {
+                capture();
+              }
+            }} title="Sauvegarder la carte"
+              style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,
+                      border:`0.5px solid ${currentMap ? C.acc+"44" : C.bdr}`,
+                      background: currentMap ? C.acc+"18" : "transparent",
+                      color: currentMap ? C.acc : C.mut,
+                      cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+              💾
             </button>
+            <button className="rib" onClick={() => setShowDash(true)}
+              title={`Mon espace — ${user.username}`}
+              style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,
+                      border:`0.5px solid ${C.acc}44`,background:C.acc+"18",
+                      color:C.acc,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              👤 {user.username}
+            </button>
+          </>) : (
+            null /* bouton connexion désactivé temporairement */
           )}
+          {isMobile&&<>
+            <button className="rib" onClick={()=>setChatOpen(o=>!o)}
+              style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,border:`0.5px solid ${chatOpen?C.acc+"44":C.bdr}`,background:chatOpen?C.acc+"18":"transparent",color:chatOpen?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              <IcChat/> Chat
+            </button>
+            <button className="rib" onClick={toggleTheme} style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
+              {themeName==="dark"?<IcSun/>:<IcMoon/>}
+            </button>
+            <button className="rib" onClick={shareLink} title="Partager" style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
+              <IcShare/>
+            </button>
+          </>}
+
         </div>
       </header>
 
       {/* ══════ BODY ══════ */}
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
 
-        {/* ── RAIL GAUCHE 46px ── */}
-        <div style={{width:46,background:C.card,borderRight:`0.5px solid ${C.bdr}`,display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 0",flexShrink:0}}>
-          {RAIL_GROUPS.map((group, gi) => (
-            <div key={group.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0",borderBottom:gi<RAIL_GROUPS.length-1?`0.5px solid ${C.bdr}`:"none"}}>
-              {group.items.map(({id, label, Icon: Ic2}) => {
-                const isPanelActive = PANEL_IDS.has(id) && openPanels.has(id);
-                const isActive      = activeTool===id;
-                return (
-                  <button key={id} className="rib" title={label} onClick={()=>activateItem(id)}
-                    style={{width:34,height:32,borderRadius:7,border:`0.5px solid ${isPanelActive?C.acc+"44":"transparent"}`,display:"flex",alignItems:"center",justifyContent:"center",background:isPanelActive?C.acc+"20":isActive&&!PANEL_IDS.has(id)?C.acc+"15":"transparent",color:isActive?C.acc:C.mut,cursor:"pointer",padding:0,transition:"all .12s"}}>
-                    <Ic2/>
+        {/* ── RAIL GAUCHE 56px — accordéon par groupe ── */}
+        <div style={{width:56,background:C.card,borderRight:`0.5px solid ${C.bdr}`,display:"flex",flexDirection:"column",alignItems:"center",padding:"4px 0",flexShrink:0,overflowY:"auto",overflowX:"hidden"}}>
+          {RAIL_GROUPS.map((group, gi) => {
+            // groupe "nav" toujours visible, pas de header cliquable
+            const isCollapsible = !!group.label;
+            const isOpen        = !isCollapsible || openGroup.has(group.id);
+            // un item du groupe est-il actif ?
+            const groupHasActive = group.items.some(it =>
+              activeTool === it.id || (PANEL_IDS.has(it.id) && openPanels.has(it.id))
+            );
+            return (
+              <div key={group.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",borderBottom:gi<RAIL_GROUPS.length-1?`0.5px solid ${C.bdr}`:"none"}}>
+
+                {/* ── Header cliquable du groupe ── */}
+                {isCollapsible && (
+                  <button
+                    onClick={() => setOpenGroup(prev => { const next = new Set(prev); next.has(group.id) ? next.delete(group.id) : next.add(group.id); return next; })}
+                    title={group.label}
+                    style={{
+                      width:"100%", padding:"5px 0 4px", border:"none", background:"transparent",
+                      cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                    }}
+                  >
+                    {/* Pastille active */}
+                    <div style={{
+                      fontSize:8, fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase",
+                      color: groupHasActive ? C.acc : isOpen ? C.mut : C.dim,
+                      lineHeight:1, userSelect:"none", position:"relative",
+                    }}>
+                      {group.label}
+                      {groupHasActive && !isOpen && (
+                        <span style={{position:"absolute",top:-1,right:-6,width:4,height:4,borderRadius:"50%",background:C.acc}}/>
+                      )}
+                    </div>
+                    {/* Chevron */}
+                    <svg width="8" height="5" viewBox="0 0 8 5" fill="none" style={{transition:"transform .2s", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)"}}>
+                      <path d="M1 1l3 3 3-3" stroke={groupHasActive ? C.acc : C.dim} strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
                   </button>
-                );
-              })}
-            </div>
-          ))}
-          <div style={{marginTop:"auto",width:"100%",display:"flex",flexDirection:"column",alignItems:"center",padding:"5px 0",borderTop:`0.5px solid ${C.bdr}`}}>
+                )}
+
+                {/* ── Items (visibles si groupe ouvert) ── */}
+                {isOpen && (
+                  <div style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:1,paddingBottom:4}}>
+                    {!isCollapsible && <div style={{height:4}}/>}
+                    {group.items.map(({id, label, sub, Icon: Ic2}) => {
+                      const isPanelActive = PANEL_IDS.has(id) && openPanels.has(id);
+                      const isActive      = activeTool === id;
+                      const color         = isActive || isPanelActive ? C.acc : C.mut;
+                      return (
+                        <button key={id} className="rib" title={label} onClick={()=>activateItem(id)}
+                          style={{width:"100%",padding:"4px 4px 3px",borderRadius:7,border:`0.5px solid ${isPanelActive?C.acc+"44":"transparent"}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:isPanelActive?C.acc+"20":isActive&&!PANEL_IDS.has(id)?C.acc+"15":"transparent",color,cursor:"pointer",transition:"all .12s"}}>
+                          <div style={{position:"relative",display:"inline-flex"}}>
+                            <Ic2/>
+                            {id==="layers"&&layers.length>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.acc,color:"#fff",borderRadius:8,fontSize:8,padding:"0 3px",fontWeight:700,lineHeight:"14px",minWidth:13,textAlign:"center"}}>{layers.length}</span>}
+                          </div>
+                          <span style={{fontSize:7,fontWeight:500,letterSpacing:"0.02em",lineHeight:1,opacity: isActive||isPanelActive ? 1 : 0.7}}>{sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* ── Import + Imprimer — juste après les groupes ── */}
+          <div style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"5px 0",borderTop:`0.5px solid ${C.bdr}`}}>
             <button className="rib" title="Importer un fichier" onClick={()=>fileRef.current?.click()}
-              style={{width:34,height:32,borderRadius:7,border:"none",background:"transparent",color:C.dim,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              style={{width:"100%",padding:"4px 4px 3px",borderRadius:7,border:"none",background:"transparent",color:C.dim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1}}>
               <IcUpload/>
+              <span style={{fontSize:7,fontWeight:500,lineHeight:1,opacity:0.6}}>Import</span>
+            </button>
+            <button className="rib" title="Exporter carte" onClick={()=>activateItem("print")}
+              style={{width:"100%",padding:"4px 4px 3px",borderRadius:7,border:`0.5px solid ${activeTool==="print"?C.acc+"44":"transparent"}`,background:activeTool==="print"?C.acc+"20":"transparent",color:activeTool==="print"?C.acc:C.dim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1}}>
+              <IcPrint/>
+              <span style={{fontSize:7,fontWeight:500,lineHeight:1,opacity:activeTool==="print"?1:0.6}}>Imprimer</span>
             </button>
           </div>
         </div>
@@ -1283,6 +2196,11 @@ export default function App() {
             maplibreLogo={false} attributionControl={false} preserveDrawingBuffer={true}
             onClick={handleMapClick} interactiveLayerIds={activeTool==="pointer"?intIds:[]}
             cursor={(activeTool!=="pointer"||routePickMode)?"crosshair":"grab"}
+            onDoubleClick={(e)=>{
+              // Double-clic sur la carte en mode polyline → ne rien faire (le dernier point a déjà été ajouté par onClick)
+              // On empêche juste le zoom double-clic natif MapLibre
+              e.preventDefault?.();
+            }}
             onContextMenu={async(e)=>{
               e.preventDefault();const{lng,lat}=e.lngLat;
               try{const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,{headers:{"User-Agent":"OpenMapAgents/1.0"}});const d=await res.json();setPopup({lng,lat,properties:{adresse:d.display_name||"Inconnu",lat:lat.toFixed(5),lon:lng.toFixed(5)},layerName:"geocode"});}
@@ -1295,8 +2213,121 @@ export default function App() {
             <ScaleControl position="bottom-left"/>
 
             {/* Layers — inchangés */}
+            {/* ── Notification éphémère (erreurs GEE, etc.) ── */}
+            {/* ── Modale Timelapse (chat LLM) ── */}
+            {timelapse && (
+              <TimelapseModal
+                timelapse={timelapse}
+                onClose={() => setTimelapse(null)}
+              />
+            )}
+
+            
+            {/* ── Auth ── */}
+            {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+
+            {/* ── Sauvegarder ── */}
+            {showSave && (
+              <SaveMapModal
+                mapRef={mapRef}
+                layers={layers}
+                viewport={vs}
+                mapStyle={mapSt}
+                existingMap={currentMap}
+                initialThumb={saveThumb}
+                onClose={() => { setShowSave(false); setSaveThumb(""); }}
+                onSaved={m => setCurrentMap(m)}
+              />
+            )}
+
+            {/* ── Dashboard ── */}
+            {showDash && (
+              <Dashboard
+                onOpenMap={m => {
+                  // 1. Fermer le dashboard
+                  setShowDash(false);
+                  setCurrentMap(m);
+
+                  try {
+                    const st = typeof m.state_json === "string"
+                      ? JSON.parse(m.state_json)
+                      : (m.state_json || {});
+
+                    // 2. Reset complet
+                    setLayers([]);
+                    setRouteLayer(null);
+                    setIsoLayer(null);
+                    setRouteMarkers(null);
+                    setMeasurePts([]);
+                    setMeasureRes(null);
+                    setBufferLayer(null);
+                    setDrawPts([]);
+                    setDrawProfilPts([]);
+                    setNotification(null);
+                    setPopup(null);
+
+                    // 3. Changer le fond de carte via state React
+                    if (st.mapStyle) setMapSt(st.mapStyle);
+
+                    // 4. Restaurer les couches SANS zoom intermédiaire (addLayerSilent)
+                    //    puis calculer l'emprise globale de toutes les couches
+                    const restoredLayers = (st.layers || []).filter(l => l.geojson);
+                    if (restoredLayers.length) {
+                      setTimeout(() => {
+                        restoredLayers.forEach(l => {
+                          addLayerSilent(l.geojson, l.name, l.theme || "data", {
+                            color:    l.color,
+                            opacity:  l.opacity,
+                            radius:   l.radius,
+                            classCfg: l.classCfg,
+                          });
+                        });
+                      }, 100);
+                    }
+
+                    // 5. Zoom sur l'emprise globale des couches,
+                    //    ou sur le viewport sauvegardé si pas de couches
+                    const allFeatures = restoredLayers.flatMap(l => l.geojson?.features || []);
+                    setPendingRestore({
+                      features:  allFeatures.length ? allFeatures : null,
+                      viewport:  st.viewport || null,
+                      mapStyle:  st.mapStyle || null,
+                    });
+                  } catch(e) { console.warn("Restauration carte:", e); }
+                }}
+                onUpdateMap={m => {
+                  // Ouvrir SaveMapModal directement sur cette carte pour la mettre à jour
+                  setShowDash(false);
+                  setCurrentMap(m);
+                  setShowSave(true);
+                }}
+                onClose={() => setShowDash(false)}
+              />
+            )}
+
+            {notification && (
+              <div style={{
+                position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
+                zIndex: 9999, maxWidth: 480, padding: "10px 16px", borderRadius: 8,
+                background: notification.msgType === "info" ? "#0d2137" : "#1a1a2e",
+                color: "#fff", fontSize: 13,
+                border: `1px solid ${notification.msgType === "info" ? "rgba(29,158,117,0.6)" : "rgba(255,200,0,0.4)"}`,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+                display: "flex", alignItems: "center", gap: 10,
+              }}>
+                <span style={{ fontSize: 18 }}>
+                  {notification.msgType === "info" ? "📅" : "⚠️"}
+                </span>
+                <span style={{ flex: 1 }}>{notification.message}</span>
+                <button onClick={() => setNotification(null)} style={{
+                  marginLeft: "auto", background: "none", border: "none",
+                  color: "#aaa", cursor: "pointer", fontSize: 16, padding: "0 4px",
+                }}>✕</button>
+              </div>
+            )}
+
             {layers.map(l=>{if(!l.isRaster)return null;if(l.theme==="vector")return(<Source key={l.id} id={l.id} type="vector" tiles={[l.tileUrl]} minzoom={0} maxzoom={22}><Layer id={`${l.id}-fill`} type="fill" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":l.color||C.acc,"fill-opacity":l.opacity??0.3}}/><Layer id={`${l.id}-line`} type="line" layout={{visibility:l.visible?"visible":"none"}} filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":l.color||C.acc,"line-width":1.5,"line-opacity":l.opacity??1}}/><Layer id={`${l.id}-circle`} type="circle" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Point"]} paint={{"circle-color":l.color||C.acc,"circle-radius":4,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-opacity":l.opacity??1}}/></Source>);return(<Source key={l.id} id={l.id} type="raster" tiles={[l.tileUrl]} tileSize={256}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:l.visible?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85}}/></Source>);})}
-            {layers.map(l=>l.visible&&!l.isRaster&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",cr.makiSize||30);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
+            {layers.map(l=>l.visible&&!l.isRaster&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const _mkSize=parseInt(cr.makiSize)||30;void makiTick;const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",_mkSize);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.extrude&&(<Source key={`${l.id}-3d`} id={`${l.id}-3d`} type="geojson" data={l.geojson}><Layer id={`${l.id}-extrude`} type="fill-extrusion" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={{"fill-extrusion-color":l.classResult?.expression||l.color,"fill-extrusion-height":l.extrudeAttr?["*",["to-number",["get",l.extrudeAttr],5],l.extrudeScale||1]:["*",["to-number",["get","height"],5],l.extrudeScale||1],"fill-extrusion-base":0,"fill-extrusion-opacity":l.opacity*0.85}}/>{l.labels&&<Layer id={`${l.id}-3dlabel`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":10,"text-anchor":"center"}} paint={{"text-color":"#fff","text-halo-color":"#000","text-halo-width":1}}/>}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.cluster&&(<Source key={`${l.id}-cl`} id={`${l.id}-cl`} type="geojson" data={l.geojson} cluster={true} clusterMaxZoom={14} clusterRadius={50}><Layer id={`${l.id}-clusters`} type="circle" filter={["has","point_count"]} paint={{"circle-color":["step",["get","point_count"],l.color,10,C.amb,50,C.red],"circle-radius":["step",["get","point_count"],18,10,24,50,32],"circle-opacity":0.85,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id={`${l.id}-cluster-count`} type="symbol" filter={["has","point_count"]} layout={{"text-field":"{point_count_abbreviated}","text-size":12}} paint={{"text-color":"#fff"}}/><Layer id={`${l.id}-unclustered`} type="circle" filter={["!",["has","point_count"]]} paint={{"circle-radius":l.radius||5,"circle-color":l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}}/></Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.heatmap&&(<Source key={`${l.id}-hm`} id={`${l.id}-hm`} type="geojson" data={l.geojson}><Layer id={`${l.id}-heat`} type="heatmap" paint={{"heatmap-weight":1,"heatmap-intensity":["interpolate",["linear"],["zoom"],0,1,15,3],"heatmap-color":["interpolate",["linear"],["heatmap-density"],0,"rgba(0,0,0,0)",.2,C.acc,.4,C.amb,.6,"#D85A30",.8,C.red,1,"#fff"],"heatmap-radius":["interpolate",["linear"],["zoom"],0,4,15,30],"heatmap-opacity":l.opacity}}/></Source>))}
@@ -1310,6 +2341,13 @@ export default function App() {
             {routeLayer&&<Source id="route" type="geojson" data={routeLayer}><Layer id="rline" type="line" filter={["==",["geometry-type"],"LineString"]} paint={{"line-color":"#378ADD","line-width":4,"line-opacity":0.85}}/><Layer id="rpts" type="circle" filter={["all",["==",["geometry-type"],"Point"],["==",["get","type"],"waypoint"]]} paint={{"circle-radius":8,"circle-color":"#378ADD","circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id="rlbl" type="symbol" filter={["all",["==",["geometry-type"],"Point"],["==",["get","type"],"waypoint"]]} layout={{"text-field":["get","label"],"text-size":11,"text-offset":[0,1.5],"text-anchor":"top"}} paint={{"text-color":"#378ADD","text-halo-color":"#fff","text-halo-width":1.5}}/></Source>}
             {isoLayer&&<Source id="isochrone" type="geojson" data={isoLayer}><Layer id="ifill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":["step",["get","time_min"],C.acc,10,C.amb,15,"#D85A30",20,C.red],"fill-opacity":0.2}}/><Layer id="iline" type="line" filter={["==",["geometry-type"],"Polygon"]} paint={{"line-color":["step",["get","time_min"],C.acc,10,C.amb,15,"#D85A30",20,C.red],"line-width":2,"line-dasharray":[4,2]}}/><Layer id="icenter" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":8,"circle-color":C.acc,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id="ilbl" type="symbol" filter={["==",["geometry-type"],"Polygon"]} layout={{"text-field":["get","label"],"text-size":12,"text-anchor":"center"}} paint={{"text-color":"#333","text-halo-color":"#fff","text-halo-width":1.5}}/></Source>}
             {routeMarkers&&<Source id="rmarkers" type="geojson" data={routeMarkers}><Layer id="rmcirc" type="circle" paint={{"circle-radius":10,"circle-color":["match",["get","type"],"origin","#378ADD","dest","#E24B4A","#1D9E75"],"circle-stroke-width":3,"circle-stroke-color":"#fff"}}/><Layer id="rmlbl" type="symbol" layout={{"text-field":["get","label"],"text-size":14,"text-anchor":"center","text-allow-overlap":true}} paint={{"text-color":"#fff"}}/></Source>}
+            {/* Marqueurs profil altimétrique — début vert, fin rouge, intermédiaires gris */}
+            {drawProfilPts.length>0&&<Source id="profil-pts" type="geojson" data={{type:"FeatureCollection",features:drawProfilPts.map((p,i)=>({type:"Feature",geometry:{type:"Point",coordinates:p},properties:{type:i===0?"start":i===drawProfilPts.length-1?"end":"mid",label:i===0?"A":i===drawProfilPts.length-1?"B":String(i+1)}}))}}>
+              <Layer id="profil-pts-circ" type="circle" paint={{"circle-radius":["match",["get","type"],"start",10,"end",10,6],"circle-color":["match",["get","type"],"start","#1D9E75","end","#E24B4A","#9a9a90"],"circle-stroke-width":2,"circle-stroke-color":"#fff","circle-opacity":0.95}}/>
+              <Layer id="profil-pts-lbl" type="symbol" layout={{"text-field":["get","label"],"text-size":11,"text-anchor":"center","text-allow-overlap":true}} paint={{"text-color":"#fff","text-halo-color":"rgba(0,0,0,0.3)","text-halo-width":0.5}}/>
+              {/* Ligne de tracé en pointillés entre les points */}
+              {drawProfilPts.length>=2&&<><Source id="profil-line" type="geojson" data={{type:"Feature",geometry:{type:"LineString",coordinates:drawProfilPts}}}><Layer id="profil-line-layer" type="line" paint={{"line-color":"#1D9E75","line-width":2,"line-dasharray":[4,3],"line-opacity":0.7}}/></Source></>}
+            </Source>}
 
             {/* Popup */}
             {popup&&(<Popup longitude={popup.lng} latitude={popup.lat} anchor="bottom" onClose={()=>setPopup(null)} closeButton closeOnClick={false}><div style={{fontFamily:F,padding:"2px 0",minWidth:160,maxWidth:280}}>{(()=>{const fields=getPopupFields(popup.properties);const nf=fields.find(f=>f.isName);return<><div style={{fontSize:12,fontWeight:600,color:"#222",marginBottom:4}}>{nf?nf.value:"Sans nom"}</div>{fields.filter(f=>!f.isName).map(f=><div key={f.key} style={{fontSize:11,color:"#555",padding:"1px 0"}}><span style={{color:"#888"}}>{f.key}:</span> {f.value}</div>)}</>;})()}</div></Popup>)}
