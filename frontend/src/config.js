@@ -17,7 +17,8 @@ export const CHAT_INPUT_ENABLED = !["false", "0", "off", "no"].includes(
 );
 export const F = "'DM Sans',system-ui,sans-serif";
 export const M = "'JetBrains Mono',monospace";
-export const MAPBOX_TOKEN = "pk.eyJ1IjoiZGlvdWNrIiwiYSI6ImNrc3E2NmlrdDA5djkydm1kMXo0NGRyOW8ifQ.B_LfncIjrhY-STiNTseOGQ";
+// Token Mapbox fourni au build via VITE_MAPBOX_TOKEN (jamais en dur — dépôt public).
+export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 export const MAP_STYLES = {
   dark: "https://tiles.openfreemap.org/styles/dark",

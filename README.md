@@ -187,24 +187,35 @@ npm run dev
 
 ---
 
-## Configuration LLM (backend/.env)
+## Configuration (backend/.env)
 
-Le fichier `.env` est créé automatiquement à l'installation. Décommentez le provider de votre choix :
+La configuration se fait dans `backend/.env`. Un gabarit complet **sans secrets** est fourni : **[`backend/.env.example`](backend/.env.example)**. Copiez-le puis renseignez vos valeurs :
+
+```bash
+cp backend/.env.example backend/.env
+# puis éditez backend/.env
+```
+
+À renseigner au minimum :
 
 ```dotenv
 # Provider : claude | openai | ollama | openrouter | deepseek | mistral
-LLM_PROVIDER=claude
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=            # ou ANTHROPIC_API_KEY / OPENAI_API_KEY… selon le provider
 
-ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...
-# OPENROUTER_API_KEY=sk-or-...
-# OLLAMA_API_BASE=http://localhost:11434
+# PostgreSQL / pgvector (RAG)
+PG_HOST=localhost
+PG_PASSWORD=
+
+# Cartographie (optionnel)
+MAPTILER_API_KEY=
+VITE_MAPBOX_TOKEN=            # token Mapbox — public par nature, restreignez-le par URL côté Mapbox
 
 OVERTURE_RELEASE=2026-03-18.0
-DUCKDB_MEMORY=4GB
-DUCKDB_THREADS=4
 BACKEND_PORT=8000
 ```
+
+> ⚠️ **Ne committez jamais `backend/.env`** (il est ignoré par git). N'écrivez aucune clé réelle dans le code source, la doc ou tout fichier versionné : **le dépôt est public**. Le frontend lit le token Mapbox via `VITE_MAPBOX_TOKEN` injecté au build (`npm run build`).
 
 ---
 

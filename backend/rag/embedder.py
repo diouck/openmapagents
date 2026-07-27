@@ -24,7 +24,7 @@ PG_HOST     = os.getenv("PG_HOST",     "geoafrica.fr")
 PG_PORT     = int(os.getenv("PG_PORT", "5435"))
 PG_DB       = os.getenv("PG_DB",       "openmapagents")
 PG_USER     = os.getenv("PG_USER",     "postgres")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "Postgres2024!")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 
 EMBED_MODEL = os.getenv(
     "EMBED_MODEL",
