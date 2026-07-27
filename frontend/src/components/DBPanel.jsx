@@ -1,13 +1,15 @@
 import { useState, useCallback, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
+import { IcDatabase, IcFile, IcCheck, IcX, IcLoader, IcPlug, IcSearch, IcTable,
+  IcMap, IcEye, IcEyeOff, IcAlert, IcPlus, IcClipboard, IcChevronUp, IcChevronDown } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const DB_TYPES = [
-  { key: "postgresql", label: "PostgreSQL / PostGIS", port: 5432, icon: "🐘" },
-  { key: "mysql",      label: "MySQL / MariaDB",      port: 3306, icon: "🐬" },
-  { key: "sqlite",     label: "SQLite",               port: null, icon: "📁" },
+  { key: "postgresql", label: "PostgreSQL / PostGIS", port: 5432, icon: IcDatabase },
+  { key: "mysql",      label: "MySQL / MariaDB",      port: 3306, icon: IcDatabase },
+  { key: "sqlite",     label: "SQLite",               port: null, icon: IcFile },
 ];
 
 const SQL_TEMPLATES = {
@@ -41,15 +43,16 @@ function Field({ label, children }) {
 function StatusBadge({ status, message }) {
   const C = useThemeContext();
   const colors = { ok: C.acc, error: C.red, testing: C.amb };
-  const icons  = { ok: "✓", error: "✕", testing: "⏳" };
+  const Icon = { ok: IcCheck, error: IcX, testing: IcLoader }[status];
   const col = colors[status] || C.dim;
   return (
     <div style={{
       fontSize: 10, padding: "5px 10px", borderRadius: 5,
       background: col + "15", border: `0.5px solid ${col}44`,
       color: col, lineHeight: 1.5, wordBreak: "break-word",
+      display: "flex", alignItems: "center", gap: 5,
     }}>
-      {icons[status]} {message}
+      {Icon && <Icon size={12} style={{ flexShrink: 0 }}/>} {message}
     </div>
   );
 }
@@ -219,14 +222,14 @@ export default function DBPanel({ onAddLayer }) {
 
       {/* ── Onglets ─────────────────────────────────────────── */}
       <div style={{ display: "flex", borderBottom: `0.5px solid ${C.bdr}`, flexShrink: 0 }}>
-        {[["connection", "🔌 Connexion"], ["query", "🔍 Requête"]].map(([key, label]) => (
+        {[["connection", IcPlug, "Connexion"], ["query", IcSearch, "Requête"]].map(([key, Icon, label]) => (
           <button key={key} onClick={() => setActiveTab(key)} style={{
             fontFamily: F, fontSize: 11, padding: "8px 14px", border: "none", cursor: "pointer",
             background: activeTab === key ? C.acc + "15" : "transparent",
             color: activeTab === key ? C.acc : C.mut,
             borderBottom: activeTab === key ? `2px solid ${C.acc}` : "2px solid transparent",
-            flex: 1,
-          }}>{label}</button>
+            flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}><Icon size={13}/> {label}</button>
         ))}
       </div>
 
@@ -246,7 +249,7 @@ export default function DBPanel({ onAddLayer }) {
                     color: dbType === t.key ? C.acc : C.dim, cursor: "pointer",
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                   }}>
-                    <span style={{ fontSize: 14 }}>{t.icon}</span>
+                    {t.icon && <t.icon size={15}/>}
                     <span style={{ fontSize: 9 }}>{t.key === "postgresql" ? "PostGIS" : t.key === "mysql" ? "MySQL" : "SQLite"}</span>
                   </button>
                 ))}
@@ -259,8 +262,8 @@ export default function DBPanel({ onAddLayer }) {
                 fontFamily: F, fontSize: 9, padding: "2px 8px", borderRadius: 4,
                 background: useUrl ? C.acc + "18" : "transparent",
                 border: `0.5px solid ${useUrl ? C.acc + "55" : C.bdr}`,
-                color: useUrl ? C.acc : C.dim, cursor: "pointer",
-              }}>{useUrl ? "✓ " : ""}URL directe</button>
+                color: useUrl ? C.acc : C.dim, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4,
+              }}>{useUrl && <IcCheck size={11}/>} URL directe</button>
               <span style={{ fontSize: 9, color: C.dim }}>ex: postgresql://user:pass@host/db</span>
             </div>
 
@@ -316,8 +319,8 @@ export default function DBPanel({ onAddLayer }) {
                           <button onClick={() => setShowPass(v => !v)} style={{
                             position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
                             background: "none", border: "none", cursor: "pointer",
-                            color: C.dim, fontSize: 12, padding: 0,
-                          }}>{showPass ? "🙈" : "👁"}</button>
+                            color: C.dim, display: "flex", padding: 0,
+                          }}>{showPass ? <IcEyeOff size={13}/> : <IcEye size={13}/>}</button>
                         </div>
                       </Field>
                     </div>
@@ -336,8 +339,9 @@ export default function DBPanel({ onAddLayer }) {
               color: database ? "#fff" : C.dim, border: "none",
               cursor: database ? "pointer" : "default",
               opacity: loadingConn ? 0.6 : 1,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             }}>
-              {loadingConn ? "⏳ Test en cours…" : "🔌 Tester la connexion"}
+              <IcPlug size={13}/> {loadingConn ? "Test en cours…" : "Tester la connexion"}
             </button>
           </>
         )}
@@ -347,8 +351,8 @@ export default function DBPanel({ onAddLayer }) {
           <>
             {/* Statut connexion compact */}
             {connStatus && (
-              <div style={{ fontSize: 9, padding: "3px 8px", borderRadius: 4, background: (connStatus.status === "ok" ? C.acc : C.red) + "15", color: connStatus.status === "ok" ? C.acc : C.red, border: `0.5px solid ${(connStatus.status === "ok" ? C.acc : C.red)}33` }}>
-                {connStatus.status === "ok" ? "✓" : "✕"} {connStatus.status === "ok" ? `Connecté à ${database}` : "Non connecté"}
+              <div style={{ fontSize: 9, padding: "3px 8px", borderRadius: 4, background: (connStatus.status === "ok" ? C.acc : C.red) + "15", color: connStatus.status === "ok" ? C.acc : C.red, border: `0.5px solid ${(connStatus.status === "ok" ? C.acc : C.red)}33`, display: "flex", alignItems: "center", gap: 5 }}>
+                {connStatus.status === "ok" ? <IcCheck size={11}/> : <IcX size={11}/>} {connStatus.status === "ok" ? `Connecté à ${database}` : "Non connecté"}
                 {connStatus.status !== "ok" && (
                   <button onClick={() => setActiveTab("connection")} style={{ marginLeft: 8, fontFamily: F, fontSize: 9, background: "none", border: "none", color: C.acc, cursor: "pointer", textDecoration: "underline" }}>Configurer</button>
                 )}
@@ -361,8 +365,9 @@ export default function DBPanel({ onAddLayer }) {
                 fontFamily: F, fontSize: 10, padding: "5px 10px", borderRadius: 5, flex: 1,
                 background: "transparent", border: `0.5px solid ${C.bdr}`,
                 color: C.mut, cursor: "pointer", opacity: connStatus?.status !== "ok" ? 0.4 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
               }}>
-                {loadingTbl ? "⏳" : "📋"} Tables
+                {loadingTbl ? <IcLoader size={13}/> : <IcTable size={13}/>} Tables
               </button>
               {tables.length > 0 && (
                 <button onClick={() => setShowTables(v => !v)} style={{
@@ -371,7 +376,7 @@ export default function DBPanel({ onAddLayer }) {
                   border: `0.5px solid ${showTables ? C.acc + "55" : C.bdr}`,
                   color: showTables ? C.acc : C.dim, cursor: "pointer",
                 }}>
-                  {tables.length} tables {showTables ? "▲" : "▼"}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{tables.length} tables {showTables ? <IcChevronUp size={11}/> : <IcChevronDown size={11}/>}</span>
                 </button>
               )}
             </div>
@@ -388,7 +393,7 @@ export default function DBPanel({ onAddLayer }) {
                     onMouseEnter={e => e.currentTarget.style.background = C.hover}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
-                    <span style={{ fontSize: 12 }}>{t.has_geometry ? "🗺" : "📄"}</span>
+                    <span style={{ display: "flex", color: t.has_geometry ? C.acc : C.dim }}>{t.has_geometry ? <IcMap size={13}/> : <IcFile size={13}/>}</span>
                     <span style={{ fontSize: 11, color: C.txt, flex: 1 }}>{t.name}</span>
                     <span style={{ fontSize: 9, color: C.dim }}>{t.type}</span>
                     {t.has_geometry && <span style={{ fontSize: 9, color: C.acc }}>geo</span>}
@@ -439,15 +444,15 @@ export default function DBPanel({ onAddLayer }) {
 
             {/* Erreur */}
             {queryError && (
-              <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5, wordBreak: "break-word" }}>
-                ❌ {queryError}
+              <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5, wordBreak: "break-word", display: "flex", gap: 5 }}>
+                <IcAlert size={12} style={{ flexShrink: 0, marginTop: 1 }}/> <span>{queryError}</span>
               </div>
             )}
 
             {/* Aperçu résultat */}
             {queryResult && (
-              <div style={{ fontSize: 10, color: C.acc }}>
-                ✓ {queryResult.total} features — aperçu ci-dessous
+              <div style={{ fontSize: 10, color: C.acc, display: "flex", alignItems: "center", gap: 5 }}>
+                <IcCheck size={12}/> {queryResult.total} features — aperçu ci-dessous
               </div>
             )}
             {queryResult?.rows?.length > 0 && (
@@ -482,8 +487,9 @@ export default function DBPanel({ onAddLayer }) {
                 background: "transparent", border: `0.5px solid ${C.bdr}`,
                 color: C.mut, cursor: sql.trim() ? "pointer" : "default",
                 opacity: loadingQry ? 0.6 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
               }}>
-                👁 Aperçu
+                <IcEye size={13}/> Aperçu
               </button>
               <button onClick={() => executeQuery(true)} disabled={loadingQry || !sql.trim() || connStatus?.status !== "ok"} style={{
                 fontFamily: F, fontSize: 10, fontWeight: 500, padding: "6px 0", borderRadius: 5, flex: 2,
@@ -491,8 +497,9 @@ export default function DBPanel({ onAddLayer }) {
                 color: sql.trim() && connStatus?.status === "ok" ? "#fff" : C.dim,
                 border: "none", cursor: sql.trim() ? "pointer" : "default",
                 opacity: loadingQry ? 0.6 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}>
-                {loadingQry ? "⏳ Chargement…" : "➕ Ajouter comme couche"}
+                <IcPlus size={13}/> {loadingQry ? "Chargement…" : "Ajouter comme couche"}
               </button>
             </div>
 

@@ -1,6 +1,15 @@
 import { useThemeContext } from "../theme";
-import { M } from "../config";
+import { M, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
+import { resolveChartColors } from "../utils/chartSprites";
+
+// ── Formatage surface ──────────────────────────────────────────────────────────
+function fmtArea(ha) {
+  if (ha === null || ha === undefined || ha === 0) return null;
+  if (ha < 1)   return `${Math.round(ha * 10000)} m²`;
+  if (ha < 100) return `${ha.toFixed(1)} ha`;
+  return `${(ha / 100).toFixed(2)} km²`;
+}
 
 // ── Preview icône Maki inline ─────────────────────────────────
 function MakiPreview({ name, color = "#1D9E75", size = 18 }) {
@@ -24,20 +33,24 @@ function NestedCircles({ cr, color }) {
   const cx     = maxR + 1;
   const base   = H - 1;
 
+  // Si une palette graduée est associée (cf. buildClassification), chaque cercle
+  // reprend la couleur de sa classe — sinon tous prennent la couleur de la couche.
+  const cls = cr.classes || [];
+  const colAt = (i, n) => cls.length ? (cls[Math.round(i / (n - 1) * (cls.length - 1))]?.color || color) : color;
   const entries = [
-    { r: cr.maxSize, val: cr.maxVal },
-    { r: medR,       val: medVal   },
-    { r: cr.minSize, val: cr.minVal},
+    { r: cr.maxSize, val: cr.maxVal, c: colAt(2, 3) },
+    { r: medR,       val: medVal,    c: colAt(1, 3) },
+    { r: cr.minSize, val: cr.minVal, c: colAt(0, 3) },
   ];
 
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
-      {entries.map(({ r, val }, i) => {
+      {entries.map(({ r, val, c }, i) => {
         const dr = Math.max(1.5, r * scale);
         const cy = base - dr;
         return (
           <g key={i}>
-            <circle cx={cx} cy={cy} r={dr} fill={color} opacity="0.85" />
+            <circle cx={cx} cy={cy} r={dr} fill={c || color} opacity="0.85" />
             <circle cx={cx} cy={cy} r={dr} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
             <line
               x1={cx + dr} y1={cy}
@@ -47,7 +60,7 @@ function NestedCircles({ cr, color }) {
             />
             <text
               x={maxR * 2 + 8} y={cy + 3.5}
-              fontSize="9" fill="rgba(220,220,220,0.9)"
+              fontSize="9" fill="currentColor" opacity="0.7"
               fontFamily="sans-serif"
             >{val?.toLocaleString("fr")}</text>
           </g>
@@ -84,7 +97,7 @@ function NestedLines({ cr, color }) {
             <line x1="2" y1={y} x2={lineLen} y2={y}
               stroke={color} strokeWidth={dw} strokeLinecap="round" opacity="0.9" />
             <text x={lineLen + 5} y={y + 3.5}
-              fontSize="9" fill="rgba(220,220,220,0.9)"
+              fontSize="9" fill="currentColor" opacity="0.7"
               fontFamily="sans-serif"
             >{val?.toLocaleString("fr")}</text>
           </g>
@@ -109,10 +122,33 @@ const WORLDCOVER_CLASSES = [
   { value: 100, label: "Mousse / Lichen",color: "#fae6a0" },
 ];
 
+// ── Palettes par défaut par index GEE ────────────────────────
+const GEE_DEFAULT_PALETTES = {
+  NDVI:  { palette: ["#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#66bd63","#1a9850"], min: -0.2, max: 0.9,  unit: "NDVI" },
+  EVI:   { palette: ["#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#66bd63","#1a9850"], min: -0.2, max: 0.9,  unit: "EVI"  },
+  SAVI:  { palette: ["#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#1a9850"],           min: -0.5, max: 1.0,  unit: "SAVI" },
+  NDWI:  { palette: ["#d7191c","#fdae61","#ffffbf","#abd9e9","#2c7bb6"],                              min: -0.5, max: 0.5,  unit: "NDWI" },
+  MNDWI: { palette: ["#d7191c","#fdae61","#ffffbf","#abd9e9","#2c7bb6"],                              min: -0.5, max: 0.5,  unit: "MNDWI"},
+  NBR:   { palette: ["#006837","#31a354","#78c679","#c2e699","#ffffcc","#feb24c","#f03b20","#bd0026"],  min: -1,   max: 1,   unit: "NBR"  },
+  LST:   { palette: ["#040274","#3288bd","#abdda4","#fdae61","#d53e4f","#9e0142"], min: 0,    max: 45,  unit: "°C"   },
+  SAR:   { palette: ["#000000","#404040","#808080","#bfbfbf","#ffffff"],                               min: -25,  max: 0,   unit: "dB"   },
+};
+
+function _inferGeeDefaults(name) {
+  const n = (name || "").toUpperCase();
+  for (const [key, val] of Object.entries(GEE_DEFAULT_PALETTES)) {
+    if (n.includes(key)) return { ...val, key };
+  }
+  if (n.includes("TEMPERATURE") || n.includes("SURFACE") || n.includes("CHALEUR") || n.includes("ICU")) {
+    return { ...GEE_DEFAULT_PALETTES.LST, key: "LST" };
+  }
+  return null;
+}
+
 // ── Légende raster GEE ─────────────────────────────────────────
 function GeeRasterLegend({ layer }) {
   const C  = useThemeContext();
-  const vp = layer.visParams;
+  const vp = layer.visParams || _inferGeeDefaults(layer.name);
   if (!vp) return null;
 
   const name = layer.name || "";
@@ -169,8 +205,55 @@ function GeeRasterLegend({ layer }) {
         fontSize: 9, color: C.dim, fontFamily: M,
       }}>
         <span>{fmt(min)}</span>
-        <span>{fmt(mid)}</span>
+        <span style={{ color: "var(--c-acc,#1D9E75)", fontWeight: 500 }}>{vp.unit || ""}</span>
         <span>{fmt(max)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Légende bivariée (matrice 3×3 sémiologie croisée) ──────────
+function BivariateLegend({ bivariate }) {
+  const C = useThemeContext();
+  const pal = bivariate?.palette || [];
+  if (pal.length < 9) return null;
+
+  const cell   = 17;
+  const labelA = bivariate.label_a || "Variable A";
+  const labelB = bivariate.label_b || "Variable B";
+  const lvl    = bivariate.levels || ["Faible", "Moyen", "Élevé"];
+
+  return (
+    <div style={{ paddingLeft: 4, paddingTop: 2 }}>
+      <div style={{ display: "flex", gap: 5 }}>
+        {/* Axe A (vertical, Faible bas → Élevé haut) */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <span style={{
+            fontSize: 8, color: C.dim, writingMode: "vertical-rl",
+            transform: "rotate(180deg)", whiteSpace: "nowrap",
+            maxHeight: cell * 3 + 3, overflow: "hidden", textOverflow: "ellipsis",
+          }} title={labelA}>{labelA} →</span>
+        </div>
+
+        <div>
+          {/* Grille 3×3 */}
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(3, ${cell}px)`, gridTemplateRows: `repeat(3, ${cell}px)`, gap: 1.5 }}>
+            {[2, 1, 0].map(a =>
+              [0, 1, 2].map(b => {
+                const code = a * 3 + b;
+                return (
+                  <div key={code}
+                    title={`${labelA} : ${lvl[a]} · ${labelB} : ${lvl[b]}`}
+                    style={{ width: cell, height: cell, background: pal[code], borderRadius: 2, border: "0.5px solid rgba(0,0,0,.12)" }} />
+                );
+              })
+            )}
+          </div>
+          {/* Axe B (horizontal, Faible gauche → Élevé droite) */}
+          <div style={{ fontSize: 8, color: C.dim, marginTop: 2, maxWidth: cell * 3 + 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={labelB}>
+            {labelB} →
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -184,36 +267,100 @@ export default function Legend({ layers }) {
 
   return (
     <div style={{
-      position: "absolute", bottom: 30, left: 10, zIndex: 10, maxWidth: 220,
-      borderRadius: 8, padding: 10, maxHeight: "40vh", overflowY: "auto",
+      position: "absolute", bottom: 30, left: 10, zIndex: 10, maxWidth: 240,
+      borderRadius: 8, padding: "8px 10px", maxHeight: "45vh", overflowY: "auto",
+      background: C.card,
+      border: `1px solid ${C.bdr}`,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+      backdropFilter: "blur(8px)",
     }}>
       {visible.map(layer => {
         const cr = layer.classResult;
-        const showGeeLegend = layer.isRaster && layer.visParams;
+        const isBivariate  = layer.isRaster && layer.bivariate?.palette?.length >= 9;
+        // Couche classée : sa légende porte les vraies bornes min/max de chaque
+        // classe. La rampe continue tirée de visParams afficherait « 0 → n-1 »
+        // (les identifiants de classe), ce qui n'a aucun sens pour le lecteur.
+        const hasClasses   = layer.isRaster && layer.legend?.length > 0;
+        const showGeeLegend = !isBivariate && !hasClasses && layer.isRaster
+                              && (layer.visParams || _inferGeeDefaults(layer.name));
 
         return (
           <div key={layer.id} style={{ marginBottom: 8 }}>
 
             {/* Nom couche + pastille */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: (cr || showGeeLegend) ? 4 : 0 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 3, background: layer.color, flexShrink: 0 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: (cr || showGeeLegend || isBivariate || hasClasses) ? 4 : 0 }}>
+              {/* Pastille adaptée au type de couche */}
+              {layer.theme === "isochrone" ? (
+                <div style={{ width: 14, height: 10, borderRadius: 3, border: `2px solid ${layer.color}`, background: layer.color + "55", flexShrink: 0 }} />
+              ) : layer.theme === "route" ? (
+                <div style={{ width: 14, height: 3, borderRadius: 2, background: layer.color, flexShrink: 0, marginTop: 4 }} />
+              ) : (layer.geojson?.features?.[0]?.geometry?.type === "Point" || !layer.geojson?.features?.[0]) ? (
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: layer.color, flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: layer.color, flexShrink: 0 }} />
+              )}
               <span style={{ fontSize: 11, fontWeight: 500, color: C.txt }}>{layer.name}</span>
               <span style={{ fontSize: 9, color: C.dim, fontFamily: M, marginLeft: "auto" }}>{layer.featureCount}</span>
             </div>
 
-            {/* ── Légende raster GEE ── */}
+            {/* ── Légende raster GEE (palettes continues / WorldCover) ── */}
             {showGeeLegend && <GeeRasterLegend layer={layer} />}
+
+            {/* ── Légende bivariée (matrice 3×3) ── */}
+            {isBivariate && <BivariateLegend bivariate={layer.bivariate} />}
+
+            {/* ── Légende classification raster (classif supervisée / auto / cluster) ── */}
+            {hasClasses && !isBivariate && (
+              <div style={{ paddingLeft: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+                {layer.legend.map(e => (
+                  <div key={e.class_id ?? e.label}
+                       style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{
+                      width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+                      background: e.color,
+                      border: "0.5px solid rgba(0,0,0,.12)",
+                    }} />
+                    <span style={{ fontSize: 10, color: C.mut, flex: 1,
+                                   overflow: "hidden", textOverflow: "ellipsis",
+                                   whiteSpace: "nowrap" }}>
+                      {e.label}
+                    </span>
+                    {fmtArea(e.area_ha) && (
+                      <span style={{ fontSize: 9, color: C.dim, fontFamily: M,
+                                     flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {fmtArea(e.area_ha)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Graphiques par entité — couleur de chaque variable représentée */}
+            {layer.chartCfg?.vars?.length > 0 && (() => {
+              const cs = resolveChartColors(layer.chartCfg, RAMPS, layer.chartCfg.vars.length);
+              return (
+                <div style={{ paddingLeft: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                  {layer.chartCfg.vars.map((v, i) => (
+                    <div key={v} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, flexShrink: 0, background: cs[i % cs.length] }} />
+                      <span style={{ color: C.mut, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Symboles proportionnels — cercles superposés */}
             {cr?.type === "proportional" && (
-              <div style={{ paddingLeft: 4 }}>
+              <div style={{ paddingLeft: 4, color: C.mut }}>
                 <NestedCircles cr={cr} color={layer.color} />
               </div>
             )}
 
             {/* Traits proportionnels — lignes empilées */}
             {cr?.type === "proportional_line" && (
-              <div style={{ paddingLeft: 4 }}>
+              <div style={{ paddingLeft: 4, color: C.mut }}>
                 <NestedLines cr={cr} color={layer.color} />
               </div>
             )}

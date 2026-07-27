@@ -4,16 +4,17 @@ import { F, M } from "../config";
 import { SPATIAL_OPS, SPATIAL_GROUPS, executeSpatialOp } from "../utils/spatial";
 import { getLayerAttrs } from "../utils/classification";
 import { Sel, Lbl } from "./ui";
+import { IcVenn, IcCircleDot, IcTriangle, IcRulerTool, IcBarChart, IcRoute, IcSparkles, IcCheck } from "../icons";
 
-// Icônes par groupe
+// Icônes par groupe (composants Lucide)
 const GROUP_ICONS = {
-  "Overlay":       "⧉",
-  "Proximité":     "◎",
-  "Géométrie":     "△",
-  "Mesure":        "📐",
-  "Statistiques":  "📊",
-  "Mobilité/Flux": "⤳",
-  "Génération":    "✦",
+  "Overlay":       IcVenn,
+  "Proximité":     IcCircleDot,
+  "Géométrie":     IcTriangle,
+  "Mesure":        IcRulerTool,
+  "Statistiques":  IcBarChart,
+  "Mobilité/Flux": IcRoute,
+  "Génération":    IcSparkles,
 };
 
 export default function SpatialPanel({ layers, onAddLayer }) {
@@ -100,7 +101,7 @@ export default function SpatialPanel({ layers, onAddLayer }) {
                   userSelect: "none",
                 }}
               >
-                <span style={{ fontSize: 11 }}>{GROUP_ICONS[group] || "•"}</span>
+                <span style={{ display: "flex" }}>{(() => { const GI = GROUP_ICONS[group]; return GI ? <GI size={13}/> : null; })()}</span>
                 <span style={{
                   flex: 1, fontSize: 9, fontWeight: 600, color: hasSelected ? C.acc : C.dim,
                   textTransform: "uppercase", letterSpacing: ".06em",
@@ -196,8 +197,8 @@ export default function SpatialPanel({ layers, onAddLayer }) {
 
         {/* Résultat */}
         {lastResult && (
-          <div style={{ fontSize: 10, color: C.acc }}>
-            ✓ {lastResult.count} features ajoutées
+          <div style={{ fontSize: 10, color: C.acc, display: "flex", alignItems: "center", gap: 5 }}>
+            <IcCheck size={12}/> {lastResult.count} features ajoutées
           </div>
         )}
 

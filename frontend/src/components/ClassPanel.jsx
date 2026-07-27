@@ -5,6 +5,8 @@ import { getLayerAttrs, getNumVals } from "../utils/classification";
 import { MAKI_GROUPS, MAKI_PATHS } from "../utils/makiIcons";
 import { makiToDataUrl, loadMakiIcon } from "../utils/makiLoader";
 import { Sel, Lbl } from "./ui";
+import ChartStyleBlock from "./ChartStyleBlock";
+import { IcMap, IcImage, IcUpload, IcChevronDown, IcChevronRight } from "../icons";
 
 // Preview inline d'une icône Maki (SVG dans le DOM, sans map)
 function MakiPreview({ name, color = "#1D9E75", size = 20 }) {
@@ -18,15 +20,17 @@ function MakiPreview({ name, color = "#1D9E75", size = 20 }) {
   );
 }
 
-export default function ClassPanel({ layer, classification, onChange, mapRef }) {
+export default function ClassPanel({ layer, classification, onChange, mapRef, chartCfg, onChartChange, onLayerOpacity }) {
   const C = useThemeContext();
   const attrs = useMemo(() => getLayerAttrs(layer), [layer]);
 
   const [type,    setType]    = useState(classification?.type    || "none");
+  const [openClass, setOpenClass] = useState(!!classification && classification.type !== "none");
   const [attr,    setAttr]    = useState(classification?.attribute || "");
   const [method,  setMethod]  = useState(classification?.method  || "quantile");
   const [nc,      setNc]      = useState(classification?.nClasses || 5);
-  const [ramp,    setRamp]    = useState(classification?.ramp    || "viridis");
+  const [ramp,    setRamp]    = useState(classification?.ramp    || classification?.palette || "viridis");
+  const [invertRamp, setInvertRamp] = useState(classification?.invertRamp || false);
   const [cb,      setCb]      = useState("");
   const [minSize, setMinSize] = useState(classification?.minSize ?? 3);
   const [maxSize, setMaxSize] = useState(classification?.maxSize ?? 30);
@@ -57,7 +61,17 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
     if (!mapRef?.current) return null;
     const map = mapRef.current?.getMap?.();
     if (!map) return null;
-    return loadMakiIcon(map, makiName, makiColor, makiSize);
+    if (!map.isStyleLoaded()) {
+      console.warn("[ClassPanel] style pas encore chargé");
+      return null;
+    }
+    const imgId = loadMakiIcon(map, makiName, makiColor, parseInt(makiSize));
+    if (!imgId) { console.warn("[ClassPanel] loadMakiIcon null pour", makiName); return null; }
+    if (!map.hasImage(imgId)) {
+      // Retry immédiat
+      return loadMakiIcon(map, makiName, makiColor, parseInt(makiSize));
+    }
+    return imgId;
   }, [mapRef, makiName, makiColor, makiSize]);
 
   const handleImageUpload = (e) => {
@@ -80,19 +94,39 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
 
   const apply = () => {
     if (type === "none") { onChange(null); return; }
-    let imageId = null;
-    if (isSymbol && symbolMode === "maki") imageId = getMakiImageId();
-    onChange({
-      type, attribute: attr, method, nClasses: parseInt(nc), ramp,
-      customBreaks: cb ? cb.split(",").map(Number).filter(v => !isNaN(v)) : null,
-      minSize: parseFloat(minSize) || 3,
-      maxSize: parseFloat(maxSize) || 30,
-      // Symbol
-      symbolMode,
-      makiName, makiColor, makiSize: parseInt(makiSize),
-      makiImageId: imageId,
-      customImage, imageSize: parseFloat(imageSize) || 1,
-    });
+
+    const doApply = (imageId) => {
+      onChange({
+        type, attribute: attr, method, nClasses: parseInt(nc), ramp,
+        invertRamp,
+        customBreaks: cb ? cb.split(",").map(Number).filter(v => !isNaN(v)) : null,
+        minSize: parseFloat(minSize) || 3,
+        maxSize: parseFloat(maxSize) || 30,
+        symbolMode,
+        makiName, makiColor, makiSize: parseInt(makiSize),
+        makiImageId: imageId,
+        customImage, imageSize: parseFloat(imageSize) || 1,
+      });
+    };
+
+    if (isSymbol && symbolMode === "maki") {
+      const map = mapRef?.current?.getMap?.();
+      // Forcer chargement immédiat si style prêt
+      const tryApply = () => {
+        const imgId = loadMakiIcon(map, makiName, makiColor, parseInt(makiSize));
+        console.log("[ClassPanel] apply maki imgId=", imgId, "hasImage=", imgId && map.hasImage(imgId));
+        doApply(imgId || null);
+      };
+      if (map && map.isStyleLoaded()) {
+        tryApply();
+      } else if (map) {
+        map.once("styledata", tryApply);
+      } else {
+        doApply(null);
+      }
+    } else {
+      doApply(null);
+    }
   };
 
   const inp = {
@@ -103,8 +137,22 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
 
   return (
     <div style={{ background: C.bg, borderRadius: 8, padding: 10, border: `0.5px solid ${C.bdr}`, display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 500, color: C.txt }}>Classification</div>
+      {/* Repliable : avec le calculateur de champ et les graphiques, la colonne
+          devenait un long défilement. Ouvert d'office si une classification est
+          déjà en place, pour ne pas cacher un réglage actif. */}
+      <button onClick={() => setOpenClass(o => !o)} style={{
+        width: "100%", display: "flex", alignItems: "center", gap: 6, background: "transparent",
+        border: "none", cursor: "pointer", padding: 0, color: type !== "none" ? C.acc : C.txt,
+      }}>
+        {openClass ? <IcChevronDown size={13} /> : <IcChevronRight size={13} />}
+        <span style={{ fontSize: 11, fontWeight: 500, flex: 1, textAlign: "left" }}>Classification</span>
+        {type !== "none" && (
+          <span style={{ fontSize: 8.5, color: C.acc, border: `0.5px solid ${C.acc}55`,
+                         borderRadius: 3, padding: "0 4px" }}>{attr || type}</span>
+        )}
+      </button>
 
+      {openClass && (<>
       {/* Type */}
       <div>
         <Lbl>Type</Lbl>
@@ -112,9 +160,9 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
           { value: "none",              label: "Couleur unique" },
           { value: "categorized",       label: "Catégorisée" },
           { value: "graduated",         label: "Graduée (couleur)" },
-          { value: "proportional",      label: "⬤ Symboles proportionnels" },
-          { value: "proportional_line", label: "━ Traits proportionnels" },
-          { value: "symbol",            label: "🗺 Icône Maki / Image" },
+          { value: "proportional",      label: "Symboles proportionnels" },
+          { value: "proportional_line", label: "Traits proportionnels" },
+          { value: "symbol",            label: "Icône Maki / Image" },
         ]} />
       </div>
 
@@ -132,13 +180,14 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
         <>
           {/* Mode maki / image */}
           <div style={{ display: "flex", gap: 4 }}>
-            {[["maki","🗺 Maki SVG"],["image","🖼 Image/PNG"]].map(([k,l]) => (
+            {[["maki",IcMap,"Maki SVG"],["image",IcImage,"Image/PNG"]].map(([k,Icon,l]) => (
               <button key={k} onClick={() => setSymbolMode(k)} style={{
                 fontFamily: F, fontSize: 10, padding: "4px 0", borderRadius: 4, flex: 1,
                 background: symbolMode === k ? C.acc+"18" : "transparent",
                 border: `0.5px solid ${symbolMode === k ? C.acc+"66" : C.bdr}`,
                 color: symbolMode === k ? C.acc : C.dim, cursor: "pointer",
-              }}>{l}</button>
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              }}><Icon size={12}/> {l}</button>
             ))}
           </div>
 
@@ -219,7 +268,7 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
                 }}>
                   {customImage
                     ? <><img src={customImage.dataUrl} style={{ width: 24, height: 24, objectFit: "contain" }} alt="" /> Remplacer l'icône</>
-                    : "📂 Choisir un fichier"
+                    : <><IcUpload size={13}/> Choisir un fichier</>
                   }
                   <input type="file" accept=".svg,.png,.jpg,.jpeg,.webp" onChange={handleImageUpload}
                     style={{ display: "none" }} />
@@ -277,9 +326,20 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               {type === "proportional" ? (
                 <svg width="60" height="40" viewBox="0 0 60 40">
-                  <circle cx="8"  cy="20" r={Math.max(2, parseFloat(minSize)||3)} fill={C.acc} opacity="0.8" />
-                  <circle cx="32" cy="20" r={Math.max(2, Math.min(18, (parseFloat(minSize)||3 + parseFloat(maxSize)||30)/2))} fill={C.acc} opacity="0.8" />
-                  <circle cx="54" cy="20" r={Math.max(2, Math.min(18, parseFloat(maxSize)||30))} fill={C.acc} opacity="0.8" />
+                  {(() => {
+                    const cols = RAMPS[ramp] || RAMPS.viridis;
+                    const c1 = cols[0] || C.acc;
+                    const c2 = cols[Math.floor(cols.length/2)] || C.acc;
+                    const c3 = cols[cols.length-1] || C.acc;
+                    const rMin = Math.max(2, parseFloat(minSize)||3);
+                    const rMax = Math.max(2, Math.min(18, parseFloat(maxSize)||30));
+                    const rMid = Math.max(2, Math.min(18, (rMin+rMax)/2));
+                    return <>
+                      <circle cx="8"  cy="20" r={rMin} fill={c1} opacity="0.85" />
+                      <circle cx="32" cy="20" r={rMid} fill={c2} opacity="0.85" />
+                      <circle cx="54" cy="20" r={rMax} fill={c3} opacity="0.85" />
+                    </>;
+                  })()}
                 </svg>
               ) : (
                 <svg width="60" height="36" viewBox="0 0 60 36">
@@ -295,8 +355,37 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
       )}
 
       {/* ══ PALETTE COULEUR ════════════════════════════════════ */}
-      {(type === "categorized" || type === "graduated") && attr && (
-        <div><Lbl>Palette</Lbl>
+      {(type === "categorized" || type === "graduated" || type === "proportional") && attr && (
+        <div>
+          {/* Ligne titre + bouton invert */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <Lbl style={{ marginBottom: 0 }}>Palette</Lbl>
+            <button
+              onClick={() => setInvertRamp(v => !v)}
+              title={invertRamp ? "Palette inversée — cliquer pour rétablir" : "Inverser la palette"}
+              style={{
+                fontFamily: F, fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                background: invertRamp ? C.acc + "22" : "transparent",
+                border: `0.5px solid ${invertRamp ? C.acc + "88" : C.bdr}`,
+                color: invertRamp ? C.acc : C.dim,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+                transition: "all .15s",
+              }}>
+              ↕ {invertRamp ? "Inversée" : "Inverser"}
+            </button>
+          </div>
+          {/* Preview palette active avec inversion en temps réel */}
+          {(() => {
+            const cols = RAMPS[ramp] || [];
+            const preview = invertRamp ? [...cols].reverse() : cols;
+            return (
+              <div style={{
+                height: 8, borderRadius: 4, marginBottom: 6,
+                background: `linear-gradient(to right,${preview.slice(0,8).join(",")})`,
+                border: `0.5px solid ${C.bdr}`,
+              }} />
+            );
+          })()}
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {Object.entries(RAMPS).map(([n, cols]) => (
               <button key={n} onClick={() => setRamp(n)} style={{
@@ -316,6 +405,13 @@ export default function ClassPanel({ layer, classification, onChange, mapRef }) 
           fontFamily: F, fontSize: 11, fontWeight: 500, padding: "6px 12px", borderRadius: 6,
           background: C.acc, color: "#fff", border: "none", cursor: "pointer",
         }}>Appliquer</button>
+      )}
+      </>)}
+
+      {/* Graphiques par entité — mode à part, replié par défaut */}
+      {onChartChange && (
+        <ChartStyleBlock layer={layer} cfg={chartCfg} onChange={onChartChange} mapRef={mapRef}
+          layerOpacity={layer?.opacity ?? 1} onLayerOpacity={onLayerOpacity} />
       )}
     </div>
   );

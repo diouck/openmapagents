@@ -1,33 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
+import { IcBarChart } from "../icons";
 import ClassPanel from "./ClassPanel";
+import FieldCalcBlock from "./FieldCalcBlock";
+import IndexStatsModal from "./IndexStatsModal";
+import FilterModal, { FunnelIcon, applyFilter } from "./FilterModal";
+import { getPC, applyPCStyle, ASPRS_CLASSES } from "../utils/lidarStyle";
 
 // ── Palettes prédéfinies pour rasters GEE ────────────────────
 const PALETTES = {
-  // Relief / Élévation
   "terrain":    { label: "Terrain",      colors: ["#313695","#74add1","#e0f3f8","#fee090","#f46d43","#a50026"] },
   "viridis":    { label: "Viridis",      colors: ["#440154","#31688e","#35b779","#fde725"] },
   "plasma":     { label: "Plasma",       colors: ["#0d0887","#7e03a8","#cc4778","#f89441","#f0f921"] },
-  // Végétation
   "ndvi":       { label: "NDVI",         colors: ["#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#66bd63","#1a9850"] },
   "vert":       { label: "Vert",         colors: ["#ffffe5","#d9f0a3","#78c679","#238443","#004529"] },
-  // Température
   "temperature":{ label: "Température",  colors: ["#040274","#3288bd","#abdda4","#fdae61","#d53e4f","#9e0142"] },
   "chaleur":    { label: "Chaleur",      colors: ["#ffffb2","#fecc5c","#fd8d3c","#f03b20","#bd0026"] },
-  // Eau / humidité
   "bleu":       { label: "Bleu",         colors: ["#f7fbff","#c6dbef","#6baed6","#2171b5","#084594"] },
   "eau":        { label: "Eau/Sec",      colors: ["#8B4513","#DEB887","#ffffff","#AED6F1","#1A5276"] },
-  // SAR / Radar
   "gris":       { label: "Gris",         colors: ["#000000","#ffffff"] },
   "gris_inv":   { label: "Gris inv.",    colors: ["#ffffff","#000000"] },
-  // Pente / ombrage
   "pente":      { label: "Pente",        colors: ["#ffffff","#fdae61","#d73027"] },
   "ombrage":    { label: "Ombrage",      colors: ["#000000","#888888","#ffffff"] },
 };
 
-// Groupes de palettes par usage
 const PALETTE_GROUPS = {
   "Relief":      ["terrain","viridis","plasma"],
   "Végétation":  ["ndvi","vert"],
@@ -37,6 +35,14 @@ const PALETTE_GROUPS = {
 };
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+// ── Formatage surface (identique à ClassifMetricsModal) ───────
+function fmtArea(ha) {
+  if (ha === null || ha === undefined || ha === 0) return null;
+  if (ha < 1)   return `${Math.round(ha * 10000)} m²`;
+  if (ha < 100) return `${ha.toFixed(1)} ha`;
+  return `${(ha / 100).toFixed(2)} km²`;
+}
 
 // ── Aperçu gradient inline ─────────────────────────────────────
 function PalettePreview({ colors, selected, onClick, label }) {
@@ -61,24 +67,25 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
 
   const isRGB        = layer.name?.includes("RGB") || layer.name?.includes("False Color");
   const isWorldCover = layer.name?.includes("WorldCover") || layer.name?.includes("Occupation du sol");
-  if (isRGB || isWorldCover) return null; // pas de style modifiable
+  if (isRGB || isWorldCover) return null;
 
-  // État local calqué sur visParams actuels
-  const [palKey,    setPalKey]    = useState(() => {
-    // Deviner la palette actuelle
+  const [palKey,   setPalKey]   = useState(() => {
     const cur = (vp.palette || []).map(c => c.startsWith("#") ? c : "#" + c).join(",");
     return Object.entries(PALETTES).find(([, p]) => p.colors.join(",") === cur)?.[0] || "terrain";
   });
-  const [minVal,    setMinVal]    = useState(vp.min ?? 0);
-  const [maxVal,    setMaxVal]    = useState(vp.max ?? 1);
-  const [inverted,  setInverted]  = useState(false);
-  const [loading,   setLoading]   = useState(false);
-  const [status,    setStatus]    = useState(null);
+  const [minVal,   setMinVal]   = useState(vp.min ?? 0);
+  const [maxVal,   setMaxVal]   = useState(vp.max ?? 1);
+  const [inverted, setInverted] = useState(false);
+  const [classify, setClassify] = useState("none"); // none | quantile | jenks | equal
+  const [nClasses, setNClasses] = useState(5);
+  const [loading,  setLoading]  = useState(false);
+  const [status,   setStatus]   = useState(null);
 
   const palette = PALETTES[palKey];
   const colors  = inverted ? [...palette.colors].reverse() : palette.colors;
 
-  const applyStyle = async () => {
+  // opts.auto → min/max automatiques (percentiles p2/p98 sur l'emprise, backend)
+  const applyStyle = async (opts = {}) => {
     if (!layer._geeParams) {
       setStatus({ type: "error", msg: "Paramètres GEE manquants — rechargez la couche" });
       return;
@@ -87,10 +94,9 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
     setStatus(null);
     try {
       const newVis = { ...vp, palette: colors.map(c => c.replace("#","")), min: minVal, max: maxVal };
-      const body = {
-        ...layer._geeParams,
-        vis_params_override: newVis,
-      };
+      const body = { ...layer._geeParams, vis_params_override: newVis };
+      if (opts.auto) body.auto_stretch = true;
+      if (classify !== "none") { body.classify = classify; body.n_classes = nClasses; }
       const res  = await fetch(`${API}/api/gee/tiles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -98,12 +104,17 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+      // Refléter les min/max renvoyés (auto-stretch) dans les champs.
+      const dvp = data.vis_params || {};
+      if (opts.auto && typeof dvp.min === "number") { setMinVal(dvp.min); setMaxVal(dvp.max); }
+      const discrete = Array.isArray(data.legend) && data.legend.length > 0;
       onUpdateLayer(layer.id, {
-        tileUrl:  data.tile_url,
-        visParams: { ...newVis, palette: colors },
-        name:     layer.name, // garder le nom
+        tileUrl:   data.tile_url,
+        visParams: discrete ? { ...dvp } : { ...newVis, palette: colors, ...(opts.auto ? { min: dvp.min, max: dvp.max } : {}) },
+        legend:    discrete ? data.legend : null,   // classifié → légende discrète ; sinon rampe
+        name:      layer.name,
       });
-      setStatus({ type: "ok", msg: "✓ Style appliqué" });
+      setStatus({ type: "ok", msg: opts.auto ? "✓ Min/max automatiques" : classify !== "none" ? `✓ ${nClasses} classes appliquées` : "✓ Style appliqué" });
     } catch (e) {
       setStatus({ type: "error", msg: e.message });
     }
@@ -114,7 +125,6 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "8px 0 4px" }}>
       <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Style raster</div>
 
-      {/* Min / Max */}
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <span style={{ fontSize: 9, color: C.dim, flexShrink: 0 }}>Min</span>
         <input type="number" value={minVal} onChange={e => setMinVal(parseFloat(e.target.value))}
@@ -129,12 +139,35 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
             color: inverted ? C.acc : C.dim, flexShrink: 0 }}>
           ⇄
         </button>
+        <button onClick={() => applyStyle({ auto: true })} disabled={loading} title="Min/max automatiques (percentiles 2–98 % sur l'emprise)"
+          style={{ fontFamily: F, fontSize: 9, padding: "3px 7px", borderRadius: 4, cursor: loading ? "default" : "pointer",
+            background: "transparent", border: `0.5px solid ${C.acc}55`, color: C.acc, flexShrink: 0 }}>
+          Auto
+        </button>
       </div>
 
-      {/* Aperçu palette active */}
+      {/* ── Classification (comme les couches vecteur) ── */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 9, color: C.dim, flexShrink: 0 }}>Classes</span>
+        <select value={classify} onChange={e => setClassify(e.target.value)}
+          style={{ fontFamily: F, fontSize: 10, flex: 1, padding: "3px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" }}>
+          <option value="none">Continu (rampe)</option>
+          <option value="quantile">Quantiles</option>
+          <option value="jenks">Jenks (naturelles)</option>
+          <option value="equal">Intervalles égaux</option>
+        </select>
+        {classify !== "none" && (
+          <input type="number" min="2" max="12" value={nClasses} title="Nombre de classes"
+            onChange={e => setNClasses(Math.max(2, Math.min(12, parseInt(e.target.value) || 5)))}
+            style={{ fontFamily: M, fontSize: 10, width: 42, padding: "3px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" }} />
+        )}
+      </div>
+      {classify !== "none" && (
+        <div style={{ fontSize: 8, color: C.dim }}>Min/max ignorés en mode classé — les seuils sont calculés sur les données.</div>
+      )}
+
       <div style={{ height: 10, borderRadius: 4, background: `linear-gradient(to right, ${colors.join(", ")})` }} />
 
-      {/* Groupes de palettes */}
       {Object.entries(PALETTE_GROUPS).map(([group, keys]) => (
         <div key={group}>
           <div style={{ fontSize: 8, color: C.dim, marginBottom: 3, textTransform: "uppercase", letterSpacing: ".05em" }}>{group}</div>
@@ -149,7 +182,6 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
         </div>
       ))}
 
-      {/* Statut */}
       {status && (
         <div style={{ fontSize: 9, padding: "3px 6px", borderRadius: 4,
           background: (status.type === "ok" ? C.acc : C.red) + "15",
@@ -158,56 +190,357 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
         }}>{status.msg}</div>
       )}
 
-      {/* Bouton appliquer */}
-      <button onClick={applyStyle} disabled={loading} style={{
+      <button onClick={() => applyStyle()} disabled={loading} style={{
         fontFamily: F, fontSize: 10, fontWeight: 600, padding: "6px 0",
         borderRadius: 5, width: "100%", cursor: loading ? "default" : "pointer",
         background: loading ? C.hover : C.acc,
         color: loading ? C.dim : "#fff", border: "none", opacity: loading ? 0.6 : 1,
       }}>
-        {loading ? "⏳ Calcul GEE…" : "🎨 Appliquer le style"}
+        {loading ? "Calcul GEE…" : classify !== "none" ? "Appliquer la classification" : "Appliquer le style"}
       </button>
     </div>
   );
 }
 
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onZoomExtent, onUpdateRasterLayer, mapRef }) {
+// ── Style raster IMAGE importé (GeoTIFF mono-bande) — palette + valeurs ──
+function RasterImageStylePanel({ layer, onUpdate }) {
   const C = useThemeContext();
-  const [exp, setExp] = useState(null);
+  const [palKey, setPalKey] = useState("terrain");
+  const [minVal, setMinVal] = useState(layer.vmin ?? 0);
+  const [maxVal, setMaxVal] = useState(layer.vmax ?? 1);
+  const [classes, setClasses] = useState(0);
+  const [inverted, setInverted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(null);
+
+  const palette = PALETTES[palKey] || PALETTES.terrain;
+  const colors = inverted ? [...palette.colors].reverse() : palette.colors;
+
+  const apply = async () => {
+    setLoading(true); setStatus(null);
+    try {
+      const fd = new FormData();
+      fd.append("raster_token", layer.rasterToken);
+      fd.append("palette", colors.map(c => c.replace("#", "")).join(","));
+      fd.append("vmin", String(minVal));
+      fd.append("vmax", String(maxVal));
+      fd.append("classes", String(classes || 0));
+      const res = await fetch(`${API}/api/raster/restyle`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+      onUpdate(layer.id, {
+        imageUrl: `data:image/png;base64,${data.png_b64}`,
+        vmin: minVal, vmax: maxVal,
+        legend: data.legend?.length ? data.legend : null,
+        styleV: (layer.styleV || 0) + 1,   // force le re-montage de la source image
+      });
+      setStatus({ type: "ok", msg: "✓ Style appliqué" });
+    } catch (e) { setStatus({ type: "error", msg: e.message }); }
+    setLoading(false);
+  };
+
+  const iSt = { fontFamily: M, fontSize: 10, width: 54, padding: "3px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "8px 0 4px" }}>
+      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Style raster (importé)</div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9, color: C.dim }}>Min</span>
+        <input type="number" value={minVal} onChange={e => setMinVal(parseFloat(e.target.value))} style={iSt} />
+        <span style={{ fontSize: 9, color: C.dim }}>Max</span>
+        <input type="number" value={maxVal} onChange={e => setMaxVal(parseFloat(e.target.value))} style={iSt} />
+        <button onClick={() => setInverted(v => !v)} title="Inverser palette" style={{ fontFamily: M, fontSize: 10, padding: "3px 7px", borderRadius: 4, cursor: "pointer", background: inverted ? C.acc + "22" : "transparent", border: `0.5px solid ${inverted ? C.acc : C.bdr}`, color: inverted ? C.acc : C.dim }}>⇄</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 9, color: C.dim }}>Classes</span>
+        <input type="number" min="0" max="12" value={classes} onChange={e => setClasses(Math.max(0, parseInt(e.target.value) || 0))} style={iSt} />
+        <span style={{ fontSize: 8, color: C.dim }}>0 = rampe continue{layer.dataMin != null ? ` · données ${layer.dataMin}–${layer.dataMax}` : ""}</span>
+      </div>
+      <div style={{ height: 10, borderRadius: 4, background: `linear-gradient(to right, ${colors.join(", ")})` }} />
+      {Object.entries(PALETTE_GROUPS).map(([group, keys]) => (
+        <div key={group}>
+          <div style={{ fontSize: 8, color: C.dim, marginBottom: 3, textTransform: "uppercase", letterSpacing: ".05em" }}>{group}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 }}>
+            {keys.map(k => (
+              <div key={k} style={{ display: "flex", flexDirection: "column", gap: 2, cursor: "pointer" }} onClick={() => setPalKey(k)}>
+                <PalettePreview colors={PALETTES[k].colors} selected={palKey === k} label={PALETTES[k].label} />
+                <span style={{ fontSize: 8, color: palKey === k ? C.acc : C.dim, textAlign: "center" }}>{PALETTES[k].label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {status && (
+        <div style={{ fontSize: 9, padding: "3px 6px", borderRadius: 4, background: (status.type === "ok" ? C.acc : C.red) + "15", color: status.type === "ok" ? C.acc : C.red, border: `0.5px solid ${(status.type === "ok" ? C.acc : C.red)}44` }}>{status.msg}</div>
+      )}
+      <button onClick={apply} disabled={loading} style={{ fontFamily: F, fontSize: 10, fontWeight: 600, padding: "6px 0", borderRadius: 5, width: "100%", cursor: loading ? "default" : "pointer", background: loading ? C.hover : C.acc, color: loading ? C.dim : "#fff", border: "none", opacity: loading ? 0.6 : 1 }}>
+        {loading ? "Rendu…" : "Appliquer le style"}
+      </button>
+    </div>
+  );
+}
+
+// ── Sémiologie d'un nuage de points LiDAR (couleur, filtre classe, légende) ──
+const _pcBtn = (C) => ({ fontFamily: F, fontSize: 8, padding: "1px 6px", borderRadius: 4, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.dim, cursor: "pointer" });
+function PointcloudStylePanel({ layer, mapRef }) {
+  const C = useThemeContext();
+  const [, force] = useState(0);
+  const pc = getPC(layer.id);
+  if (!pc) return <div style={{ fontSize: 9, color: C.dim, padding: "4px 0" }}>Nuage indisponible — rechargez-le depuis le menu LiDAR.</div>;
+  const getMap = () => mapRef?.current?.getMap?.() || null;
+  const st = pc.style;
+  const hist = pc.histogram || {};
+  const entries = Object.entries(hist).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, c]) => s + c, 0) || 1;
+  const allNums = entries.map(([c]) => Number(c));
+  const sel = st.classSel || new Set(allNums);
+  const hasClass = !!pc.full.classification;
+  const hasRgb = !!pc.full.rgb;
+  const apply = async (patch) => { await applyPCStyle(getMap(), layer.id, patch); force(x => x + 1); };
+  const toggle = (n) => { const nx = new Set(sel); if (nx.has(n)) nx.delete(n); else nx.add(n); apply({ classSel: nx }); };
+  const inp = { fontFamily: M, fontSize: 10, padding: "4px 6px", borderRadius: 5, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", width: "100%", boxSizing: "border-box", cursor: "pointer" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "6px 0 2px" }}>
+      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Sémiologie nuage</div>
+      <div>
+        <div style={{ fontSize: 8, color: C.dim, marginBottom: 2 }}>Variable de couleur</div>
+        <select value={st.colorMode} onChange={e => apply({ colorMode: e.target.value })} style={inp}>
+          {hasClass && <option value="class">Classification</option>}
+          {hasRgb && <option value="rgb">Couleur RGB</option>}
+          <option value="elevation">Élévation (Z)</option>
+          <option value="uniform">Uniforme</option>
+        </select>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 9, color: C.dim, flexShrink: 0 }}>Taille point</span>
+        <input type="range" min="1" max="8" step="0.5" value={st.pointSize} onChange={e => apply({ pointSize: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+        <span style={{ fontFamily: M, fontSize: 9, color: C.txt }}>{st.pointSize}</span>
+      </div>
+      {st.colorMode === "class" && entries.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 8, color: C.dim }}>Classes — cocher pour afficher · pastille = couleur</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => apply({ classSel: new Set(allNums) })} style={_pcBtn(C)}>Tout</button>
+              <button onClick={() => apply({ classSel: new Set() })} style={_pcBtn(C)}>Aucun</button>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 160, overflowY: "auto" }}>
+            {entries.map(([cls, cnt]) => {
+              const n = Number(cls);
+              const info = ASPRS_CLASSES[cls] || [`Classe ${cls}`, "#bdbdbd"];
+              const hex = st.classOverrides[cls] || info[1];
+              const on = sel.has(n);
+              return (
+                <div key={cls} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, opacity: on ? 1 : 0.4 }}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(n)} style={{ accentColor: C.acc, cursor: "pointer" }} />
+                  <label title="Changer la couleur" style={{ width: 14, height: 14, borderRadius: 3, background: hex, flexShrink: 0, border: "0.5px solid rgba(0,0,0,.2)", cursor: "pointer", position: "relative", overflow: "hidden" }}>
+                    <input type="color" value={hex} onChange={e => apply({ classOverrides: { ...st.classOverrides, [cls]: e.target.value } })} style={{ position: "absolute", inset: -4, opacity: 0, cursor: "pointer", border: "none", padding: 0 }} />
+                  </label>
+                  <span style={{ color: C.mut, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info[0]} <span style={{ color: C.dim, fontFamily: M }}>· cl.{cls}</span></span>
+                  <span style={{ color: C.dim, fontFamily: M }}>{(cnt / total * 100).toFixed(0)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Légende + restyle couleur pour couches de classification ──
+function ClassifLegendPanel({ layer, onUpdateRasterLayer, C }) {
+  const entries = layer.legend || [];
+
+  const [colors,  setColors]  = useState(() => entries.map(e => e.color || "#888888"));
+  const [loading, setLoading] = useState(false);
+  const [status,  setStatus]  = useState(null);
+
+  // Synchronise si la légende change après un restyle externe
+  useEffect(() => {
+    setColors((layer.legend || []).map(e => e.color || "#888888"));
+  }, [layer.legend]);
+
+  if (!entries.length) return null;
+
+  // Deux familles de couches classées, deux façons de restyler :
+  //  • classification SUPERVISÉE (ClassifSupPanel) → job_id serveur + /classify/restyle
+  //  • indicateur GEE classé en quantiles/Jenks (IndicatorModal) → pas de job_id,
+  //    on rejoue /api/gee/tiles avec les mêmes params + la palette forcée.
+  const applyRestyle = async () => {
+    const gp = layer._geeParams;
+    if (!layer.job_id && !gp) {
+      setStatus({ type: "error", msg: "Couche non restylable — rechargez-la" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      let tileUrl, newLegend, visParams;
+
+      if (layer.job_id) {
+        const res = await fetch(`${API}/api/gee/classify/restyle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: layer.job_id, class_colors: colors }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+        tileUrl   = data.tile_url;
+        newLegend = entries.map((e, i) => ({ ...e, color: colors[i] ?? e.color }));
+      } else {
+        const res = await fetch(`${API}/api/gee/tiles`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...gp,
+            // n_classes recalé sur la légende affichée : le serveur peut avoir
+            // fusionné des ruptures identiques (données peu variées).
+            n_classes: colors.length,
+            vis_params_override: { palette: colors.map(c => c.replace("#", "")) },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+        tileUrl   = data.tile_url;
+        newLegend = data.legend || entries.map((e, i) => ({ ...e, color: colors[i] ?? e.color }));
+        visParams = data.vis_params || null;
+      }
+
+      // Met à jour la légende locale + la tuile MapLibre via le callback App.jsx
+      onUpdateRasterLayer?.(layer.id, {
+        tileUrl, legend: newLegend, ...(visParams ? { visParams } : {}),
+      });
+      setStatus({ type: "ok", msg: "✓ Couleurs appliquées" });
+    } catch (e) {
+      setStatus({ type: "error", msg: e.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5, padding: "6px 0 2px" }}>
+
+      {/* En-tête */}
+      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>
+        Légende — classification
+      </div>
+
+      {/* Liste des classes */}
+      {entries.map((entry, i) => (
+        <div key={entry.class_id ?? i}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="color"
+            value={colors[i] || "#888888"}
+            onChange={e => {
+              const next = [...colors];
+              next[i] = e.target.value;
+              setColors(next);
+            }}
+            style={{
+              width: 22, height: 18, border: "none", borderRadius: 3,
+              cursor: "pointer", background: "none", padding: 0, flexShrink: 0,
+            }}
+          />
+          {/* Pastille couleur actuelle */}
+          <div style={{
+            width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+            background: colors[i] || entry.color || "#888",
+            border: `0.5px solid ${C.bdr}`,
+          }} />
+          <span style={{
+            fontSize: 10, color: C.txt, flex: 1, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {entry.label || `Classe ${entry.class_id}`}
+          </span>
+          <span style={{ fontSize: 9, color: C.dim, fontFamily: M, flexShrink: 0 }}>
+            {entry.class_id}
+          </span>
+        </div>
+      ))}
+
+      {/* Message statut */}
+      {status && (
+        <div style={{
+          fontSize: 9, padding: "3px 6px", borderRadius: 4,
+          background: (status.type === "ok" ? C.acc : C.red) + "15",
+          color:      status.type === "ok" ? C.acc : C.red,
+          border:     `0.5px solid ${(status.type === "ok" ? C.acc : C.red)}44`,
+        }}>
+          {status.msg}
+        </div>
+      )}
+
+      {/* Bouton Appliquer */}
+      <button
+        onClick={applyRestyle}
+        disabled={loading}
+        style={{
+          fontFamily: F, fontSize: 10, fontWeight: 600, padding: "6px 0",
+          borderRadius: 5, width: "100%",
+          cursor:     loading ? "default" : "pointer",
+          background: loading ? C.hover : C.acc,
+          color:      loading ? C.dim : "#fff",
+          border:     "none",
+          opacity:    loading ? 0.6 : 1,
+          transition: "background .15s",
+        }}
+      >
+        {loading ? "Mise à jour GEE…" : "Appliquer les couleurs"}
+      </button>
+    </div>
+  );
+}
+
+// ── Composant principal ────────────────────────────────────────
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
+  const C = useThemeContext();
+  const [exp,      setExp]      = useState(null);
   const [editName, setEditName] = useState(null);
+
+  // ── État modale statistiques (générique, tous rasters GEE) ───
+  const [statsModal, setStatsModal] = useState(null);
+
+  const openStats = (e, l) => {
+    e.stopPropagation();
+    const gp = l._geeParams || {};
+    setStatsModal({
+      layer:      l,
+      dataset:    gp.dataset,
+      index:      gp.index,
+      bbox:       gp.bbox || l.bbox || null,
+      roiGeoJSON: gp.roi_geojson || null,
+      geeParams:  gp,
+    });
+  };
+
+  // ── État modale filtre ───────────────────────────────────────
+  const [filterModal, setFilterModal] = useState(null);
+
+  const openFilter = (e, l) => {
+    e.stopPropagation();
+    setFilterModal(l);
+  };
 
   return (
     <div style={{
-      display: "flex",
-      flexDirection: "column",
-      width: "100%",
-      height: "100%",
-      minHeight: 0,
-      overflow: "hidden",
+      display: "flex", flexDirection: "column",
+      width: "100%", height: "100%", minHeight: 0, overflow: "hidden",
     }}>
 
-      {/* En-tête fixe : "Couches N" */}
+      {/* En-tête */}
       <div style={{
-        padding: "8px 14px",
-        borderBottom: `0.5px solid ${C.bdr}`,
-        fontSize: 12,
-        fontWeight: 600,
-        color: C.txt,
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
+        padding: "8px 14px", borderBottom: `0.5px solid ${C.bdr}`,
+        fontSize: 12, fontWeight: 600, color: C.txt,
+        flexShrink: 0, display: "flex", alignItems: "center", gap: 6,
       }}>
         Couches
         {layers.length > 0 && (
           <span style={{
-            background: C.acc,
-            color: "#fff",
-            borderRadius: 8,
-            fontSize: 10,
-            padding: "0 6px",
-            fontWeight: 700,
-            lineHeight: "16px",
+            background: C.acc, color: "#fff", borderRadius: 8,
+            fontSize: 10, padding: "0 6px", fontWeight: 700, lineHeight: "16px",
           }}>
             {layers.length}
           </span>
@@ -226,25 +559,19 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
         {layers.map(l => (
           <div key={l.id} style={{ borderBottom: `0.5px solid ${C.bdr}` }}>
 
-            {/* Ligne principale — une seule ligne par couche */}
+            {/* Ligne principale */}
             <div
               style={{
-                padding: "7px 10px",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                cursor: "pointer",
-                background: exp === l.id ? C.hover : "transparent",
+                padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
+                cursor: "pointer", background: exp === l.id ? C.hover : "transparent",
               }}
               onClick={() => setExp(exp === l.id ? null : l.id)}
             >
-              {/* Pastille couleur */}
               <div style={{
                 width: 10, height: 10, borderRadius: 3,
                 background: l.color, opacity: l.visible ? 1 : 0.3, flexShrink: 0,
               }} />
 
-              {/* Nom éditable */}
               {editName === l.id ? (
                 <input
                   autoFocus value={l.name}
@@ -281,6 +608,56 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               <button onClick={e => { e.stopPropagation(); onMoveDown?.(l.id); }} title="Descendre"
                 style={{ background:"none",border:"none",cursor:"pointer",fontSize:10,padding:"0 1px",color:C.dim,lineHeight:1,flexShrink:0 }}>▼</button>
               {l.classResult && <span style={{ fontSize:9, color:C.acc, flexShrink:0 }} title="Classifié">●</span>}
+
+              {/* ── Bouton stats (tous rasters GEE avec dataset/index) ── */}
+              {l.isRaster && l._geeParams?.dataset && l._geeParams?.index && (
+                <button
+                  onClick={e => openStats(e, l)}
+                  title="Statistiques de la zone"
+                  style={{
+                    background: "none", border: `0.5px solid ${C.acc}44`,
+                    borderRadius: 4, cursor: "pointer",
+                    padding: "3px 5px", color: C.acc, flexShrink: 0, display: "flex", alignItems: "center",
+                  }}
+                >
+                  <IcBarChart size={13}/>
+                </button>
+              )}
+
+              {/* ── Bouton filtre attributaire (couches vecteur) ── */}
+              {!l.isRaster && l.geojson && (
+                <button
+                  onClick={e => openFilter(e, l)}
+                  title={
+                    l.filterState?.rules?.length
+                      ? `Filtre actif — ${l.filterState.rules.length} règle${l.filterState.rules.length > 1 ? "s" : ""}`
+                      : "Filtrer par attribut"
+                  }
+                  style={{
+                    background: l.filterState?.rules?.length ? C.acc + "22" : "none",
+                    border: `0.5px solid ${l.filterState?.rules?.length ? C.acc : C.bdr}`,
+                    borderRadius: 4, cursor: "pointer",
+                    padding: "2px 5px",
+                    color: l.filterState?.rules?.length ? C.acc : C.dim,
+                    flexShrink: 0,
+                    display: "flex", alignItems: "center", gap: 3,
+                    lineHeight: 1,
+                    transition: "all .15s",
+                  }}
+                >
+                  <FunnelIcon
+                    size={11}
+                    color={l.filterState?.rules?.length ? C.acc : C.dim}
+                    filled={!!l.filterState?.rules?.length}
+                  />
+                  {l.filterState?.rules?.length > 0 && (
+                    <span style={{ fontSize: 9, fontFamily: M, fontWeight: 700 }}>
+                      {l.filterState.rules.length}
+                    </span>
+                  )}
+                </button>
+              )}
+
               <button
                 onClick={e => { e.stopPropagation(); onToggle(l.id); }}
                 style={{
@@ -294,11 +671,40 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               </button>
             </div>
 
-            {/* Panneau déroulé au clic */}
+            {/* Mini-légende classification (toujours visible sous la ligne) */}
+            {l.isRaster && l.legend?.length > 0 && (
+              <div style={{
+                display: "flex", flexWrap: "wrap", gap: "2px 8px",
+                padding: "0 10px 5px 26px",
+              }}>
+                {l.legend.slice(0, 8).map(e => (
+                  <div key={e.class_id} style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <div style={{
+                      width: 7, height: 7, borderRadius: 1, flexShrink: 0,
+                      background: e.color, border: `0.5px solid rgba(0,0,0,.15)`,
+                    }} />
+                    <span style={{ fontSize: 9, color: C.dim }}>
+                      {e.label}
+                    </span>
+                    {fmtArea(e.area_ha) && (
+                      <span style={{ fontSize: 8, color: C.mut }}>
+                        ({fmtArea(e.area_ha)})
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {l.legend.length > 8 && (
+                  <span style={{ fontSize: 9, color: C.dim }}>
+                    +{l.legend.length - 8}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Panneau déroulé */}
             {exp === l.id && (
               <div style={{ padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 8, background: C.hover }}>
 
-                {/* ── Opacité — commune raster + vecteur ── */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                   <span style={{ color: C.dim }}>Opacité</span>
                   <input type="range" min="0" max="1" step="0.05" value={l.opacity}
@@ -306,12 +712,37 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <span style={{ color: C.dim, fontFamily: M, flexShrink: 0 }}>{Math.round(l.opacity * 100)}%</span>
                 </div>
 
-                {/* ── Style raster GEE ── */}
                 {l.isRaster && l.visParams && (
                   <RasterStylePanel layer={l} onUpdateLayer={(id, updates) => onUpdateRasterLayer?.(id, updates)} />
                 )}
 
-                {/* ── Supprimer raster ── */}
+                {/* ── Sémiologie d'un nuage LiDAR (couleur, filtre, légende classes) ── */}
+                {l.kind === "pointcloud" && (
+                  <PointcloudStylePanel layer={l} mapRef={mapRef} />
+                )}
+
+                {/* ── Style d'un GeoTIFF importé mono-bande (palette + valeurs) ── */}
+                {l.kind === "image" && l.rasterToken && l.bands === 1 && (
+                  <RasterImageStylePanel layer={l} onUpdate={(id, updates) => onUpdateRasterLayer?.(id, updates)} />
+                )}
+
+                {/* ── Légende + restyle pour couches de classification ── */}
+                {l.isRaster && l.legend?.length > 0 && (
+                  <ClassifLegendPanel layer={l} onUpdateRasterLayer={onUpdateRasterLayer} C={C} />
+                )}
+
+                {/* ── Bouton stats dans le panneau déroulé (tous rasters GEE) ── */}
+                {l.isRaster && l._geeParams?.dataset && l._geeParams?.index && (
+                  <button onClick={e => openStats(e, l)} style={{
+                    fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, width: "100%",
+                    background: "transparent", border: `0.5px solid ${C.acc}`,
+                    color: C.acc, cursor: "pointer", fontWeight: 500,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>
+                    <IcBarChart size={13}/> Statistiques de la zone
+                  </button>
+                )}
+
                 {l.isRaster && (
                   <button onClick={() => onRemove(l.id)} style={{
                     fontFamily: F, fontSize: 10, padding: "5px 0", borderRadius: 5, width: "100%",
@@ -320,8 +751,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   }}>Supprimer la couche</button>
                 )}
 
-                {/* ── Contrôles vecteur uniquement ── */}
-                {!l.isRaster && (<>
+                {!l.isRaster && l.geojson && (<>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                   <span style={{ color: C.dim }}>Couleur</span>
                   <input type="color" value={l.color} onChange={e => onStyle(l.id, { color: e.target.value })}
@@ -332,7 +762,14 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <span style={{ color: C.dim, fontFamily: M }}>{l.radius || 5}px</span>
                 </div>
 
-                <ClassPanel layer={l} classification={l.classCfg} onChange={cfg => onClassify(l.id, cfg)} mapRef={mapRef} />
+                {/* Calculateur de champ : en amont de la classification, puisqu'il
+                    sert justement à fabriquer la variable qu'on va classer. */}
+                <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />
+
+                <ClassPanel key={`${l.id}-${l.classCfg?.ramp}-${l.classCfg?.type}`} layer={l} classification={l.classCfg}
+                  onChange={cfg => onClassify(l.id, cfg)} mapRef={mapRef}
+                  chartCfg={l.chartCfg} onChartChange={cfg => onStyle(l.id, { chartCfg: cfg })}
+                  onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
 
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                   <Btn small color={C.amb} active={l.heatmap} onClick={() => onStyle(l.id, { heatmap: !l.heatmap, extrude: false })}>Heatmap</Btn>
@@ -394,6 +831,49 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
           </div>
         ))}
       </div>
-    </div>
+
+      {/* ── Modale statistiques (générique GEE, bonnes variables dataset/index) ── */}
+      {statsModal?.dataset && (
+        <IndexStatsModal
+          dataset={statsModal.dataset}
+          index={statsModal.index}
+          layer={statsModal.layer}
+          bbox={statsModal.bbox}
+          roiGeoJSON={statsModal.roiGeoJSON}
+          geeParams={statsModal.geeParams}
+          onClose={() => setStatsModal(null)}
+        />
+      )}
+
+      {/* ── Modale filtre attributaire ── */}
+      {filterModal && (
+        <FilterModal
+          layer={filterModal}
+          onClose={() => setFilterModal(null)}
+          onApply={(filterState) => {
+            if (!onFilter) return;
+            // La source originale est préservée dans _sourceGeojson.
+            // Si elle n'existe pas encore, on la crée à partir du geojson actuel.
+            const sourceGeojson = filterModal._sourceGeojson || filterModal.geojson;
+
+            if (!filterState?.rules?.length) {
+              // Effacement du filtre : restaurer la source complète
+              onFilter(filterModal.id, {
+                filterState: { rules: [], logic: "AND" },
+                geojson: sourceGeojson,
+                _sourceGeojson: sourceGeojson,
+              });
+            } else {
+              // Appliquer le filtre : calculer le geojson filtré
+              const filtered = applyFilter(sourceGeojson, filterState);
+              onFilter(filterModal.id, {
+                filterState,
+                geojson: filtered,
+                _sourceGeojson: sourceGeojson,
+              });
+            }
+          }}
+        />
+      )}    </div>
   );
 }

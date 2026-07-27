@@ -11,6 +11,8 @@
 import { useState, useCallback, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
+import { IcImage, IcGrid, IcHexagon, IcMap, IcCheck, IcSettings, IcClipboard,
+  IcPlus, IcAlert, IcLoader, IcServer, IcEdit } from "../icons";
 
 // ── Presets de services connus ────────────────────────────────
 const PRESETS = [
@@ -42,13 +44,27 @@ const PRESETS = [
     version: "1.3.0",
     crs: "EPSG:3857",
   },
+  {
+    label: "PDOK Pays-Bas WFS (divisions admin)",
+    type: "wfs",
+    url: "https://service.pdok.nl/cbs/gebiedsindelingen/2023/wfs/v1_0",
+    version: "2.0.0",
+    crs: "EPSG:4326",
+  },
+  {
+    label: "BGS Géologie R.-U. WFS",
+    type: "wfs",
+    url: "https://map.bgs.ac.uk/arcgis/services/BGS_Detailed_Geology/MapServer/WFSServer",
+    version: "2.0.0",
+    crs: "EPSG:4326",
+  },
 ];
 
 const SERVICE_TYPES = [
-  { key: "wms",    label: "WMS",    icon: "🖼", desc: "Images raster" },
-  { key: "wmts",   label: "WMTS",   icon: "⬛", desc: "Tuiles raster" },
-  { key: "wfs",    label: "WFS",    icon: "🔷", desc: "Vecteur GeoJSON" },
-  { key: "vector", label: "Vecteur", icon: "🗺", desc: "MVT / TileJSON" },
+  { key: "wms",    label: "WMS",    icon: IcImage,   desc: "Images raster" },
+  { key: "wmts",   label: "WMTS",   icon: IcGrid,    desc: "Tuiles raster" },
+  { key: "wfs",    label: "WFS",    icon: IcHexagon, desc: "Vecteur GeoJSON" },
+  { key: "vector", label: "Vecteur", icon: IcMap,    desc: "MVT / TileJSON" },
 ];
 
 const CRS_OPTIONS = [
@@ -321,7 +337,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
         type: "wms", tileUrl, opacity: 0.85,
         bbox: layer.bbox || null,
       });
-      setStatus({ type: "ok", msg: `✓ WMS "${layer.title || layer.name}" ajouté` });
+      setStatus({ type: "ok", msg: `WMS "${layer.title || layer.name}" ajouté` });
     } catch (e) {
       setStatus({ type: "error", msg: `Erreur WMS : ${e.message}` });
     }
@@ -341,7 +357,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
         type: "wmts", tileUrl, opacity: 0.85,
         bbox: layer.bbox || null,
       });
-      setStatus({ type: "ok", msg: `✓ WMTS "${layer.title || layer.name}" ajouté` });
+      setStatus({ type: "ok", msg: `WMTS "${layer.title || layer.name}" ajouté` });
     } catch (e) {
       setStatus({ type: "error", msg: `Erreur WMTS : ${e.message}` });
     }
@@ -395,7 +411,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
 
       const name = layer.title || layer.name;
       onAddLayer(geojson, `WFS — ${name}`, "wfs");
-      setStatus({ type: "ok", msg: `✓ WFS "${name}" : ${geojson.features.length} features ajoutées` });
+      setStatus({ type: "ok", msg: `WFS "${name}" : ${geojson.features.length} features ajoutées` });
     } catch (e) {
       setStatus({ type: "error", msg: `Erreur WFS : ${e.message}` });
     }
@@ -413,7 +429,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
         name: `VT — ${vtUrl.slice(0, 40)}`,
         type: "vector", tileUrl: vtUrl, opacity: 1,
       });
-      setStatus({ type: "ok", msg: `✓ Tuiles vectorielles ajoutées` });
+      setStatus({ type: "ok", msg: `Tuiles vectorielles ajoutées` });
     } catch (e) {
       setStatus({ type: "error", msg: `Erreur : ${e.message}` });
     }
@@ -440,13 +456,14 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
 
       {/* ── Onglets ──────────────────────────────────────────── */}
       <div style={{ display: "flex", borderBottom: `0.5px solid ${C.bdr}`, flexShrink: 0 }}>
-        {[["service", "⚙ Service"], ["layers", `📋 Couches${capLayers.length ? ` (${capLayers.length})` : ""}`]].map(([key, label]) => (
+        {[["service", IcSettings, "Service"], ["layers", IcClipboard, `Couches${capLayers.length ? ` (${capLayers.length})` : ""}`]].map(([key, Icon, label]) => (
           <button key={key} onClick={() => setActiveTab(key)} style={{
             fontFamily: F, fontSize: 11, padding: "8px 0", border: "none", cursor: "pointer", flex: 1,
             background: activeTab === key ? C.acc + "15" : "transparent",
             color: activeTab === key ? C.acc : C.mut,
             borderBottom: activeTab === key ? `2px solid ${C.acc}` : "2px solid transparent",
-          }}>{label}</button>
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}><Icon size={13}/> {label}</button>
         ))}
       </div>
 
@@ -467,7 +484,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                     color: url === p.url && serviceType === p.type ? C.acc : C.mut, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 8,
                   }}>
-                    <span>{SERVICE_TYPES.find(s => s.key === p.type)?.icon}</span>
+                    <span style={{ display: "flex" }}>{(() => { const I = SERVICE_TYPES.find(s => s.key === p.type)?.icon; return I ? <I size={13}/> : null; })()}</span>
                     <span>{p.label}</span>
                     <span style={{ marginLeft: "auto", fontSize: 9, color: C.dim }}>{p.type.toUpperCase()}</span>
                   </button>
@@ -492,7 +509,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                     color: serviceType === s.key ? C.acc : C.dim,
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                   }}>
-                    <span style={{ fontSize: 14 }}>{s.icon}</span>
+                    {s.icon && <s.icon size={15}/>}
                     <span style={{ fontSize: 9 }}>{s.label}</span>
                   </button>
                 ))}
@@ -617,7 +634,8 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                   fontFamily: F, fontSize: 11, fontWeight: 500, padding: "8px 12px", borderRadius: 6,
                   background: vtUrl.trim() ? C.acc : C.hover, color: vtUrl.trim() ? "#fff" : C.dim,
                   border: "none", cursor: vtUrl.trim() ? "pointer" : "default",
-                }}>➕ Ajouter tuiles vectorielles</button>
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}><IcPlus size={13}/> Ajouter tuiles vectorielles</button>
               </div>
             )}
 
@@ -629,8 +647,8 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
             )}
 
             {capError && (
-              <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5 }}>
-                ❌ {capError}
+              <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5, display: "flex", gap: 5 }}>
+                <IcAlert size={12} style={{ flexShrink: 0, marginTop: 1 }}/> <span>{capError}</span>
               </div>
             )}
 
@@ -641,8 +659,9 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                 background: url.trim() ? C.acc : C.hover, color: url.trim() ? "#fff" : C.dim,
                 border: "none", cursor: url.trim() ? "pointer" : "default",
                 opacity: loading ? 0.6 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}>
-                {loading ? "⏳ Chargement capacités…" : "📡 GetCapabilities"}
+                <IcServer size={13}/> {loading ? "Chargement capacités…" : "GetCapabilities"}
               </button>
             )}
           </>
@@ -653,7 +672,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
           <>
             {!capLoaded && serviceType !== "vector" ? (
               <div style={{ textAlign: "center", padding: "30px 0", color: C.dim, fontSize: 12 }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><IcServer size={28}/></div>
                 Cliquez "GetCapabilities" dans l'onglet Service
                 <br />
                 <button onClick={() => setActiveTab("service")} style={{ marginTop: 10, fontFamily: F, fontSize: 10, padding: "4px 10px", borderRadius: 4, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.acc, cursor: "pointer" }}>
@@ -682,7 +701,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                     <span>CRS source: {wfsCrs}</span>
                     <span>·</span>
                     <span>{wfsBbox ? "BBOX active" : "sans BBOX"}</span>
-                    <button onClick={() => setActiveTab("service")} style={{ marginLeft: "auto", fontFamily: F, fontSize: 9, background: "none", border: "none", color: C.acc, cursor: "pointer" }}>✎</button>
+                    <button onClick={() => setActiveTab("service")} style={{ marginLeft: "auto", background: "none", border: "none", color: C.acc, cursor: "pointer", display: "flex", padding: 0 }}><IcEdit size={12}/></button>
                   </div>
                 )}
 
@@ -726,7 +745,7 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                       onClick={() => setSelectedLayer(layer)}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12 }}>{SERVICE_TYPES.find(s => s.key === serviceType)?.icon}</span>
+                        <span style={{ display: "flex" }}>{(() => { const I = SERVICE_TYPES.find(s => s.key === serviceType)?.icon; return I ? <I size={13}/> : null; })()}</span>
                         <span style={{ fontSize: 11, color: C.txt, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {layer.title || layer.name}
                         </span>
@@ -765,11 +784,12 @@ export default function OGCPanel({ mapRef, onAddRasterLayer, onAddLayer }) {
                       cursor: loadingLayer ? "default" : "pointer",
                       opacity: loadingLayer ? 0.6 : 1,
                       position: "sticky", bottom: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                     }}
                   >
-                    {loadingLayer
-                      ? "⏳ Chargement…"
-                      : `➕ Ajouter "${(selectedLayer.title || selectedLayer.name).slice(0, 25)}"`}
+                    <IcPlus size={13}/> {loadingLayer
+                      ? "Chargement…"
+                      : `Ajouter "${(selectedLayer.title || selectedLayer.name).slice(0, 25)}"`}
                   </button>
                 )}
               </>

@@ -858,6 +858,31 @@ from osm_routes import router as osm_router
 app.include_router(osm_router)
 
 
+# Conversion LiDAR LAS/LAZ (laspy) → nuages de points 3D
+try:
+    from lidar_routes import router as lidar_router
+    app.include_router(lidar_router)
+    print("✓ LiDAR routes chargées (/api/lidar)")
+except Exception as e:
+    print(f"✗ LiDAR routes non chargées: {e}")
+
+# Foresterie LiDAR : MNT/MNS/MNH + détection d'arbres + houppiers
+try:
+    from canopy_routes import router as canopy_router
+    app.include_router(canopy_router)
+    print("✓ Canopy routes chargées (/api/lidar/canopy)")
+except Exception as e:
+    print(f"✗ Canopy routes non chargées: {e}")
+
+# Import de rasters GeoTIFF (reprojection 4326 → overlay carte)
+try:
+    from raster_routes import router as raster_router
+    app.include_router(raster_router)
+    print("✓ Raster routes chargées (/api/raster/import)")
+except Exception as e:
+    print(f"✗ Raster routes non chargées: {e}")
+
+
 # 2. Routers
 app.include_router(resilience_router)
 app.include_router(memory_router)

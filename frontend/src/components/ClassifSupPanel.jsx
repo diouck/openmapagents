@@ -14,6 +14,10 @@ import * as turf from "@turf/turf";
 import { useThemeContext } from "../theme";
 import { F } from "../config";
 import ClassifMetricsModal from "./ClassifMetricsModal";
+import { IcTreePine, IcShuffle, IcRocket, IcScissors, IcMapPin, IcBarChart,
+  IcCheck, IcX, IcEdit, IcFolder, IcMouse, IcTrash, IcSatellite, IcCalendar,
+  IcCloud, IcBulb, IcInfo, IcRefreshCw, IcClassif, IcZap, IcCircleDot, IcMap,
+  IcLoader, IcAlert } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -26,31 +30,34 @@ const CLASS_COLORS = [
 
 // ── Modèles supervisés ────────────────────────────────────────────────────────
 const MODELS = [
-  { id:"smileRandomForest", label:"Random Forest", icon:"🌲", desc:"Robuste, standard", importance:true,
+  { id:"smileRandomForest", label:"Random Forest", icon:IcTreePine, desc:"Robuste, standard", importance:true,
     params:[
       {key:"numberOfTrees",    label:"Nb arbres",    type:"number", default:100, min:10,  max:500},
       {key:"minLeafPopulation",label:"Min feuille",  type:"number", default:1,   min:1,   max:50},
       {key:"bagFraction",      label:"Bag fraction", type:"number", default:0.5, min:0.1, max:1, step:0.1},
     ]},
-  { id:"smileCart", label:"Arbre décision", icon:"🔀", desc:"Interprétable, rapide", importance:true,
+  { id:"smileCart", label:"Arbre décision", icon:IcShuffle, desc:"Interprétable, rapide", importance:true,
     params:[
       {key:"minLeafPopulation",label:"Min feuille",type:"number",default:1,min:1, max:50},
       {key:"maxNodes",         label:"Max nœuds", type:"number",default:0,min:0, max:1000, hint:"0=illimité"},
     ]},
-  { id:"smileGradientTreeBoost", label:"Gradient Boost", icon:"🚀", desc:"Haute précision", importance:true,
+  { id:"smileGradientTreeBoost", label:"Gradient Boost", icon:IcRocket, desc:"Haute précision", importance:true,
     params:[
       {key:"numberOfTrees",label:"Estimateurs",  type:"number",default:100, min:10,   max:300},
       {key:"shrinkage",    label:"Learning rate",type:"number",default:0.05,min:0.001,max:0.5, step:0.01},
       {key:"samplingRate", label:"Subsampling",  type:"number",default:0.7, min:0.3,  max:1,   step:0.1},
     ]},
-  { id:"libsvm", label:"SVM", icon:"✂️", desc:"Petits datasets", importance:false,
+  { id:"libsvm", label:"SVM", icon:IcScissors, desc:"Petits datasets", importance:false,
     params:[
       {key:"kernelType",label:"Kernel",   type:"select",options:["RBF","LINEAR","POLY","SIGMOID"],default:"RBF"},
       {key:"cost",      label:"C (régul.)",type:"number",default:1.0,min:0.01,max:100,step:0.1},
     ]},
-  { id:"smileKNN", label:"K-NN", icon:"🔵", desc:"Simple", importance:false,
-    params:[{key:"k",label:"Voisins k",type:"number",default:5,min:1,max:50}]},
-  { id:"smileNaiveBayes", label:"Naïve Bayes", icon:"📊", desc:"Rapide, probabiliste", importance:false,
+  { id:"minimumDistance", label:"Min. Distance", icon:IcMapPin, desc:"KNN GEE natif", importance:false,
+    params:[
+      {key:"metric",label:"Métrique",type:"select",options:["euclidean","cosine","manhattan"],default:"euclidean"},
+      {key:"k",     label:"Voisins k",type:"number",default:1,min:1,max:10},
+    ]},
+  { id:"smileNaiveBayes", label:"Naïve Bayes", icon:IcBarChart, desc:"Rapide, probabiliste", importance:false,
     params:[{key:"lambda_",label:"Lissage λ",type:"number",default:1.0,min:0,max:10,step:0.1}]},
 ];
 
@@ -94,16 +101,17 @@ function buildRoisFC(classes, curPts, drawingFor) {
       f.push({ type:"Feature", geometry:roi, properties:{k:"roi",color:cls.color} });
     });
   });
-  // Polygone en cours de dessin
+  // Polygone en cours de dessin — points + lignes UNIQUEMENT (pas de fill pendant le dessin)
   if (drawingFor !== null && curPts.length > 0) {
     const color = classes.find(c=>c.id===drawingFor)?.color || "#888";
+    // Points visibles dès le 1er clic
     curPts.forEach(p => f.push({ type:"Feature", geometry:{type:"Point",coordinates:p}, properties:{k:"cp",color} }));
     if (curPts.length >= 2) {
       f.push({ type:"Feature", geometry:{type:"LineString",coordinates:curPts}, properties:{k:"ce",color} });
+      // Ligne de fermeture pointillée (dernier → premier)
       f.push({ type:"Feature", geometry:{type:"LineString",coordinates:[curPts[curPts.length-1],curPts[0]]}, properties:{k:"cc",color} });
     }
-    if (curPts.length >= 3)
-      f.push({ type:"Feature", geometry:{type:"Polygon",coordinates:[[...curPts,curPts[0]]]}, properties:{k:"cp2",color} });
+    // Pas de fill (k:"cp2") pendant le dessin — seulement après validation du ROI
   }
   return { type:"FeatureCollection", features:f };
 }
@@ -177,9 +185,9 @@ function Stepper({ step, C }) {
             width:20, height:20, borderRadius:"50%", flexShrink:0,
             display:"flex", alignItems:"center", justifyContent:"center",
             fontSize:10, fontWeight:600, fontFamily:F,
-            background: step >= s.id ? "#4A90D9" : C.hover,
+            background: step >= s.id ? "#22a558" : C.hover,
             color:      step >= s.id ? "#fff"    : C.dim,
-          }}>{step > s.id ? "✓" : s.id}</div>
+          }}>{step > s.id ? <IcCheck size={12}/> : s.id}</div>
           <span style={{ fontSize:9, color:step >= s.id ? C.txt : C.dim, marginLeft:3, whiteSpace:"nowrap" }}>
             {s.label}
           </span>
@@ -193,7 +201,7 @@ function Stepper({ step, C }) {
 }
 
 // ── Composant principal ───────────────────────────────────────────────────────
-export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classifClickRef }) {
+export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, updateRasterLayer, classifClickRef }) {
   const C = useThemeContext();
 
   // ── Mode ────────────────────────────────────────────────────────────────
@@ -227,6 +235,14 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   const [modelParams, setModelParams] = useState({});
   const [trainRatio,  setTrainRatio]  = useState(0.7);
 
+  // ── Multi-dates ──────────────────────────────────────────────────────────
+  const [multiDate,       setMultiDate]       = useState(false);
+  const [periods,         setPeriods]         = useState([
+    { start:"2022-01-01", end:"2022-12-31", label:"2022" },
+    { start:"2023-01-01", end:"2023-12-31", label:"2023" },
+  ]);
+  const [activePeriodIdx, setActivePeriodIdx] = useState(0);
+
   // ── Auto GEE ────────────────────────────────────────────────────────────
   const [autoList,      setAutoList]      = useState([]);
   const [autoId,        setAutoId]        = useState("");
@@ -235,6 +251,14 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   const [autoLoading,   setAutoLoading]   = useState(false);
   const [autoError,     setAutoError]     = useState(null);
   const [autoStep,      setAutoStep]      = useState(1);
+
+  // ── Non supervisé (clustering) ───────────────────────────────────────────
+  const [clusterMethod,  setClusterMethod]  = useState("kmeans"); // "kmeans" | "xmeans"
+  const [nClusters,      setNClusters]      = useState(5);
+  const [maxClusters,    setMaxClusters]    = useState(10);
+  const [clusterLoading, setClusterLoading] = useState(false);
+  const [clusterError,   setClusterError]   = useState(null);
+  const [clusterStep,    setClusterStep]    = useState(1);
 
   // ── Restyle ─────────────────────────────────────────────────────────────
   const [restyleColors,  setRestyleColors]  = useState([]);
@@ -247,7 +271,8 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   const rasterLayers = layers.filter(l => l.isRaster && l.visible);
   const vectorLayers = layers.filter(l => !l.isRaster);
   const selLayer     = layers.find(l => l.id === selLayerId);
-  const isGee        = !!(selLayer?.theme === "gee" || selLayer?._geeParams);
+  // isGee : couche GEE native (a des _geeParams) OU mode Auto GEE (pas de couche source)
+  const isGee        = mode === "auto" || !!(selLayer?._geeParams);
   const aoiArea      = aoiPoly
     ? computeArea(aoiPoly.coordinates[0].slice(0, -1))
     : computeArea(aoiPoints);
@@ -340,8 +365,8 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   const resetAoi = () => { setAoiPoints([]); setAoiPoly(null); setAoiDrawing(false); };
   const closeAoi = () => {
     if (aoiPoints.length < 3) { setError("Minimum 3 points"); return; }
-    if (!isGee && aoiArea > 1.05) {
-      setError(`Zone trop grande (${aoiArea.toFixed(2)} km²) — max 1 km² pour WMS/Tiles`); return;
+    if (!isGee && aoiArea > 105) {
+      setError(`Zone trop grande (${aoiArea.toFixed(2)} km²) — max 100 km² pour WMS/Tiles`); return;
     }
     setAoiPoly({ type:"Polygon", coordinates:[[...aoiPoints, aoiPoints[0]]] });
     setAoiDrawing(false); setError(null);
@@ -369,7 +394,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
         const pts  = ring.slice(0, -1);
         if (!isGee) {
           const a = computeArea(pts);
-          if (a > 1.05) { setError(`Zone trop grande (${a.toFixed(2)} km²)`); return; }
+          if (a > 105) { setError(`Zone trop grande (${a.toFixed(2)} km²) — max 100 km²`); return; }
         }
         setAoiPoints(pts); setAoiPoly(poly); setAoiDrawing(false); setError(null);
       } catch { setError("Fichier GeoJSON invalide"); }
@@ -386,6 +411,47 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   const renameClass   = (id, label)  => setClasses(p => p.map(c => c.id===id ? {...c,label}   : c));
   const setClassColor = (id, color)  => setClasses(p => p.map(c => c.id===id ? {...c,color}   : c));
   const removeClass   = id           => setClasses(p => p.filter(c => c.id !== id));
+
+  // ── Actions périodes multi-dates ────────────────────────────────────────
+  const addPeriod    = () => {
+    const yr = (new Date().getFullYear() - periods.length + 1).toString();
+    setPeriods(p => [...p, { start:`${yr}-01-01`, end:`${yr}-12-31`, label:yr }]);
+  };
+  const removePeriod = i  => setPeriods(p => p.filter((_,j) => j !== i));
+  const updatePeriod = (i, key, val) => setPeriods(p => p.map((x,j) => j===i ? {...x,[key]:val} : x));
+
+  // ── Switcher période sur la carte ────────────────────────────────────────
+  const switchPeriodOnMap = (idx) => {
+    if (!result?.period_results) return;
+    const pr  = result.period_results[idx];
+    const src = currentLayerId.current;
+    if (!src || !pr?.tile_url) return;
+
+    const map = getMap();
+    if (map) {
+      try {
+        const source = map.getSource(src);
+        if (source?.setTiles) {
+          // MapLibre GL ≥ 3 : swap tuiles sans supprimer la couche (pas de clignotement)
+          source.setTiles([pr.tile_url]);
+        } else {
+          // Fallback : remove + re-add
+          const lyrId = `${src}-lyr`;
+          try { if (map.getLayer(lyrId)) map.removeLayer(lyrId); } catch(_) {}
+          try { if (map.getSource(src))  map.removeSource(src);  } catch(_) {}
+          map.addSource(src, { type:"raster", tiles:[pr.tile_url], tileSize:256 });
+          map.addLayer({ id:lyrId, type:"raster", source:src, paint:{"raster-opacity":0.85} });
+        }
+      } catch(ex) { console.warn("switchPeriod:", ex); }
+    }
+
+    // Mettre à jour la légende dans le panneau gauche (pas de swap MapLibre ici)
+    if (updateRasterLayer) {
+      updateRasterLayer(src, { legend: pr.legend || [] });
+    }
+
+    setActivePeriodIdx(idx);
+  };
 
   // ── Actions ROI ──────────────────────────────────────────────────────────
   const startRoi  = id  => { setDrawingFor(id); setCurPts([]); setError(null); };
@@ -418,14 +484,20 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
     currentLayerBounds.current = data.image_bounds;
     currentLayerIsGee.current = !!data.tile_url;
 
+    const layerBase = {
+      id:layerId, name:layerName, type:"classif",
+      bbox:data.image_bounds, opacity:0.85,
+      legend:  data.legend   || null,   // stocké pour LayerPanel
+      job_id:  data.job_id   || null,   // stocké pour restyle depuis LayerPanel
+    };
+
     if (data.tile_url && map) {
       try {
         map.addSource(layerId, { type:"raster", tiles:[data.tile_url], tileSize:256 });
         map.addLayer({ id:`${layerId}-lyr`, type:"raster", source:layerId,
                        paint:{"raster-opacity":0.85} });
       } catch(ex) { console.warn("addSource classif GEE:", ex); }
-      addRasterLayer({ id:layerId, name:layerName, type:"classif",
-                       tileUrl:data.tile_url, bbox:data.image_bounds, opacity:0.85 });
+      addRasterLayer({ ...layerBase, tileUrl:data.tile_url });
     } else if (data.image_url && data.image_bounds && map) {
       const [W, S, E, N] = data.image_bounds;
       try {
@@ -434,8 +506,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
         map.addLayer({ id:`${layerId}-lyr`, type:"raster", source:layerId,
                        paint:{"raster-opacity":0.85} });
       } catch(ex) { console.warn("addSource classif WMS:", ex); }
-      addRasterLayer({ id:layerId, name:layerName, type:"classif",
-                       tileUrl:null, bbox:data.image_bounds, opacity:0.85 });
+      addRasterLayer({ ...layerBase, tileUrl:null });
     }
   }, [getMap, addRasterLayer]);
 
@@ -445,9 +516,10 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
     try {
       let rois = [];
       if (roiMode === "manual") {
-        classes.forEach(cls => {
+        classes.forEach((cls, idx) => {
           cls.rois.forEach(roi => {
-            rois.push({ geometry:roi, label:cls.label, class_id:cls.id, color:cls.color });
+            // class_id = index numérique (0,1,2…) — compatible Pydantic int et sklearn
+            rois.push({ geometry:roi, label:cls.label, class_id:idx, color:cls.color });
           });
         });
       } else {
@@ -473,31 +545,59 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
       modelDef.params.forEach(p => { params[p.key] = getParam(p.key); });
       if (params.maxNodes === 0) params.maxNodes = null;
 
-      const body = {
-        layer_id:    selLayerId,
-        layer_type:  isGee ? "gee" : "tile",
-        gee_params:  selLayer?._geeParams || null,
-        tile_url:    selLayer?.tileUrl    || null,
-        aoi:         aoiPoly,
-        rois,
-        model:        modelId,
-        model_params: params,
-        train_ratio:  trainRatio,
-        class_colors: classes.map(c => c.color),
-      };
-
-      const resp = await fetch(`${API}/api/gee/classify`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail:"Erreur serveur" }));
-        throw new Error(err.detail || `HTTP ${resp.status}`);
+      let data;
+      if (multiDate && isGee && periods.length >= 2) {
+        // ── Mode multi-dates ───────────────────────────────────────────
+        const body = {
+          layer_id:     selLayerId,
+          gee_params:   selLayer?._geeParams || null,
+          aoi:          aoiPoly,
+          rois,
+          model:        modelId,
+          model_params: params,
+          train_ratio:  trainRatio,
+          class_colors: classes.map(c => c.color),
+          date_periods: periods,
+        };
+        const resp = await fetch(`${API}/api/gee/classify/multidate`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail:"Erreur serveur" }));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        data = await resp.json();
+        setActivePeriodIdx(0);
+        addResultLayer(data, uniqueId("classif"),
+          `Multi-dates [${periods.map(p=>p.label).join("→")}] — ${selLayer?.name||""}`);
+      } else {
+        // ── Mode date unique (existant) ────────────────────────────────
+        const body = {
+          layer_id:    selLayerId,
+          layer_type:  isGee ? "gee" : "tile",
+          gee_params:  selLayer?._geeParams || null,
+          tile_url:    selLayer?.tileUrl    || null,
+          aoi:         aoiPoly,
+          rois,
+          model:        modelId,
+          model_params: params,
+          train_ratio:  trainRatio,
+          class_colors: classes.map(c => c.color),
+        };
+        const resp = await fetch(`${API}/api/gee/classify`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail:"Erreur serveur" }));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        data = await resp.json();
+        addResultLayer(data, uniqueId("classif"), `Classif. ${selLayer?.name||""} — ${modelDef.label}`);
       }
-      const data = await resp.json();
-      setResult(data);
+      // Enrichit le résultat avec l'ID du modèle pour l'onglet "Modèle" du modal
+      setResult({ ...data, classifier_id: modelId });
       setRestyleColors((data.legend || []).map(l => l.color));
       setStep(4);
-      addResultLayer(data, uniqueId("classif"), `Classif. ${selLayer?.name || ""} — ${modelDef.label}`);
     } catch(e) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -506,15 +606,96 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
     if (!aoiPoly) { setAutoError("Définissez d'abord la zone AOI"); return; }
     setAutoLoading(true); setAutoError(null); setResult(null);
     try {
-      const selAuto = autoList.find(a => a.id === autoId);
+      const selAuto    = autoList.find(a => a.id === autoId);
+      const classColors = selAuto?.classes?.map(c => c.color) || [];
+      const needsDates  = selAuto?.needs_dates !== false;
+
+      if (multiDate && needsDates && periods.length >= 2) {
+        // ── Multi-dates : un appel auto-classify par période ──────────
+        const periodResults = [];
+        for (let pi = 0; pi < periods.length; pi++) {
+          const p = periods[pi];
+          setActivePeriodIdx(pi);
+          const body = {
+            classifier_id: autoId, aoi: aoiPoly,
+            date_start: p.start, date_end: p.end,
+            class_colors: classColors,
+          };
+          const resp = await fetch(`${API}/api/gee/auto-classify`, {
+            method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail:"Erreur" }));
+            throw new Error(`[${p.label}] ${err.detail || `HTTP ${resp.status}`}`);
+          }
+          const d = await resp.json();
+          periodResults.push({
+            label: p.label, start: p.start, end: p.end,
+            tile_url:        d.tile_url,
+            legend:          d.legend,
+            image_bounds:    d.image_bounds,
+            cloud_cover_pct: d.cloud_cover_pct ?? null,
+            image_count:     d.image_count     ?? null,
+          });
+        }
+        const combined = {
+          backend:          "gee_multidate",
+          tile_url:         periodResults[0].tile_url,
+          image_url:        null,
+          image_bounds:     periodResults[0].image_bounds,
+          legend:           periodResults[0].legend,
+          bands_used:       selAuto ? [selAuto.band || "label"] : [],
+          class_labels:     (periodResults[0].legend || []).map(l => l.label),
+          period_results:   periodResults,
+          classifier_label: selAuto?.label,
+          metrics: null, confusion_matrix: null, feature_importance: null, job_id: null,
+        };
+        setResult(combined);
+        setRestyleColors((combined.legend || []).map(l => l.color));
+        setActivePeriodIdx(0);
+        setAutoStep(2);
+        addResultLayer(combined, uniqueId("auto"),
+          `Multi-dates [${periods.map(p=>p.label).join("→")}] — ${selAuto?.label||autoId}`);
+      } else {
+        // ── Date unique (existant) ────────────────────────────────────
+        const body = {
+          classifier_id: autoId, aoi: aoiPoly,
+          date_start: autoDateStart, date_end: autoDateEnd,
+          class_colors: classColors,
+        };
+        const resp = await fetch(`${API}/api/gee/auto-classify`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail:"Erreur" }));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        setResult(data);
+        setRestyleColors((data.legend || []).map(l => l.color));
+        setAutoStep(2);
+        addResultLayer(data, uniqueId("auto"), `Auto: ${selAuto?.label || autoId}`);
+      }
+    } catch(e) { setAutoError(e.message); } finally { setAutoLoading(false); }
+  };
+
+  // ── Clustering non supervisé ─────────────────────────────────────────────
+  const runCluster = async () => {
+    if (!aoiPoly)    { setClusterError("Définissez la zone AOI"); return; }
+    if (!selLayerId) { setClusterError("Sélectionnez une couche GEE"); return; }
+    if (!isGee)      { setClusterError("Le clustering nécessite une couche GEE"); return; }
+    setClusterLoading(true); setClusterError(null); setResult(null);
+    try {
       const body = {
-        classifier_id: autoId,
-        aoi:           aoiPoly,
-        date_start:    autoDateStart,
-        date_end:      autoDateEnd,
-        class_colors:  selAuto?.classes?.map(c => c.color) || [],
+        gee_params:   selLayer._geeParams,
+        aoi:          aoiPoly,
+        method:       clusterMethod,
+        n_clusters:   nClusters,
+        max_clusters: maxClusters,
+        sample_size:  5000,
+        class_colors: null,
       };
-      const resp = await fetch(`${API}/api/gee/auto-classify`, {
+      const resp = await fetch(`${API}/api/gee/cluster`, {
         method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
       });
       if (!resp.ok) {
@@ -524,9 +705,10 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
       const data = await resp.json();
       setResult(data);
       setRestyleColors((data.legend || []).map(l => l.color));
-      setAutoStep(2);
-      addResultLayer(data, uniqueId("auto"), `Auto: ${selAuto?.label || autoId}`);
-    } catch(e) { setAutoError(e.message); } finally { setAutoLoading(false); }
+      setClusterStep(2);
+      addResultLayer(data, uniqueId("cluster"),
+        `Cluster ${clusterMethod === "xmeans" ? "X-Means" : `K-Means k=${nClusters}`} — ${selLayer?.name || ""}`);
+    } catch(e) { setClusterError(e.message); } finally { setClusterLoading(false); }
   };
 
   // ── Restyle ──────────────────────────────────────────────────────────────
@@ -585,7 +767,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
     btn: (accent) => ({
       fontFamily:F, fontSize:11, padding:"7px 12px", borderRadius:8,
       border:`1px solid ${accent ? "transparent" : C.bdr}`,
-      background: accent ? "#4A90D9" : C.hover,
+      background: accent ? "#22a558" : C.hover,
       color:      accent ? "#fff"    : C.txt,
       cursor:"pointer", display:"flex", alignItems:"center", gap:5, flexShrink:0,
     }),
@@ -602,15 +784,15 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
       <div style={S.label}>Zone d'intérêt (AOI)</div>
       {!aoiPoly && !aoiDrawing && (
         <div style={{ display:"flex", gap:6 }}>
-          <button style={{ ...S.btn(true), flex:1, justifyContent:"center" }}
+          <button style={{ ...S.btn(true), flex:1, justifyContent:"center", gap:5 }}
                   onClick={startAoi}
                   disabled={mode === "supervised" && !selLayerId}>
-            ✏️ Dessiner
+            <IcEdit size={13}/> Dessiner
           </button>
-          <button style={{ ...S.btn(false), flex:1, justifyContent:"center" }}
+          <button style={{ ...S.btn(false), flex:1, justifyContent:"center", gap:5 }}
                   onClick={() => aoiFileRef.current?.click()}
                   title="Importer un fichier GeoJSON comme AOI">
-            📂 Importer fichier
+            <IcFolder size={13}/> Importer fichier
           </button>
           <input ref={aoiFileRef} type="file" accept=".geojson,.json"
                  style={{ display:"none" }} onChange={handleAoiFile}/>
@@ -618,19 +800,19 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
       )}
       {aoiDrawing && (
         <div style={S.card}>
-          <p style={{ fontSize:11, color:C.txt, margin:"0 0 6px" }}>
-            🖱️ Cliquez sur la carte — {aoiPoints.length} sommet(s)
+          <p style={{ fontSize:11, color:C.txt, margin:"0 0 6px", display:"flex", alignItems:"center", gap:5 }}>
+            <IcMouse size={13}/> Cliquez sur la carte — {aoiPoints.length} sommet(s)
           </p>
           {!isGee && aoiPoints.length >= 3 && (
-            <p style={{ fontSize:11, margin:"0 0 6px",
+            <p style={{ fontSize:11, margin:"0 0 6px", display:"flex", alignItems:"center", gap:4,
                         color: aoiArea > 1 ? "#e41a1c" : "#4daf4a" }}>
-              {aoiArea <= 1 ? "✅" : "❌"} {aoiArea.toFixed(3)} km²
-              {aoiArea > 1 ? " (max 1 km²)" : " / 1 km²"}
+              {aoiArea <= 1 ? <IcCheck size={12}/> : <IcAlert size={12}/>} {aoiArea.toFixed(3)} km²
+              {aoiArea > 1 ? " (max 10 km²)" : " / 1 km²"}
             </p>
           )}
           <div style={{ display:"flex", gap:6 }}>
-            <button style={S.btn(true)} onClick={closeAoi} disabled={aoiPoints.length < 3}>
-              ✔ Valider
+            <button style={{ ...S.btn(true), gap:5 }} onClick={closeAoi} disabled={aoiPoints.length < 3}>
+              <IcCheck size={13}/> Valider
             </button>
             <button style={S.btn(false)} onClick={resetAoi}>Annuler</button>
           </div>
@@ -638,10 +820,10 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
       )}
       {aoiPoly && (
         <div style={{ ...S.card, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <span style={{ fontSize:11, color:"#4daf4a" }}>
-            ✅ Zone définie{!isGee ? ` — ${aoiArea.toFixed(3)} km²` : ""}
+          <span style={{ fontSize:11, color:"#4daf4a", display:"inline-flex", alignItems:"center", gap:5 }}>
+            <IcCheck size={12}/> Zone définie{!isGee ? ` — ${aoiArea.toFixed(3)} km²` : ""}
           </span>
-          <button style={{ ...S.btn(false), padding:"4px 8px" }} onClick={resetAoi}>🗑</button>
+          <button style={{ ...S.btn(false), padding:"4px 8px" }} onClick={resetAoi}><IcTrash size={12}/></button>
         </div>
       )}
     </div>
@@ -650,59 +832,94 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
   // ── Panneau résultats (partagé supervisé / auto) ──────────────────────────
   const renderResults = (isSupervised) => (
     <div style={S.section}>
+
+      {/* ── Bandeau Landsat fallback ── */}
+      {result.landsat_fallback && (
+        <div style={{
+          padding:"8px 10px", borderRadius:6,
+          background:"#e07b0011", border:"1px solid #e07b0044",
+          fontSize:10, color:"#e07b00",
+        }}>
+          <IcSatellite size={12} style={{ verticalAlign:"middle" }}/> <strong>Bascule automatique vers {result.sensor || "Landsat"}</strong>
+          {" "}— {result.fallback_reason || "Sentinel-2 non disponible sur cette période."}
+          <div style={{ fontSize:9, marginTop:3, color:"#e07b00", opacity:0.85 }}>
+            Bandes utilisées : Blue, Green, Red, NIR, SWIR1, SWIR2, NDVI, NDWI, NDBI
+          </div>
+        </div>
+      )}
+
+      {/* ── Sélecteur de période (multi-dates uniquement) ── */}
+      {result.backend === "gee_multidate" && result.period_results?.length > 0 && (
+        <div style={S.card}>
+          <div style={{ fontSize:9, color:C.dim, textTransform:"uppercase",
+                        letterSpacing:".05em", marginBottom:6, display:"flex", alignItems:"center", gap:5 }}>
+            <IcCalendar size={11}/> Afficher sur la carte
+          </div>
+          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+            {result.period_results.map((pr, i) => (
+              <button key={i} onClick={() => switchPeriodOnMap(i)} style={{
+                ...S.btn(i === activePeriodIdx),
+                padding:"5px 10px", fontSize:10,
+                background: i === activePeriodIdx ? "#22a558" : C.hover,
+                color:      i === activePeriodIdx ? "#fff"    : C.txt,
+              }}>
+                {pr.label}
+              </button>
+            ))}
+          </div>
+          {result.period_results[activePeriodIdx]?.cloud_cover_pct != null && (
+            <div style={{ fontSize:9, color:C.dim, marginTop:5, display:"flex", alignItems:"center", gap:4 }}>
+              <IcCloud size={11}/> {result.period_results[activePeriodIdx].cloud_cover_pct}% nuages ·{" "}
+              {result.period_results[activePeriodIdx].image_count} image(s)
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Bannière accuracy */}
       <div style={{ ...S.card, background:"#4daf4a11", border:"1px solid #4daf4a44", textAlign:"center" }}>
-        <div style={{ fontSize:24, fontWeight:700, color:"#4daf4a" }}>
-          {Math.round((result.metrics?.overall_accuracy || 0) * 100)}%
-        </div>
-        <div style={{ fontSize:11, color:C.dim }}>Accuracy globale</div>
-        <div style={{ fontSize:10, color:C.dim, marginTop:2 }}>
-          Kappa : {result.metrics?.kappa?.toFixed(3) || "—"} ·{" "}
-          {result.backend === "gee" ? "GEE natif" : "sklearn local"}
-        </div>
+        {result.metrics ? (<>
+          <div style={{ fontSize:24, fontWeight:700, color:"#4daf4a" }}>
+            {Math.round((result.metrics.overall_accuracy || 0) * 100)}%
+          </div>
+          <div style={{ fontSize:11, color:C.dim }}>Accuracy globale</div>
+          <div style={{ fontSize:10, color:C.dim, marginTop:2 }}>
+            Kappa {result.metrics.kappa?.toFixed(3) || "—"} ·{" "}
+            {result.backend === "gee" ? "GEE natif" : "sklearn local"}
+          </div>
+        </>) : (
+          <div style={{ fontSize:11, color:C.dim, display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
+            <IcCheck size={12}/> Classification terminée — métriques non disponibles
+          </div>
+        )}
       </div>
 
-      {/* Légende éditable avec color pickers */}
-      <div>
-        <div style={{ ...S.label, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span>Légende des classes</span>
-          <span style={{ fontSize:9, color:C.dim, textTransform:"none", letterSpacing:0 }}>
-            cliquer pour changer la couleur
-          </span>
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-          {(result.legend || []).map((l, i) => (
-            <div key={l.class_id} style={{
+      {/* Résumé classes + F1 scores */}
+      {result.metrics?.per_class?.length > 0 && (
+        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+          <div style={{ ...S.label }}>Classes</div>
+          {result.metrics.per_class.map((pc, i) => (
+            <div key={pc.class_id ?? i} style={{
               display:"flex", alignItems:"center", gap:8,
-              padding:"5px 8px", borderRadius:7,
-              border:`1px solid ${C.bdr}`, background:C.hover,
+              padding:"4px 8px", borderRadius:6,
+              background:C.hover, border:`0.5px solid ${C.bdr}`,
             }}>
-              <input type="color"
-                     value={restyleColors[i] || l.color}
-                     onChange={e => {
-                       const nc = [...restyleColors];
-                       nc[i] = e.target.value;
-                       setRestyleColors(nc);
-                     }}
-                     style={S.colorPick}
-                     title={`Couleur — ${l.label}`}/>
-              <span style={{ fontSize:11, color:C.txt, flex:1 }}>{l.label}</span>
-              <span style={{ fontSize:10, color:C.dim }}>
-                {result.metrics?.per_class?.[i]
-                  ? `${Math.round((result.metrics.per_class[i].f1 || 0) * 100)}% F1`
-                  : ""}
+              <div style={{
+                width:10, height:10, borderRadius:2, flexShrink:0,
+                background:(result.legend?.[i]?.color || "#888"),
+                border:`0.5px solid ${C.bdr}`,
+              }}/>
+              <span style={{ fontSize:11, color:C.txt, flex:1 }}>{pc.label}</span>
+              <span style={{ fontSize:10, color:C.dim, fontFamily:"monospace" }}>
+                F1 {Math.round((pc.f1 || 0) * 100)}%
               </span>
             </div>
           ))}
+          <div style={{ fontSize:9, color:C.dim, marginTop:2, display:"flex", alignItems:"center", gap:5 }}>
+            <IcBulb size={11}/> Couleurs éditables dans le Gestionnaire de couches
+          </div>
         </div>
-        <button
-          style={{ ...S.btn(false), width:"100%", justifyContent:"center",
-                   marginTop:8, opacity:restyleLoading ? 0.6 : 1 }}
-          onClick={applyRestyle}
-          disabled={restyleLoading || !result.job_id}>
-          {restyleLoading ? "⏳ Application…" : "🎨 Appliquer les couleurs"}
-        </button>
-      </div>
+      )}
 
       {/* Bandes utilisées */}
       {result.bands_used?.length > 0 && (
@@ -711,24 +928,26 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
         </p>
       )}
 
-      <p style={{ fontSize:11, color:"#4daf4a", margin:0 }}>
-        ✅ Couche classifiée ajoutée à la carte
+      <p style={{ fontSize:11, color:"#4daf4a", margin:0, display:"flex", alignItems:"center", gap:5 }}>
+        <IcCheck size={12}/> Couche classifiée ajoutée à la carte
       </p>
 
-      <button style={{ ...S.btn(true), justifyContent:"center" }} onClick={() => setShowMetrics(true)}>
-        📊 Voir les métriques détaillées
+      <button style={{ ...S.btn(result.metrics ? true : false), justifyContent:"center", gap:6 }}
+              onClick={() => setShowMetrics(true)}>
+        {result.metrics ? <><IcBarChart size={13}/> Voir les métriques détaillées</> : <><IcInfo size={13}/> Informations sur la classification</>}
       </button>
 
       <button style={{ ...S.btn(false), justifyContent:"center" }} onClick={() => {
+        setResult(null); setAoiPoly(null); setAoiPoints([]);
         if (isSupervised) {
-          setStep(1); setResult(null); setAoiPoly(null);
-          setAoiPoints([]); setClasses([]); setError(null);
+          setStep(1); setClasses([]); setError(null);
+        } else if (mode === "auto") {
+          setAutoStep(1); setAutoError(null);
         } else {
-          setAutoStep(1); setResult(null); setAoiPoly(null);
-          setAoiPoints([]); setAutoError(null);
+          setClusterStep(1); setClusterError(null);
         }
       }}>
-        Nouvelle classification
+        {mode === "cluster" ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><IcRefreshCw size={13}/> Nouveau clustering</span> : "Nouvelle classification"}
       </button>
     </div>
   );
@@ -741,18 +960,19 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
         <div style={{ padding:12, display:"flex", flexDirection:"column", gap:10 }}>
 
           {/* ── Tabs Mode ────────────────────────────────────────────────── */}
-          <div style={{ display:"flex", gap:4, background:C.hover, borderRadius:8, padding:3 }}>
-            {[["supervised","🎯 Supervisée"], ["auto","⚡ Auto GEE"]].map(([m, lbl]) => (
+          <div style={{ display:"flex", gap:3, background:C.hover, borderRadius:8, padding:3 }}>
+            {[["supervised",IcClassif,"Supervisée"], ["auto",IcZap,"Auto GEE"], ["cluster",IcCircleDot,"Non sup."]].map(([m, Icon, lbl]) => (
               <button key={m} onClick={() => {
-                setMode(m); setError(null); setAutoError(null);
-                setResult(null); setStep(1); setAutoStep(1);
+                setMode(m); setError(null); setAutoError(null); setClusterError(null);
+                setResult(null); setStep(1); setAutoStep(1); setClusterStep(1);
               }} style={{
-                flex:1, fontFamily:F, fontSize:11, padding:"5px", borderRadius:6,
+                flex:1, fontFamily:F, fontSize:10, padding:"5px 2px", borderRadius:6,
                 border:"none", cursor:"pointer",
                 background: mode===m ? C.card : "transparent",
                 color:      mode===m ? C.txt  : C.dim,
                 fontWeight: mode===m ? 600    : 400,
-              }}>{lbl}</button>
+                display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4,
+              }}><Icon size={12}/> {lbl}</button>
             ))}
           </div>
 
@@ -775,7 +995,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                         <option value="">— Sélectionner —</option>
                         {rasterLayers.map(l => (
                           <option key={l.id} value={l.id}>
-                            {l.name} {l._geeParams ? "🛰️" : "🗺️"}
+                            {l.name} {l._geeParams ? "(GEE)" : "(WMS)"}
                           </option>
                         ))}
                       </select>
@@ -786,8 +1006,9 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                           background: isGee ? "#4A90D922" : "#e07b0022",
                           color:      isGee ? "#4A90D9"   : "#e07b00",
                           padding:"2px 8px", borderRadius:20,
+                          display:"inline-flex", alignItems:"center", gap:5,
                         }}>
-                          {isGee ? "🛰️ GEE — sans limite de taille" : "🗺️ WMS/Tile — max 1 km²"}
+                          {isGee ? <><IcSatellite size={11}/> GEE — sans limite de taille</> : <><IcMap size={11}/> WMS/Tile — max 10 km²</>}
                         </span>
                       </div>
                     )}
@@ -809,14 +1030,15 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
               {step === 2 && (
                 <div style={S.section}>
                   <div style={{ display:"flex", gap:4, background:C.hover, borderRadius:7, padding:3 }}>
-                    {[["manual","✏️ ROI manuels"], ["layer","📂 Couche vecteur"]].map(([m, lbl]) => (
+                    {[["manual",IcEdit,"ROI manuels"], ["layer",IcFolder,"Couche vecteur"]].map(([m, Icon, lbl]) => (
                       <button key={m} onClick={() => setRoiMode(m)} style={{
                         flex:1, fontFamily:F, fontSize:11, padding:"4px", borderRadius:5,
                         border:"none", cursor:"pointer",
                         background: roiMode===m ? C.card : "transparent",
                         color:      roiMode===m ? C.txt  : C.dim,
                         fontWeight: roiMode===m ? 600    : 400,
-                      }}>{lbl}</button>
+                        display:"inline-flex", alignItems:"center", justifyContent:"center", gap:5,
+                      }}><Icon size={12}/> {lbl}</button>
                     ))}
                   </div>
 
@@ -833,7 +1055,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                                    onChange={e => renameClass(cls.id, e.target.value)}
                                    style={{ ...S.inp, flex:1 }} placeholder="Nom de classe"/>
                             <button style={{ ...S.btn(false), padding:"3px 7px" }}
-                                    onClick={() => removeClass(cls.id)}>🗑</button>
+                                    onClick={() => removeClass(cls.id)}><IcTrash size={12}/></button>
                           </div>
 
                           {/* Tags ROIs */}
@@ -848,7 +1070,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                                   Poly {i+1}
                                   <button onClick={() => removeRoi(cls.id, i)}
                                           style={{ background:"none", border:"none",
-                                                   cursor:"pointer", color:cls.color, padding:0, fontSize:10 }}>✕</button>
+                                                   cursor:"pointer", color:cls.color, padding:0, display:"flex" }}><IcX size={11}/></button>
                                 </span>
                               ))}
                             </div>
@@ -856,12 +1078,12 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
 
                           {drawingFor === cls.id ? (
                             <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                              <p style={{ fontSize:10, color:C.dim, margin:0 }}>
-                                🖱️ {curPts.length} sommet(s) — cliquez sur la carte
+                              <p style={{ fontSize:10, color:C.dim, margin:0, display:"flex", alignItems:"center", gap:5 }}>
+                                <IcMouse size={12}/> {curPts.length} sommet(s) — cliquez sur la carte
                               </p>
                               <div style={{ display:"flex", gap:4 }}>
-                                <button style={S.btn(true)} onClick={closeRoi} disabled={curPts.length < 3}>
-                                  ✔ Valider polygone
+                                <button style={{ ...S.btn(true), gap:5 }} onClick={closeRoi} disabled={curPts.length < 3}>
+                                  <IcCheck size={12}/> Valider polygone
                                 </button>
                                 <button style={S.btn(false)} onClick={cancelRoi}>Annuler</button>
                               </div>
@@ -956,7 +1178,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                         outline:    modelId===m.id ? "2px solid #4A90D9" : "none",
                         color: C.txt,
                       }}>
-                        <div style={{ fontSize:16 }}>{m.icon}</div>
+                        <div style={{ display:"flex", justifyContent:"center" }}>{m.icon && <m.icon size={16}/>}</div>
                         <div style={{ fontSize:10, fontWeight:600, marginTop:2 }}>{m.label}</div>
                         <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>{m.desc}</div>
                       </button>
@@ -1009,7 +1231,7 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                     <button style={{ ...S.btn(true), flex:1, justifyContent:"center",
                                      opacity:loading ? 0.6 : 1 }}
                             onClick={run} disabled={loading}>
-                      {loading ? "⏳ Calcul en cours…" : "🚀 Lancer la classification"}
+                      {loading ? "Calcul en cours…" : <><IcRocket size={13}/> Lancer la classification</>}
                     </button>
                   </div>
                 </div>
@@ -1042,6 +1264,22 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
                           }}>
                             <div style={{ fontWeight:600, marginBottom:2 }}>{a.label}</div>
                             <div style={{ fontSize:10, color:C.dim }}>{a.description}</div>
+                            {/* Badge de disponibilité temporelle */}
+                            {(a.date_min || a.date_max) && (
+                              <div style={{
+                                fontSize:9, marginTop:4, padding:"2px 6px", borderRadius:4,
+                                background:"#4A90D911", color:"#4A90D9",
+                                display:"inline-flex", alignItems:"center", gap:4,
+                              }}>
+                                <IcCalendar size={10}/> {a.date_min ? a.date_min.slice(0,7) : "…"} →{" "}
+                                {a.date_max ? a.date_max.slice(0,7) : "aujourd'hui"}
+                              </div>
+                            )}
+                            {a.avail_note && !a.date_min && !a.date_max && (
+                              <div style={{ fontSize:9, color:C.dim, marginTop:3, fontStyle:"italic" }}>
+                                {a.avail_note}
+                              </div>
+                            )}
                             {a.classes && (
                               <div style={{ display:"flex", flexWrap:"wrap", gap:3, marginTop:5 }}>
                                 {a.classes.slice(0, 8).map(c => (
@@ -1063,27 +1301,93 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
 
                   {renderAoi()}
 
-                  {/* Plage de dates */}
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                    <div>
-                      <div style={S.label}>Date début</div>
-                      <input type="date" value={autoDateStart}
-                             onChange={e => setAutoDateStart(e.target.value)} style={S.inp}/>
-                    </div>
-                    <div>
-                      <div style={S.label}>Date fin</div>
-                      <input type="date" value={autoDateEnd}
-                             onChange={e => setAutoDateEnd(e.target.value)} style={S.inp}/>
-                    </div>
-                  </div>
+                  {/* Plage de dates / multi-dates */}
+                  {autoList.find(a => a.id === autoId)?.needs_dates !== false && (
+                    <>
+                      {/* Toggle */}
+                      <div style={{
+                        padding:"8px 10px", borderRadius:8,
+                        background: multiDate ? "#4A90D911" : C.hover,
+                        border: `0.5px solid ${multiDate ? "#4A90D944" : C.bdr}`,
+                      }}>
+                        <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+                          <input type="checkbox" checked={multiDate}
+                                 onChange={e => setMultiDate(e.target.checked)}
+                                 style={{ width:14, height:14, cursor:"pointer" }}/>
+                          <span style={{ fontSize:11, fontWeight:600,
+                                         color: multiDate ? "#4A90D9" : C.txt, display:"inline-flex", alignItems:"center", gap:5 }}>
+                            <IcCalendar size={12}/> Comparaison multi-dates
+                          </span>
+                        </label>
+                      </div>
 
-                  {autoError && <p style={{ color:"#e41a1c", fontSize:11, margin:0 }}>{autoError}</p>}
+                      {/* Date unique */}
+                      {!multiDate && (
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                          <div>
+                            <div style={S.label}>Date début</div>
+                            <input type="date" value={autoDateStart}
+                                   onChange={e => setAutoDateStart(e.target.value)} style={S.inp}/>
+                          </div>
+                          <div>
+                            <div style={S.label}>Date fin</div>
+                            <input type="date" value={autoDateEnd}
+                                   onChange={e => setAutoDateEnd(e.target.value)} style={S.inp}/>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Périodes */}
+                      {multiDate && (
+                        <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                          <div style={{ fontSize:9, color:C.dim,
+                                        textTransform:"uppercase", letterSpacing:".05em" }}>
+                            Périodes à comparer
+                          </div>
+                          {periods.map((p, i) => (
+                            <div key={i} style={{ display:"flex", gap:4, alignItems:"center" }}>
+                              <input value={p.label}
+                                     onChange={e => updatePeriod(i, "label", e.target.value)}
+                                     placeholder={`P${i+1}`}
+                                     style={{ ...S.inp, width:48, textAlign:"center", padding:"5px 4px" }}/>
+                              <input type="date" value={p.start}
+                                     onChange={e => updatePeriod(i, "start", e.target.value)}
+                                     style={{ ...S.inp, flex:1, padding:"5px 6px" }}/>
+                              <input type="date" value={p.end}
+                                     onChange={e => updatePeriod(i, "end", e.target.value)}
+                                     style={{ ...S.inp, flex:1, padding:"5px 6px" }}/>
+                              {periods.length > 2 && (
+                                <button style={{ ...S.btn(false), padding:"4px 6px" }}
+                                        onClick={() => removePeriod(i)}><IcTrash size={12}/></button>
+                              )}
+                            </div>
+                          ))}
+                          <button style={{ ...S.btn(false), justifyContent:"center", fontSize:10 }}
+                                  onClick={addPeriod}>
+                            + Ajouter période
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {autoError && (
+                    <div style={{
+                      padding:"8px 10px", borderRadius:6,
+                      background:"#e41a1c11", border:"1px solid #e41a1c44",
+                      fontSize:11, color:"#e41a1c", whiteSpace:"pre-line",
+                    }}>
+                      {autoError}
+                    </div>
+                  )}
 
                   <button style={{ ...S.btn(true), justifyContent:"center",
                                    opacity:autoLoading ? 0.6 : 1 }}
                           onClick={runAuto}
                           disabled={autoLoading || !aoiPoly || !autoId}>
-                    {autoLoading ? "⏳ Calcul GEE en cours…" : "⚡ Lancer la classification auto"}
+                    {autoLoading
+                      ? `${multiDate ? `Période ${activePeriodIdx+1}/${periods.length}…` : "Calcul GEE en cours…"}`
+                      : multiDate ? <><IcCalendar size={13}/> Comparer {periods.length} périodes</> : <><IcZap size={13}/> Lancer la classification auto</>}
                   </button>
 
                   <p style={{ fontSize:10, color:C.dim, margin:0, textAlign:"center" }}>
@@ -1093,6 +1397,92 @@ export default function ClassifSupPanel({ mapRef, layers, addRasterLayer, classi
               )}
 
               {autoStep === 2 && result && renderResults(false)}
+            </>
+          )}
+
+          {/* ════════════ MODE CLUSTERING ═══════════════════════════════════ */}
+          {mode === "cluster" && (
+            <>
+              {clusterStep === 1 && (
+                <div style={S.section}>
+                  {/* Couche source (GEE obligatoire) */}
+                  <div>
+                    <div style={S.label}>Couche GEE source</div>
+                    {rasterLayers.filter(l => l._geeParams).length === 0 ? (
+                      <p style={{ fontSize:11, color:C.dim, margin:0 }}>
+                        Aucune couche GEE — chargez d'abord une couche depuis le panneau GEE
+                      </p>
+                    ) : (
+                      <select value={selLayerId} onChange={e => setSelLayerId(e.target.value)} style={S.inp}>
+                        <option value="">— Sélectionner —</option>
+                        {rasterLayers.filter(l => l._geeParams).map(l => (
+                          <option key={l.id} value={l.id}>{l.name} (GEE)</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {renderAoi()}
+
+                  {/* Méthode */}
+                  <div>
+                    <div style={S.label}>Méthode de clustering</div>
+                    <div style={{ display:"flex", gap:6 }}>
+                      {[["kmeans","K-Means","Nombre fixe de clusters"],
+                        ["xmeans","X-Means","Nombre automatique"]].map(([m,lbl,desc]) => (
+                        <button key={m} onClick={() => setClusterMethod(m)} style={{
+                          flex:1, fontFamily:F, fontSize:11, padding:"8px 6px",
+                          borderRadius:8, border:"none", cursor:"pointer", textAlign:"center",
+                          background: clusterMethod===m ? "#4A90D922" : C.hover,
+                          outline:    clusterMethod===m ? "2px solid #4A90D9" : "none",
+                          color: C.txt,
+                        }}>
+                          <div style={{ fontWeight:600 }}>{lbl}</div>
+                          <div style={{ fontSize:9, color:C.dim, marginTop:2 }}>{desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Paramètres */}
+                  {clusterMethod === "kmeans" ? (
+                    <div>
+                      <div style={{ ...S.label, display:"flex", justifyContent:"space-between" }}>
+                        <span>Nombre de clusters</span>
+                        <span style={{ color:C.txt, textTransform:"none", letterSpacing:0 }}>{nClusters}</span>
+                      </div>
+                      <input type="range" min={2} max={15} step={1} value={nClusters}
+                             onChange={e => setNClusters(parseInt(e.target.value))}
+                             style={{ width:"100%", accentColor:"#4A90D9" }}/>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ ...S.label, display:"flex", justifyContent:"space-between" }}>
+                        <span>Nb max de clusters (X-Means)</span>
+                        <span style={{ color:C.txt, textTransform:"none", letterSpacing:0 }}>{maxClusters}</span>
+                      </div>
+                      <input type="range" min={3} max={20} step={1} value={maxClusters}
+                             onChange={e => setMaxClusters(parseInt(e.target.value))}
+                             style={{ width:"100%", accentColor:"#4A90D9" }}/>
+                    </div>
+                  )}
+
+                  {clusterError && <p style={{ color:"#e41a1c", fontSize:11, margin:0 }}>{clusterError}</p>}
+
+                  <button style={{ ...S.btn(true), justifyContent:"center",
+                                   opacity:clusterLoading ? 0.6 : 1 }}
+                          onClick={runCluster}
+                          disabled={clusterLoading || !aoiPoly || !selLayerId}>
+                    {clusterLoading ? "Clustering GEE en cours…" : <><IcCircleDot size={13}/> Lancer le clustering</>}
+                  </button>
+
+                  <p style={{ fontSize:10, color:C.dim, margin:0, textAlign:"center" }}>
+                    Sans restriction de taille · K-Means et X-Means GEE natifs
+                  </p>
+                </div>
+              )}
+
+              {clusterStep === 2 && result && renderResults(false)}
             </>
           )}
 

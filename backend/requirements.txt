@@ -11,4 +11,21 @@ pydantic>=2.0.0
 scikit-learn>=1.3.0
 Pillow>=10.0.0
 requests>=2.31.0
+# Assemblage des animations (GIF) — module timelapse GIF + export /timelapse/export
+imageio>=2.31.0
+# Facultatif : active l'export MP4 (sinon repli automatique sur GIF)
+# imageio-ffmpeg>=0.4.9
 numpy>=1.24.0
+# ── Import LiDAR LAS/LAZ (toutes versions) ──────────────────
+laspy>=2.5.0
+lazrs>=0.5.0
+python-multipart>=0.0.9
+pyproj>=3.5.0   # reprojection des nuages (UTM, Lambert-93…) → WGS84 pour le placement carte
+# ── Foresterie LiDAR (MNT/MNS/MNH, arbres, houppiers) ───────
+scipy>=1.10.0
+scikit-image>=0.22.0
+rasterio>=1.3.0
+# Optionnel (filtre sol CSF pour nuages NON classés) — extension C++, peut ne pas
+# s'installer partout ; le code retombe sur un MNT morphologique si absent.
+# Installer à part si besoin :  pip install cloth-simulation-filter
+# cloth-simulation-filter>=1.1.5

@@ -1,59 +1,107 @@
 /**
  * GEEPanel.jsx — Module Google Earth Engine
  * Datasets : Sentinel-2, Landsat 8/9, MODIS LST/NDVI,
- *            ESA WorldCover, Sentinel-1 SAR, Hansen Forest, ERA5, SRTM
+ *            ESA WorldCover, Sentinel-1 SAR, Hansen Forest, ERA5, SRTM,
+ *            WRI/Meta Canopy Height 2020
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
+import IndexStatsModal from "./IndexStatsModal";
+import TimeSeriesModal from "./TimeSeriesModal";
+import BivariatePanel from "./BivariatePanel";
+import {
+  IcSatellite, IcLeaf, IcLandPlot, IcTrees, IcTreePine, IcThermometer, IcCloud,
+  IcCloudRain, IcDroplet, IcDroplets, IcWind, IcWaves, IcSparkles, IcMountain,
+  IcCheck, IcCalendar, IcMap, IcHexagon, IcTrendingUp, IcTriangle,
+} from "../icons";
 
 // ── Couleurs par groupe de dataset ───────────────────────────
 const DS_COLORS = {
   "Optique": "#1D9E75",  "Radar": "#5B8DD9",
   "Climat":  "#EF9F27",  "Végétation": "#6BBF5E",
   "Forêt":   "#2E7D32",  "Relief": "#8D6E63",
+ 
 };
 
 const DATASET_GROUPS = {
   "Optique": [
-    { id: "sentinel2", label: "Sentinel-2",   desc: "10m · 5 jours",  icon: "🛰️" },
-    { id: "landsat9",  label: "Landsat 9",    desc: "30m · 16 jours", icon: "🛰️" },
-    { id: "landsat8",  label: "Landsat 8",    desc: "30m · 16 jours", icon: "🛰️" },
+    { id: "sentinel2", label: "Sentinel-2",   desc: "10m · 5 jours",  icon: IcSatellite },
+    { id: "landsat",   label: "Landsat (auto)", desc: "30m · 4/5/7/8/9 selon date", icon: IcSatellite },
+    { id: "landsat9",  label: "Landsat 9",    desc: "30m · 16 jours", icon: IcSatellite },
+    { id: "landsat8",  label: "Landsat 8",    desc: "30m · 16 jours", icon: IcSatellite },
   ],
   "Radar": [
-    { id: "sentinel1", label: "Sentinel-1 SAR", desc: "10m · tout temps", icon: "📡" },
+    { id: "sentinel1", label: "Sentinel-1 SAR", desc: "10m · tout temps", icon: IcSatellite },
   ],
   "Végétation": [
-    { id: "modis_ndvi",  label: "MODIS NDVI",    desc: "500m · 16 jours", icon: "🌿" },
-    { id: "worldcover",  label: "ESA WorldCover", desc: "10m · annuel",    icon: "🗺️" },
-    { id: "hansen",      label: "Forest Watch",   desc: "30m · annuel",    icon: "🌳" },
+    { id: "modis_ndvi",  label: "MODIS NDVI",    desc: "500m · 16 jours", icon: IcLeaf },
+    { id: "worldcover",  label: "ESA WorldCover", desc: "10m · annuel",    icon: IcLandPlot },
+    { id: "hansen",      label: "Forest Watch",   desc: "30m · annuel",    icon: IcTrees },
+    { id: "canopy_height", label: "Hauteur de Canopée", desc: "~1m · 2020", icon: IcTreePine },
   ],
-  "Climat": [
-    { id: "modis_lst", label: "MODIS LST Temp.", desc: "1km · quotidien", icon: "🌡️" },
-    { id: "era5",      label: "ERA5 Climat",     desc: "11km · mensuel",  icon: "🌦️" },
+  "Climat / Hydro": [
+    { id: "modis_lst", label: "MODIS LST Temp.", desc: "1km · quotidien", icon: IcThermometer },
+    { id: "era5",      label: "ERA5 Climat",     desc: "11km · mensuel",  icon: IcCloud },
+    { id: "chirps",    label: "CHIRPS Précip.",  desc: "5km · quotidien", icon: IcCloudRain },
+    { id: "modis_et",  label: "MODIS ÉvapoT.",   desc: "500m · 8 jours",  icon: IcDroplet },
+    { id: "smap",      label: "SMAP Humidité sol", desc: "~10km · 3h",    icon: IcDroplets },
+  ],
+  "Qualité de l'air": [
+    { id: "sentinel5p", label: "Sentinel-5P", desc: "~7km · NO₂/CO/CH₄…", icon: IcWind },
+  ],
+  "Eau / Nuit": [
+    { id: "jrc_water", label: "JRC Eaux de surface", desc: "30m · 1984-2021", icon: IcWaves },
+    { id: "viirs",     label: "VIIRS Nuit",         desc: "500m · mensuel",  icon: IcSparkles },
   ],
   "Relief": [
-    { id: "srtm", label: "SRTM Relief", desc: "30m · statique", icon: "⛰️" },
-  ],
+    { id: "srtm",   label: "SRTM Relief",       desc: "30m · statique", icon: IcMountain },
+    { id: "copdem", label: "Copernicus DEM",    desc: "30m · GLO-30",   icon: IcMountain },
+  ]
 };
 
 const INDICES = {
-  sentinel2:  ["RGB", "NDVI", "NDWI", "NDBI", "EVI", "False Color (NIR)"],
-  landsat9:   ["RGB", "NDVI", "NDWI", "LST (température)"],
-  landsat8:   ["RGB", "NDVI", "NDWI", "LST (température)"],
+  sentinel2:  ["RGB", "NDVI", "EVI", "SAVI", "GNDVI", "NDRE", "NDWI", "MNDWI", "NDMI", "NDCI", "NDBI", "BSI", "NBR", "NDSI", "False Color (NIR)"],
+  landsat:    ["RGB", "NDVI", "GNDVI", "NDWI", "MNDWI", "NDMI", "BSI", "NBR", "NDSI", "LST (température)"],
+  landsat9:   ["RGB", "NDVI", "GNDVI", "NDWI", "MNDWI", "NDMI", "BSI", "NBR", "NDSI", "LST (température)"],
+  landsat8:   ["RGB", "NDVI", "GNDVI", "NDWI", "MNDWI", "NDMI", "BSI", "NBR", "NDSI", "LST (température)"],
   sentinel1:  ["VV", "VH", "VV/VH"],
   modis_ndvi: ["NDVI", "EVI"],
   modis_lst:  ["LST Jour", "LST Nuit"],
   worldcover: ["Occupation du sol"],
   hansen:     ["Couverture forêt 2000", "Perte forêt", "Gain forêt"],
   era5:       ["Température air", "Précipitations", "Humidité"],
-  srtm:       ["Élévation", "Pente", "Ombrage"],
+  srtm:          ["Élévation", "Pente", "Ombrage"],
+  canopy_height: ["Hauteur canopée"],
+  sentinel5p:    ["NO₂", "CO", "SO₂", "CH₄", "O₃", "Aérosols (AI)"],
+  jrc_water:     ["Occurrence", "Saisonnalité", "Changement"],
+  viirs:         ["Radiance nocturne"],
+  chirps:        ["Précipitations (cumul)"],
+  copdem:        ["Élévation", "Pente", "Ombrage"],
+  modis_et:      ["Évapotranspiration"],
+  smap:          ["Humidité du sol"],
 };
 
-const NEEDS_DATES = new Set(["sentinel2","landsat9","landsat8","sentinel1","modis_ndvi","modis_lst","era5"]);
-const NEEDS_CLOUD = new Set(["sentinel2","landsat9","landsat8"]);
-const STATIC_DS   = new Set(["srtm","hansen","worldcover"]); // ee.Image — pas de dates
-
+const NEEDS_DATES = new Set(["sentinel2","landsat","landsat9","landsat8","sentinel1","modis_ndvi","modis_lst","era5","sentinel5p","viirs","chirps","modis_et","smap"]);
+const NEEDS_CLOUD = new Set(["sentinel2","landsat","landsat9","landsat8"]);
+const STATIC_DS   = new Set(["srtm","hansen","worldcover","canopy_height","jrc_water","copdem"]); // ee.Image — pas de dates
+const STATS_INDICES = new Set([
+  "NDVI", "NDWI", "NDBI", "EVI",
+  "SAVI", "GNDVI", "NDRE", "MNDWI", "NDMI", "NDCI", "BSI", "NBR", "NDSI",
+  "LST Jour", "LST Nuit", "LST (température)",
+  "Température air", "Précipitations", "Humidité",
+  "Hauteur canopée",
+  "VV", "VH",
+  // Datasets statiques
+  "Occupation du sol",
+  "Couverture forêt 2000", "Perte forêt", "Gain forêt",
+  "Élévation", "Pente", "Ombrage",
+  // Lot 2 : qualité de l'air, eau, nuit, climat/hydro
+  "NO₂", "CO", "SO₂", "CH₄", "O₃", "Aérosols (AI)",
+  "Occurrence", "Saisonnalité", "Changement",
+  "Radiance nocturne", "Précipitations (cumul)",
+  "Évapotranspiration", "Humidité du sol",
+]);
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // ── Composant calendrier compact ──────────────────────────────
@@ -108,6 +156,7 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
   const [cloudMax,  setCloudMax]  = useState(20);
   const [opacity,   setOpacity]   = useState(0.85);
   const [openGroup, setOpenGroup] = useState("Optique");
+  const [mode,      setMode]      = useState("simple"); // "simple" | "bivariate"
   const [roiMode,    setRoiMode]   = useState("bbox"); // "bbox" | "layer"
   const [roiLayerId, setRoiLayerId] = useState("");
 
@@ -116,10 +165,17 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
   const [loading,   setLoading]   = useState(false);
   const [status,    setStatus]    = useState(null); // {type, msg}
   const [geeReady,  setGeeReady]  = useState(null); // null=checking, true, false
-
+  const [indexStatsModal, setIndexStatsModal] = useState(null);
+  const [tsModal,  setTsModal]  = useState(null);   // série temporelle
+  const [tsBusy,   setTsBusy]   = useState(false);
+  const [anomBusy, setAnomBusy] = useState(false);
   const needsDates = NEEDS_DATES.has(dataset);
   const needsCloud = NEEDS_CLOUD.has(dataset);
   const indices    = INDICES[dataset] || [];
+  // 3. Indices qui N'ouvrent PAS la modale (visuels purs sans stats utiles)
+  const NO_STATS_INDICES = new Set(["RGB", "False Color (NIR)", "VV", "VH", "VV/VH"]);
+
+
 
   // Check GEE health au montage
   useEffect(() => {
@@ -201,7 +257,29 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
       if (!res.ok) throw new Error(data.detail || "Erreur serveur");
       setDates(data.dates || []);
       setSelDate(data.dates?.[data.dates.length - 1] || "");
-      setStatus({ type: "ok", msg: `${data.count} images disponibles` });
+      //setStatus({ type: "ok", msg: `${data.count} images disponibles` });
+      if (!NO_STATS_INDICES.has(index)) {
+          // Mapping index GEEPanel → index IndexStatsModal pour les cas spéciaux
+          const indexForModal = dataset === "canopy_height" ? "Hauteur canopée" : index;
+          setIndexStatsModal({
+            dataset,
+            index:      indexForModal,
+            layerName:  data.name || `${dataset} — ${index}`,
+            bbox:       data.clip_bbox || bbox || null,
+            roi_geojson,
+            geeParams: {
+              date_start: dateStart,
+              date_end:   dateEnd,
+              cloud_max:  cloudMax,
+              composite,
+            },
+          });
+        }
+
+
+
+
+
     } catch (e) {
       setStatus({ type: "error", msg: e.message });
     }
@@ -257,15 +335,76 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
         opacity,
         bbox:        data.clip_bbox || null,
         visParams:   data.vis_params || null,
-        geeParams,
+        _geeParams: geeParams, 
       });
 
-      setStatus({ type: "ok", msg: `✓ Couche ajoutée : ${data.date || "composite"}` });
+      // ✅ Ouvrir automatiquement la modale stats
+      const NO_STATS = new Set(["RGB", "False Color (NIR)", "VV", "VH", "VV/VH"]);
+      if (!NO_STATS.has(index)) {
+        setIndexStatsModal({
+          dataset,
+          index: dataset === "canopy_height" ? "Hauteur canopée" : index,
+          layerName: data.name || `${dataset} — ${index}`,
+          bbox: data.clip_bbox || bbox || null,
+          roi_geojson,
+          geeParams: {
+            date_start: tileStart,
+            date_end: tileEnd,
+            cloud_max: cloudMax,
+            composite,
+          },
+        });
+      }
+
+
+
+      setStatus({ type: "ok", msg: `Couche ajoutée : ${data.date || "composite"}` });
     } catch (e) {
       setStatus({ type: "error", msg: `Erreur : ${e.message}` });
     }
     setLoading(false);
   }, [dataset, index, selDate, dateStart, dateEnd, cloudMax, composite, opacity, onAddRasterLayer, getRoi]);
+
+  // ── Lot 3 — Série temporelle ──────────────────────────────
+  const runTimeSeries = useCallback(async () => {
+    const { bbox, roi_geojson } = getRoi();
+    if (!bbox && !roi_geojson) { setStatus({ type: "error", msg: "Zone d'analyse introuvable (cadrez la carte ou choisissez une couche)." }); return; }
+    setTsBusy(true); setStatus({ type: "info", msg: "Calcul de la série temporelle…" });
+    try {
+      const res = await fetch(`${API}/api/gee/index/timeseries`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset, index, date_start: dateStart, date_end: dateEnd, cloud_max: cloudMax, bbox, roi_geojson }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+      setTsModal({ dataset, index, series: data.series || [] });
+      setStatus(null);
+    } catch (e) { setStatus({ type: "error", msg: e.message }); }
+    setTsBusy(false);
+  }, [dataset, index, dateStart, dateEnd, cloudMax, getRoi]);
+
+  // ── Lot 3 — Carte d'anomalie (vs 5 ans avant) ─────────────
+  const runAnomaly = useCallback(async () => {
+    const { bbox, roi_geojson } = getRoi();
+    if (!bbox && !roi_geojson) { setStatus({ type: "error", msg: "Zone d'analyse introuvable." }); return; }
+    setAnomBusy(true); setStatus({ type: "info", msg: "Calcul de l'anomalie…" });
+    try {
+      const res = await fetch(`${API}/api/gee/index/anomaly`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset, index, date_start: dateStart, date_end: dateEnd, cloud_max: cloudMax, bbox, roi_geojson }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
+      onAddRasterLayer?.({
+        id: `gee_anom_${Date.now()}`,
+        name: `Anomalie ${index}`,
+        tileUrl: data.tile_url, type: "wms", opacity,
+        visParams: data.vis_params, bbox: bbox || null,
+      });
+      setStatus({ type: "ok", msg: `Anomalie ajoutée (réf. ${data.baseline?.[0]} → ${data.baseline?.[1]})` });
+    } catch (e) { setStatus({ type: "error", msg: e.message }); }
+    setAnomBusy(false);
+  }, [dataset, index, dateStart, dateEnd, cloudMax, opacity, onAddRasterLayer, getRoi]);
 
   const inp = {
     fontFamily: M, fontSize: 10, padding: "4px 7px", borderRadius: 5,
@@ -275,9 +414,9 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
 
   const statColor = { ok: C.acc, error: C.red, info: C.amb };
 
-  return (
+return (
+  <>
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-
       {/* ── Status GEE ─────────────────────────────────────── */}
       <div style={{ padding: "5px 12px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
         <div style={{ width: 7, height: 7, borderRadius: "50%", background: geeReady === true ? C.acc : geeReady === false ? C.red : C.amb, flexShrink: 0 }} />
@@ -286,6 +425,28 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
         </span>
       </div>
 
+      {/* ── Bascule Couche simple / Carte bivariée ──────────── */}
+      <div style={{ display: "flex", gap: 4, padding: "7px 10px 0", flexShrink: 0 }}>
+        {[["simple", "Couche simple"], ["bivariate", "Carte bivariée"]].map(([k, l]) => (
+          <button key={k} onClick={() => setMode(k)} style={{
+            fontFamily: F, flex: 1, fontSize: 10, fontWeight: 600, padding: "5px 0", borderRadius: 5, cursor: "pointer",
+            background: mode === k ? C.acc + "18" : "transparent",
+            border: `0.5px solid ${mode === k ? C.acc + "66" : C.bdr}`,
+            color: mode === k ? C.acc : C.dim,
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {mode === "bivariate" ? (
+        <BivariatePanel
+          mapRef={mapRef}
+          onAddRasterLayer={onAddRasterLayer}
+          layers={layers}
+          geeReady={geeReady}
+          sidebarWidth={sidebarWidth}
+          chatWidth={chatWidth}
+        />
+      ) : (
       <div style={{ flex: 1, overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
 
         {/* ── Sélection dataset ─────────────────────────────── */}
@@ -312,12 +473,12 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
                     background: dataset === ds.id ? (DS_COLORS[group] || C.acc) + "18" : "transparent",
                     border: `0.5px solid ${dataset === ds.id ? (DS_COLORS[group] || C.acc) + "55" : "transparent"}`,
                   }}>
-                  <span style={{ fontSize: 14 }}>{ds.icon}</span>
+                  <span style={{ display: "flex", color: dataset === ds.id ? (DS_COLORS[group] || C.acc) : C.mut }}>{ds.icon && <ds.icon size={14}/>}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, color: dataset === ds.id ? (DS_COLORS[group] || C.acc) : C.txt, fontWeight: dataset === ds.id ? 500 : 400 }}>{ds.label}</div>
                     <div style={{ fontSize: 9, color: C.dim }}>{ds.desc}</div>
                   </div>
-                  {dataset === ds.id && <span style={{ fontSize: 10, color: DS_COLORS[group] || C.acc }}>✓</span>}
+                  {dataset === ds.id && <IcCheck size={12} color={DS_COLORS[group] || C.acc}/>}
                 </div>
               ))}
             </div>
@@ -356,7 +517,7 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
 
             {needsCloud && (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 9, color: C.dim, flexShrink: 0 }}>☁ Max nuages</span>
+                <span style={{ fontSize: 9, color: C.dim, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }}><IcCloud size={11}/> Max nuages</span>
                 <input type="range" min="0" max="100" step="5" value={cloudMax}
                   onChange={e => setCloudMax(parseInt(e.target.value))}
                   style={{ flex: 1, height: 3 }} />
@@ -370,13 +531,14 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
                 fontFamily: F, fontSize: 10, padding: "5px 10px", borderRadius: 5,
                 background: "transparent", border: `0.5px solid ${C.acc}`,
                 color: C.acc, cursor: "pointer", opacity: loadDates ? 0.6 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}>
-                {loadDates ? "⏳ Chargement…" : "📅 Voir les dates disponibles"}
+                <IcCalendar size={12}/> {loadDates ? "Chargement…" : "Voir les dates disponibles"}
               </button>
             )}
             {STATIC_DS.has(dataset) && (
-              <div style={{ fontSize: 10, color: C.acc, padding: "4px 8px", background: C.acc+"12", borderRadius: 5, border: `0.5px solid ${C.acc}33` }}>
-                ✓ Dataset statique — pas de sélection de date
+              <div style={{ fontSize: 10, color: C.acc, padding: "4px 8px", background: C.acc+"12", borderRadius: 5, border: `0.5px solid ${C.acc}33`, display: "flex", alignItems: "center", gap: 5 }}>
+                <IcCheck size={12}/> Dataset statique — pas de sélection de date
               </div>
             )}
 
@@ -388,7 +550,7 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
                 </div>
                 <DatePicker dates={dates} value={selDate} onChange={setSelDate} />
                 {selDate && (
-                  <div style={{ fontSize: 9, color: C.acc, marginTop: 4 }}>📅 {selDate} sélectionné</div>
+                  <div style={{ fontSize: 9, color: C.acc, marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}><IcCalendar size={11}/> {selDate} sélectionné</div>
                 )}
               </div>
             )}
@@ -423,13 +585,15 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
               background: roiMode === "bbox" ? C.acc + "18" : "transparent",
               border: `0.5px solid ${roiMode === "bbox" ? C.acc + "55" : C.bdr}`,
               color: roiMode === "bbox" ? C.acc : C.dim,
-            }}>🗺 Vue carte</button>
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            }}><IcMap size={12}/> Vue carte</button>
             <button onClick={() => setRoiMode("layer")} style={{
               fontFamily: F, flex: 1, fontSize: 10, padding: "4px 0", borderRadius: 5, cursor: "pointer",
               background: roiMode === "layer" ? C.acc + "18" : "transparent",
               border: `0.5px solid ${roiMode === "layer" ? C.acc + "55" : C.bdr}`,
               color: roiMode === "layer" ? C.acc : C.dim,
-            }}>⬡ Couche (mask)</button>
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            }}><IcHexagon size={12}/> Couche (mask)</button>
           </div>
 
           {/* Mode bbox */}
@@ -465,8 +629,8 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
                   return (
                     <div style={{ fontSize: 9, color: C.acc, padding: "4px 6px", background: C.acc + "12", borderRadius: 4 }}>
                       {hasPolygon
-                        ? "✓ Masque exact — les rasters suivront le contour de la couche"
-                        : "⚠ Pas de polygone — bbox de la couche utilisée"}
+                        ? "Masque exact — les rasters suivront le contour de la couche"
+                        : "Pas de polygone — bbox de la couche utilisée"}
                     </div>
                   );
                 })()}
@@ -503,17 +667,86 @@ export default function GEEPanel({ mapRef, onAddRasterLayer, layers = [], sideba
             color:  geeReady && !loading ? "#fff" : C.dim,
             border: "none", cursor: geeReady && !loading ? "pointer" : "default",
             opacity: loading ? 0.6 : 1,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
           }}>
-            {loading ? "⏳ Calcul GEE en cours…" : `🛰 Charger ${index || "la couche"}`}
+            <IcSatellite size={14}/> {loading ? "Calcul GEE en cours…" : `Charger ${index || "la couche"}`}
           </button>
           {!geeReady && (
             <div style={{ fontSize: 9, color: C.dim, textAlign: "center", marginTop: 4 }}>
               Démarrez le backend FastAPI avec <code style={{ fontFamily: M }}>gee_routes.py</code>
             </div>
           )}
+
+          {/* Analytique (datasets temporels, indices numériques) */}
+          {needsDates && index && index !== "RGB" && !index.includes("False Color") && (
+            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              <button onClick={runTimeSeries} disabled={tsBusy || !geeReady} title="Évolution de l'indice dans le temps sur la zone"
+                style={{ flex: 1, fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, cursor: (tsBusy || !geeReady) ? "default" : "pointer",
+                  background: "transparent", border: `0.5px solid ${C.acc}66`, color: C.acc, opacity: tsBusy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <IcTrendingUp size={12}/> {tsBusy ? "…" : "Série temporelle"}
+              </button>
+              <button onClick={runAnomaly} disabled={anomBusy || !geeReady} title="Écart vs moyenne des 5 années précédentes"
+                style={{ flex: 1, fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, cursor: (anomBusy || !geeReady) ? "default" : "pointer",
+                  background: "transparent", border: `0.5px solid ${C.acc}66`, color: C.acc, opacity: anomBusy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <IcTriangle size={12}/> {anomBusy ? "…" : "Anomalie"}
+              </button>
+            </div>
+          )}
         </div>
 
       </div>
+      )}
     </div>
-  );
+
+    {/* ✅ Modale stats */}
+    {indexStatsModal && (
+      <IndexStatsModal
+        dataset={indexStatsModal.dataset}
+        index={indexStatsModal.index}
+        layer={{ name: indexStatsModal.layerName }}
+        bbox={indexStatsModal.bbox}
+        roiGeoJSON={indexStatsModal.roi_geojson}
+        geeParams={indexStatsModal.geeParams}
+        onClose={() => setIndexStatsModal(null)}
+      />
+    )}
+
+    {/* 📈 Modale série temporelle */}
+    {tsModal && (
+      <TimeSeriesModal
+        dataset={tsModal.dataset}
+        index={tsModal.index}
+        series={tsModal.series}
+        onClose={() => setTsModal(null)}
+      />
+    )}
+  </>
+);
 }
+
+// ── Récapitulatif des indices couverts ──────────────────────
+// dataset          index                    → config modale
+// ─────────────────────────────────────────────────────────────
+// sentinel2        NDVI                     → NDVI
+// sentinel2        NDWI                     → NDWI
+// sentinel2        NDBI                     → NDBI
+// sentinel2        EVI                      → EVI
+// sentinel2        LST (température)        → LST (température)
+// landsat8/9       NDVI/NDWI/LST            → idem
+// modis_ndvi       NDVI / EVI               → NDVI / EVI (500m)
+// modis_lst        LST Jour / LST Nuit      → LST Jour/Nuit
+// worldcover       Occupation du sol        → Occupation du sol
+// hansen           Couverture forêt 2000    → Couverture forêt 2000
+// hansen           Perte forêt              → Perte forêt
+// hansen           Gain forêt               → Gain forêt
+// era5             Température air          → Température air
+// era5             Précipitations           → Précipitations
+// era5             Humidité                 → Humidité
+// srtm             Élévation                → Élévation
+// srtm             Pente                    → Pente
+// srtm             Ombrage                  → Ombrage
+// canopy_height    Hauteur canopée          → Hauteur canopée
+// ─────────────────────────────────────────────────────────────
+// Indices sans modale (NO_STATS_INDICES) :
+// sentinel2        RGB / False Color (NIR)  → aucune modale
+// sentinel1        VV / VH / VV/VH          → aucune modale

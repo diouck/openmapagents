@@ -1,11 +1,21 @@
-import React from "react"
-import ReactDOM from "react-dom/client"
-import App from "./App.jsx"
-import "./index.css"
-import "maplibre-gl/dist/maplibre-gl.css"
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import App from "./App";
+import DocIndex from "./components/doc/DocIndex";
+import DocArticle from "./components/doc/DocArticle";
+import { AuthProvider } from "./useAuth";
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-)
+createRoot(document.getElementById("root")).render(
+  <StrictMode>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/doc" element={<DocIndex />} />
+          <Route path="/doc/:slug" element={<DocArticle />} />
+          <Route path="*" element={<App />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  </StrictMode>
+);

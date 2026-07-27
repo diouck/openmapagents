@@ -1,0 +1,2549 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenMapAgents — Cartographie IA Open Source</title>
+  <meta name="description" content="Explorez, analysez et visualisez des données géospatiales avec le langage naturel. MCP, multi-LLM, Overture Maps, Google Earth Engine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #060d08;
+      --bg2:     #091210;
+      --card:    #0c1a10;
+      --card2:   #0f2015;
+      --border:  #1a3320;
+      --border2: #254d30;
+      --green:   #22c55e;
+      --green2:  #4ade80;
+      --green3:  #86efac;
+      --lime:    #a3e635;
+      --teal:    #2dd4bf;
+      --dark:    #052e10;
+      --text:    #e2faea;
+      --text2:   #7ab88a;
+      --text3:   #3d6648;
+      --radius:  14px;
+      --radius-lg: 22px;
+    }
+
+    html { scroll-behavior: smooth; overflow-x: hidden; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* ─── NOISE TEXTURE ────────────────────────────────── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: .4;
+    }
+
+    /* ─── NAV ──────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 1000;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    nav::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(6,13,8,.95) 0%, transparent 100%);
+      pointer-events: none;
+    }
+
+    .nav-logo {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      font-weight: 800;
+      font-size: 1.05rem;
+      letter-spacing: -.03em;
+      color: var(--green2);
+    }
+
+    .nav-logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--green), var(--teal));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .9rem;
+    }
+
+    .nav-links {
+      position: relative;
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: .85rem;
+      color: var(--text2);
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--green2); }
+
+    .nav-cta {
+      position: relative;
+      display: flex;
+      gap: .75rem;
+    }
+
+    /* ─── BUTTONS ──────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .55rem 1.3rem;
+      border-radius: 999px;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .25s;
+      border: none;
+    }
+
+    .btn-green {
+      background: linear-gradient(135deg, var(--green), #16a34a);
+      color: #fff;
+      box-shadow: 0 0 24px rgba(34,197,94,.35);
+    }
+    .btn-green:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 0 40px rgba(34,197,94,.5);
+    }
+
+    .btn-glass {
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.2);
+      color: var(--green3);
+      backdrop-filter: blur(8px);
+    }
+    .btn-glass:hover {
+      background: rgba(34,197,94,.15);
+      border-color: rgba(34,197,94,.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-lg { padding: .8rem 2rem; font-size: 1rem; }
+
+    /* ─── HERO ─────────────────────────────────────────── */
+    #hero {
+      position: relative;
+      height: 100vh;
+      min-height: 700px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    /* Live map background */
+    #map-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      filter: saturate(.7) brightness(.45) hue-rotate(90deg);
+    }
+
+    /* Dark overlay on map */
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(6,13,8,.55) 0%, rgba(6,13,8,.85) 70%),
+        linear-gradient(180deg, rgba(6,13,8,.7) 0%, rgba(6,13,8,.2) 40%, rgba(6,13,8,.9) 100%);
+    }
+
+    /* Green glow */
+    #hero::after {
+      content: '';
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(34,197,94,.18) 0%, transparent 65%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 3;
+      max-width: 820px;
+      padding: 0 1.5rem;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .35rem 1rem;
+      background: rgba(34,197,94,.1);
+      border: 1px solid rgba(34,197,94,.25);
+      border-radius: 999px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--green3);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+      backdrop-filter: blur(8px);
+    }
+
+    .hero-eyebrow-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s ease infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(.8); }
+    }
+
+    #hero h1 {
+      font-size: clamp(3rem, 7vw, 5.5rem);
+      font-weight: 900;
+      letter-spacing: -.05em;
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+
+    .h1-map { color: var(--text); }
+
+    .h1-ai {
+      background: linear-gradient(135deg, var(--green2) 0%, var(--teal) 50%, var(--lime) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 1.2rem;
+      color: var(--text2);
+      max-width: 560px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.5;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 2.5rem;
+    }
+
+    /* Scroll indicator */
+    .scroll-hint {
+      position: absolute;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .5rem;
+      color: var(--text3);
+      font-size: .72rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      animation: bounce 2s ease infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateX(-50%) translateY(0); }
+      50% { transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ─── FLOATING CARDS ───────────────────────────────── */
+    .float-card {
+      position: absolute;
+      z-index: 3;
+      background: rgba(12,26,16,.85);
+      border: 1px solid rgba(34,197,94,.2);
+      border-radius: var(--radius);
+      padding: .75rem 1rem;
+      font-size: .78rem;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px rgba(34,197,94,.05);
+      animation: float 6s ease-in-out infinite;
+    }
+
+    .float-card:nth-child(1) { animation-delay: 0s; }
+    .float-card:nth-child(2) { animation-delay: -2s; }
+    .float-card:nth-child(3) { animation-delay: -4s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(-.5deg); }
+      50% { transform: translateY(-8px) rotate(.5deg); }
+    }
+
+    .float-card-1 { top: 22%; left: 5%; }
+    .float-card-2 { top: 30%; right: 5%; }
+    .float-card-3 { bottom: 18%; left: 8%; }
+
+    .float-card-label { color: var(--text3); font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .2rem; }
+    .float-card-value { color: var(--green2); font-weight: 700; font-size: .95rem; }
+    .float-card-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: .3rem; }
+
+    /* ─── SECTION BASE ─────────────────────────────────── */
+    .section { position: relative; z-index: 1; padding: 6rem 0; }
+    .container { max-width: 1160px; margin: 0 auto; padding: 0 1.5rem; }
+
+    .section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .3rem .8rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: .75rem;
+      background: rgba(34,197,94,.1);
+      border: 1px solid rgba(34,197,94,.2);
+      color: var(--green3);
+    }
+
+    h2 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 900;
+      letter-spacing: -.04em;
+      line-height: 1.05;
+      margin-bottom: .6rem;
+    }
+
+    .section-sub {
+      color: var(--text2);
+      font-size: 1.05rem;
+      max-width: 560px;
+    }
+
+    .section-header { margin-bottom: 3.5rem; }
+    .section-header.center { text-align: center; }
+    .section-header.center .section-sub { margin: 0 auto; }
+
+    /* ─── STATS BAR ────────────────────────────────────── */
+    #stats {
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 2.5rem 0;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 2rem;
+    }
+
+    .stat-item { text-align: center; }
+
+    .stat-num {
+      font-size: 2.8rem;
+      font-weight: 900;
+      letter-spacing: -.05em;
+      background: linear-gradient(135deg, var(--green2), var(--teal));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label { color: var(--text3); font-size: .8rem; margin-top: .15rem; }
+
+    /* ─── 3D FEATURE CARDS ─────────────────────────────── */
+    #features { background: var(--bg); }
+
+    .features-bento {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      grid-template-rows: auto;
+      gap: 1.25rem;
+    }
+
+    .bento-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform .3s ease, border-color .3s, box-shadow .3s;
+      transform-style: preserve-3d;
+    }
+
+    .bento-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(34,197,94,.06), transparent 60%);
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+    }
+
+    .bento-card:hover::before { opacity: 1; }
+    .bento-card:hover {
+      border-color: var(--border2);
+      box-shadow: 0 20px 60px rgba(0,0,0,.4), 0 0 0 1px rgba(34,197,94,.08), inset 0 1px 0 rgba(34,197,94,.1);
+      transform: translateY(-4px);
+    }
+
+    /* Bento grid layout */
+    .bento-1 { grid-column: span 5; }
+    .bento-2 { grid-column: span 7; }
+    .bento-3 { grid-column: span 4; }
+    .bento-4 { grid-column: span 4; }
+    .bento-5 { grid-column: span 4; }
+    .bento-6 { grid-column: span 7; }
+    .bento-7 { grid-column: span 5; }
+
+    .bento-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      margin-bottom: 1.25rem;
+      background: rgba(34,197,94,.1);
+      border: 1px solid rgba(34,197,94,.15);
+    }
+
+    .bento-card h3 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -.02em;
+      margin-bottom: .5rem;
+      color: var(--text);
+    }
+
+    .bento-card p { color: var(--text2); font-size: .9rem; line-height: 1.6; }
+
+    .bento-big-num {
+      font-size: 5rem;
+      font-weight: 900;
+      letter-spacing: -.06em;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--green2), var(--teal));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: .5rem;
+    }
+
+    /* glow corner accent */
+    .bento-glow {
+      position: absolute;
+      top: -40px; right: -40px;
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, rgba(34,197,94,.12), transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ─── LIVE MAP SECTION ─────────────────────────────── */
+    #map-section {
+      background: var(--bg2);
+      padding: 6rem 0 0;
+    }
+
+    .map-wrapper {
+      position: relative;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      height: 520px;
+      margin-top: 3rem;
+      box-shadow: 0 -20px 60px rgba(0,0,0,.3);
+    }
+
+    #live-map { height: 100%; width: 100%; }
+
+    .map-overlay-ui {
+      position: absolute;
+      top: 1rem; left: 1rem;
+      z-index: 400;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+    }
+
+    .map-chat-bubble {
+      background: rgba(12,26,16,.92);
+      border: 1px solid rgba(34,197,94,.25);
+      border-radius: var(--radius);
+      padding: .75rem 1rem;
+      font-size: .82rem;
+      backdrop-filter: blur(16px);
+      max-width: 280px;
+      line-height: 1.4;
+    }
+
+    .map-chat-bubble.user {
+      color: var(--text2);
+      border-color: rgba(34,197,94,.15);
+    }
+
+    .map-chat-bubble.ai {
+      color: var(--green3);
+      border-color: rgba(34,197,94,.3);
+      background: rgba(34,197,94,.07);
+    }
+
+    .bubble-label {
+      font-size: .65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: .3rem;
+      opacity: .6;
+    }
+
+    /* ─── MODULES ──────────────────────────────────────── */
+    #modules { background: var(--bg); }
+
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .module-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: transform .3s, border-color .3s, box-shadow .3s;
+      transform-style: preserve-3d;
+      perspective: 800px;
+    }
+
+    .module-card:hover {
+      transform: translateY(-5px) rotateX(1deg);
+      border-color: rgba(34,197,94,.35);
+      box-shadow: 0 24px 60px rgba(0,0,0,.5), 0 0 40px rgba(34,197,94,.06);
+    }
+
+    .module-img-area {
+      height: 220px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .module-img-area img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transition: transform .5s ease;
+    }
+    .module-card:hover .module-img-area img { transform: scale(1.04); }
+
+    .img-ph {
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg, #0a1a10 0%, #0f2515 60%, #091a0d 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .6rem;
+      color: var(--text3);
+      cursor: pointer;
+      transition: all .3s;
+      border-bottom: 1px dashed var(--border2);
+    }
+
+    .img-ph:hover {
+      color: var(--green2);
+      background: linear-gradient(135deg, #0c2014 0%, #122e1a 60%, #0a1e0f 100%);
+    }
+
+    .img-ph-icon { font-size: 2rem; opacity: .4; }
+    .img-ph span { font-size: .72rem; font-family: 'JetBrains Mono', monospace; text-align: center; padding: 0 1rem; }
+
+    .module-body { padding: 1.5rem; }
+
+    .module-header {
+      display: flex;
+      align-items: center;
+      gap: .7rem;
+      margin-bottom: .75rem;
+    }
+
+    .module-icon {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      background: rgba(34,197,94,.1);
+      border: 1px solid rgba(34,197,94,.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .module-body h3 { font-size: 1rem; font-weight: 800; letter-spacing: -.02em; }
+    .module-body > p { font-size: .85rem; color: var(--text2); margin-bottom: 1rem; line-height: 1.55; }
+
+    .tools-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .3rem;
+      margin-bottom: 1rem;
+    }
+
+    .tool-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .68rem;
+      padding: .2rem .55rem;
+      border-radius: 6px;
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.15);
+      color: var(--green3);
+    }
+
+    .module-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: .75rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .module-meta { font-size: .72rem; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+
+    .module-link {
+      font-size: .78rem;
+      color: var(--green2);
+      display: flex;
+      align-items: center;
+      gap: .3rem;
+      transition: gap .2s, color .2s;
+    }
+    .module-link:hover { gap: .5rem; color: var(--green3); }
+
+    /* ─── CAPABILITIES tabs ────────────────────────────── */
+    #modules { background: var(--bg); }
+
+    .cap-tabs {
+      display: flex; gap: .5rem; justify-content: center;
+      margin-bottom: 2.5rem; flex-wrap: wrap;
+    }
+    .cap-tab {
+      padding: .65rem 2rem; border-radius: 50px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text2); font-size: .92rem; font-weight: 600;
+      cursor: pointer; transition: all .2s; letter-spacing: -.01em;
+    }
+    .cap-tab:hover { border-color: rgba(34,197,94,.35); color: var(--green3); }
+    .cap-tab.active {
+      background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.45);
+      color: var(--green3);
+    }
+    .cap-panel { display: none; }
+    .cap-panel.active { display: block; }
+
+    /* App banner */
+    .cap-app-banner {
+      margin-bottom: 2.5rem; border-radius: var(--radius-lg);
+      overflow: hidden; border: 1px solid var(--border);
+      cursor: pointer; transition: transform .3s, box-shadow .3s;
+      position: relative; display: block; max-width: 1160px; margin-inline: auto;
+      margin-bottom: 2.5rem;
+    }
+    .cap-app-banner:hover {
+      transform: scale(1.005);
+      box-shadow: 0 32px 80px rgba(0,0,0,.6), 0 0 60px rgba(34,197,94,.1);
+    }
+    .cap-app-banner img {
+      width: 100%; height: 480px; object-fit: cover; object-position: top; display: block;
+    }
+    @media (max-width: 900px) {
+      .cap-app-banner img { height: 360px; }
+    }
+    .cap-app-overlay {
+      position: absolute; inset: 0; display: flex; align-items: flex-end;
+      background: linear-gradient(to top, rgba(6,13,8,.85) 0%, transparent 60%);
+      padding: 2rem;
+    }
+    .cap-app-launch {
+      background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.4);
+      color: var(--green3); padding: .6rem 1.4rem; border-radius: 8px;
+      font-weight: 600; font-size: .9rem; display: flex; align-items: center; gap: .5rem;
+    }
+
+    /* Cards grid */
+    .cap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    .cap-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); overflow: hidden;
+      transition: transform .3s, border-color .3s, box-shadow .3s;
+    }
+    .cap-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(34,197,94,.3);
+      box-shadow: 0 20px 50px rgba(0,0,0,.4), 0 0 30px rgba(34,197,94,.05);
+    }
+    .cap-img {
+      height: 190px; overflow: hidden; position: relative;
+      background: linear-gradient(135deg, #0a1a10, #0f2515 60%, #091a0d);
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: .5rem;
+      border-bottom: 1px dashed var(--border2); cursor: pointer;
+    }
+    .cap-img:hover { background: linear-gradient(135deg, #0c2014, #122e1a 60%, #0a1e0f); }
+    .cap-img img { width:100%; height:100%; object-fit:cover; display:block; }
+    .cap-img-icon { font-size: 2rem; opacity: .5; }
+    .cap-img-lbl {
+      font-size: .68rem; font-family: 'JetBrains Mono', monospace;
+      color: var(--green2); text-align: center; padding: 0 1rem;
+    }
+    .cap-body { padding: 1.1rem 1.25rem 1.25rem; }
+    .cap-query {
+      font-size: .77rem; color: var(--text3); font-style: italic;
+      margin-bottom: .6rem; padding: .35rem .65rem;
+      background: rgba(255,255,255,.03); border-left: 2px solid rgba(34,197,94,.5);
+      border-radius: 0 4px 4px 0; line-height: 1.45;
+    }
+    .cap-body h4 { font-size: .95rem; font-weight: 700; margin-bottom: .45rem; letter-spacing: -.02em; }
+    .cap-body > p { font-size: .81rem; color: var(--text2); line-height: 1.55; margin-bottom: .8rem; }
+    .cap-tags { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .cap-tag {
+      font-size: .67rem; padding: .17rem .5rem; border-radius: 5px;
+      background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.12);
+      color: var(--green3); font-family: 'JetBrains Mono', monospace;
+    }
+
+    @media (max-width: 640px) {
+      .cap-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .cap-img   { height: 155px; }
+      .cap-app-banner img { height: auto; max-height: none; object-fit: contain; object-position: top; background: #0a1a10; }
+    }
+
+    /* Tool rows */
+    .tools-list { margin-bottom: 1rem; display: flex; flex-direction: column; gap: .35rem; }
+    .tool-row { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; }
+    .tool-fn {
+      font-family: 'JetBrains Mono', monospace; font-size: .66rem;
+      color: var(--green3); background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.15); border-radius: 5px;
+      padding: .18rem .45rem; white-space: nowrap; flex-shrink: 0;
+    }
+    .tool-desc { font-size: .78rem; color: var(--text2); }
+
+    /* ─── ORCHESTRATEUR ──────────────────────────────────── */
+    #orchestrateur { background: var(--bg2); }
+
+    .orc-kpi-grid {
+      display: grid; grid-template-columns: repeat(4,1fr);
+      gap: 1rem; margin-bottom: 2rem;
+    }
+    .orc-kpi {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.4rem 1rem; text-align: center;
+      transition: border-color .3s, transform .3s;
+    }
+    .orc-kpi:hover { border-color: rgba(34,197,94,.35); transform: translateY(-3px); }
+    .orc-kpi-num {
+      font-size: 2.4rem; font-weight: 900; color: var(--green3);
+      font-family: 'JetBrains Mono', monospace; line-height: 1;
+    }
+    .orc-kpi-label { font-size: .75rem; color: var(--text2); margin-top: .4rem; }
+    .orc-kpi-sub   { font-size: .68rem; color: var(--text3); margin-top: .2rem; }
+
+    /* Pipeline wrapper */
+    .orc-pipeline {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 1.75rem 1.5rem;
+      overflow: hidden;
+    }
+
+    /* Snake grid: 5 nodes + 4 connectors per row */
+    .orc-snake {
+      display: grid;
+      grid-template-columns: 1fr 22px 1fr 22px 1fr 22px 1fr 22px 1fr;
+      grid-template-rows: auto 30px auto;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    /* Node */
+    .orc-node {
+      display: flex; flex-direction: column; align-items: center;
+      padding: .55rem .25rem; cursor: pointer; min-width: 0;
+      border-radius: 10px; border: 1px solid transparent;
+      transition: all .25s; position: relative;
+    }
+    .orc-node:hover { background: rgba(34,197,94,.07); border-color: rgba(34,197,94,.3); }
+    .orc-node.active {
+      background: rgba(34,197,94,.11); border-color: var(--green3);
+      box-shadow: 0 0 20px rgba(34,197,94,.18), inset 0 0 14px rgba(34,197,94,.04);
+    }
+
+    /* Circle icon */
+    .orc-nc {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: rgba(34,197,94,.07); border: 1.5px solid rgba(34,197,94,.18);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.15rem; position: relative; margin-bottom: .35rem;
+      transition: all .25s; flex-shrink: 0;
+    }
+    .orc-node.active .orc-nc {
+      background: rgba(34,197,94,.16); border-color: var(--green3);
+      animation: orcPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes orcPulse {
+      0%,100% { box-shadow: 0 0 10px rgba(34,197,94,.25); }
+      50%      { box-shadow: 0 0 22px rgba(34,197,94,.6);  }
+    }
+
+    /* Step number badge */
+    .orc-nb {
+      position: absolute; top: -4px; right: -4px;
+      font-size: .48rem; font-family: 'JetBrains Mono', monospace;
+      color: var(--green2); background: var(--bg);
+      border: 1px solid var(--border2); border-radius: 3px;
+      padding: 1px 3px; line-height: 1.4;
+    }
+
+    /* Name below circle */
+    .orc-nn {
+      font-size: .56rem; font-family: 'JetBrains Mono', monospace;
+      color: var(--text3); text-align: center; line-height: 1.35;
+      word-break: break-all; max-width: 68px;
+    }
+    .orc-node.active .orc-nn { color: var(--green3); }
+
+    /* Arrow connectors */
+    .orc-conn {
+      display: flex; align-items: center; justify-content: center;
+    }
+    .orc-conn svg { width: 100%; height: 10px; overflow: visible; }
+
+    /* Vertical turn connector (col 9, row 2) */
+    .orc-turn-v {
+      grid-column: 9; grid-row: 2;
+      display: flex; justify-content: center; align-items: stretch;
+    }
+    .orc-turn-v::after {
+      content: ''; width: 2px;
+      background: linear-gradient(180deg, rgba(34,197,94,.5), rgba(34,197,94,.8));
+      border-radius: 1px;
+    }
+
+    /* Progress dots */
+    .orc-progress {
+      display: flex; gap: .35rem; justify-content: center; margin-bottom: 1rem;
+    }
+    .orc-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--border); transition: all .3s; cursor: pointer;
+    }
+    .orc-dot.active { background: var(--green3); box-shadow: 0 0 6px rgba(34,197,94,.5); }
+
+    /* Detail panel */
+    .orc-detail {
+      display: flex; align-items: center; gap: 1rem;
+      background: rgba(34,197,94,.04); border: 1px solid rgba(34,197,94,.12);
+      border-radius: 10px; padding: .85rem 1.25rem; min-height: 54px;
+      transition: all .3s;
+    }
+    .orc-d-left { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+    .orc-d-badge {
+      font-family: 'JetBrains Mono', monospace; font-size: .67rem;
+      color: var(--green3); background: rgba(34,197,94,.1);
+      border: 1px solid rgba(34,197,94,.2); border-radius: 6px;
+      padding: .22rem .5rem; white-space: nowrap;
+    }
+    .orc-d-icon { font-size: 1.2rem; }
+    .orc-d-sep  { width: 1px; height: 28px; background: var(--border); flex-shrink: 0; }
+    .orc-d-desc { font-size: .81rem; color: var(--text2); line-height: 1.5; margin: 0; min-width: 0; }
+
+    @media (max-width: 900px) {
+      .orc-kpi-grid { grid-template-columns: repeat(2,1fr); }
+      .orc-nc { width: 40px; height: 40px; font-size: 1rem; }
+      .orc-pipeline { padding: 1.25rem 1rem; }
+    }
+    @media (max-width: 640px) {
+      .orc-kpi-grid { grid-template-columns: repeat(2,1fr); gap: .7rem; }
+      .orc-kpi-num  { font-size: 1.9rem; }
+      .orc-pipeline { padding: 1rem .5rem; }
+      .orc-snake {
+        grid-template-columns: 1fr 14px 1fr 14px 1fr 14px 1fr 14px 1fr;
+        grid-template-rows: auto 22px auto;
+      }
+      .orc-nc   { width: 32px; height: 32px; font-size: .8rem; }
+      .orc-nn   { font-size: .47rem; max-width: 48px; }
+      .orc-detail { flex-direction: column; align-items: flex-start; gap: .4rem; }
+      .orc-d-sep  { display: none; }
+      .orc-d-desc { font-size: .77rem; }
+    }
+
+    /* ─── USE CASES ────────────────────────────────────── */
+    #usecases { background: var(--bg2); }
+
+    .cases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: transform .3s, border-color .3s;
+    }
+    .case-card:hover { transform: translateY(-4px); border-color: rgba(34,197,94,.3); }
+
+    .case-img { height: 190px; }
+
+    .case-body { padding: 1.25rem; }
+
+    .case-query {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .75rem;
+      color: var(--green2);
+      background: rgba(34,197,94,.07);
+      border: 1px solid rgba(34,197,94,.15);
+      border-radius: 8px;
+      padding: .5rem .75rem;
+      margin-bottom: .75rem;
+    }
+
+    .case-body h3 { font-size: .9rem; font-weight: 700; margin-bottom: .3rem; }
+    .case-body p  { font-size: .82rem; color: var(--text2); }
+
+    .case-tags { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .65rem; }
+    .case-tag {
+      font-size: .68rem;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border2);
+      color: var(--text3);
+    }
+
+    /* ─── LLM ──────────────────────────────────────────── */
+    #llm { background: var(--bg); }
+
+    .llm-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .llm-pill {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: 1rem 1.5rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      transition: all .25s;
+      cursor: default;
+    }
+    .llm-pill:hover { border-color: rgba(34,197,94,.35); transform: translateY(-2px); }
+
+    .llm-pill-name { font-weight: 700; font-size: .95rem; }
+    .llm-pill-badge {
+      font-size: .65rem;
+      font-weight: 700;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+    }
+    .rec  { background: rgba(34,197,94,.15);  color: var(--green3);  border: 1px solid rgba(34,197,94,.3); }
+    .free { background: rgba(45,212,191,.12); color: #5eead4;        border: 1px solid rgba(45,212,191,.3); }
+    .ok   { background: rgba(163,230,53,.1);  color: var(--lime);    border: 1px solid rgba(163,230,53,.2); }
+
+    /* ─── INSTALL ──────────────────────────────────────── */
+    #install { background: var(--bg2); }
+
+    .install-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 3rem;
+      align-items: start;
+    }
+
+    .install-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+
+    .tab-btn {
+      padding: .4rem 1rem;
+      border-radius: 8px;
+      font-size: .82rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text2);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .tab-btn.active { background: var(--green); border-color: var(--green); color: #fff; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .code-block {
+      background: #040c06;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      position: relative;
+      overflow-x: auto;
+    }
+
+    pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .83rem;
+      line-height: 1.9;
+      color: var(--text);
+    }
+
+    .c { color: var(--text3); }
+    .cmd { color: var(--green3); }
+    .str { color: #fbbf24; }
+
+    .copy-btn {
+      position: absolute;
+      top: .75rem; right: .75rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text3);
+      border-radius: 6px;
+      padding: .3rem .65rem;
+      font-size: .72rem;
+      cursor: pointer;
+      transition: all .2s;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .copy-btn:hover { color: var(--green2); border-color: rgba(34,197,94,.3); }
+
+    .env-list {
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+      margin-top: 2rem;
+    }
+
+    .env-row {
+      display: flex;
+      gap: 1rem;
+      padding: .85rem 1rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      align-items: flex-start;
+    }
+
+    .env-key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .78rem;
+      color: var(--green2);
+      flex-shrink: 0;
+      min-width: 180px;
+    }
+    .env-desc { font-size: .8rem; color: var(--text2); }
+
+    /* ─── STACK ────────────────────────────────────────── */
+    #stack { background: var(--bg); }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(240px, 320px));
+      justify-content: center;
+      gap: 1.25rem;
+    }
+
+    .stack-group {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+    }
+
+    .stack-group-title {
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text3);
+      margin-bottom: 1rem;
+    }
+
+    .stack-item {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .stack-item:last-child { border-bottom: none; }
+
+    .stack-item-em { font-size: 1.1rem; }
+    .stack-item-name { font-size: .875rem; font-weight: 600; }
+    .stack-item-desc { font-size: .75rem; color: var(--text2); }
+
+    /* ─── CONTRIBUTE ───────────────────────────────────── */
+    #contribute { background: var(--bg2); }
+
+    .contrib-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+    }
+
+    .roadmap { display: flex; flex-direction: column; gap: .8rem; }
+
+    .roadmap-row {
+      display: flex;
+      gap: .75rem;
+      align-items: flex-start;
+      font-size: .875rem;
+    }
+
+    .rm-dot {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 1px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .65rem; font-weight: 700;
+    }
+    .rm-done { background: rgba(34,197,94,.2); color: var(--green3); border: 1px solid rgba(34,197,94,.4); }
+    .rm-wip  { background: rgba(163,230,53,.15); color: var(--lime); border: 1px solid rgba(163,230,53,.3); }
+    .rm-plan { background: rgba(45,212,191,.1); color: #5eead4; border: 1px solid rgba(45,212,191,.25); }
+
+    .rm-text { color: var(--text2); }
+    .rm-text strong { color: var(--text); }
+
+    .contrib-links { display: flex; flex-direction: column; gap: .75rem; }
+
+    .contrib-link {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: all .2s;
+    }
+    .contrib-link:hover {
+      border-color: rgba(34,197,94,.3);
+      transform: translateX(4px);
+      background: var(--card2);
+    }
+
+    .contrib-link-icon {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.12);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; flex-shrink: 0;
+    }
+
+    .contrib-link h4 { font-size: .875rem; font-weight: 700; margin-bottom: .15rem; }
+    .contrib-link p  { font-size: .78rem; color: var(--text2); }
+
+    /* ─── CTA ──────────────────────────────────────────── */
+    #cta {
+      padding: 8rem 0;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #cta::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 800px; height: 400px;
+      background: radial-gradient(ellipse, rgba(34,197,94,.15) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    #cta h2 { font-size: clamp(2.5rem, 5vw, 4rem); margin-bottom: 1rem; }
+    #cta p { color: var(--text2); font-size: 1.1rem; margin-bottom: 2.5rem; }
+
+    /* ─── FOOTER ───────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem 0;
+      text-align: center;
+      color: var(--text3);
+      font-size: .82rem;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      margin-bottom: .75rem;
+    }
+    .footer-links a { transition: color .2s; }
+    .footer-links a:hover { color: var(--green2); }
+
+    /* ─── ANIMATIONS ───────────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* ─── MAP LAUNCH OVERLAY ───────────────────────────── */
+    .map-wrapper { position: relative; }
+
+    .map-launch-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(6,13,8,0);
+      transition: background .3s;
+      pointer-events: none;
+    }
+
+    .map-wrapper:hover .map-launch-overlay {
+      background: rgba(6,13,8,.45);
+    }
+
+    .map-launch-btn {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .9rem 2rem;
+      background: var(--green);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      border-radius: 999px;
+      box-shadow: 0 0 40px rgba(34,197,94,.5);
+      opacity: 0;
+      transform: translateY(8px) scale(.95);
+      transition: opacity .3s, transform .3s;
+    }
+
+    .map-wrapper:hover .map-launch-btn {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    /* ─── SECTION MAP BACKGROUNDS ─────────────────────── */
+    @keyframes dashFlow {
+      to { stroke-dashoffset: -60; }
+    }
+
+    /* ─── RESPONSIVE ───────────────────────────────────── */
+
+    /* ── Tablette ≤ 900px ─────────────────────────────── */
+    @media (max-width: 900px) {
+      .bento-1,.bento-2,.bento-3,.bento-4,.bento-5,.bento-6,.bento-7 { grid-column: span 12; }
+      /* désactiver le flex horizontal sur les bento "stat" */
+      .bento-card[style*="display:flex"] { flex-direction: column !important; gap: 1rem !important; }
+      .install-wrap  { grid-template-columns: 1fr; }
+      .contrib-grid  { grid-template-columns: 1fr; }
+      .nav-links          { display: none; }
+      .nav-cta .btn-glass { display: none; }
+      .float-card         { display: none; }
+      .section            { padding: 4rem 0; }
+    }
+
+    /* ── Mobile ≤ 640px ───────────────────────────────── */
+    @media (max-width: 640px) {
+
+      /* Nav */
+      nav { padding: .75rem 1rem; }
+      .nav-cta .btn-glass      { display: none; }
+      .nav-cta .btn-green      { display: none; }
+      .hero-actions .btn-glass { display: none; }
+      .btn-lg { padding: .7rem 1.4rem; font-size: .9rem; }
+
+      /* Hero */
+      #hero { min-height: 100svh; }
+      #hero h1 { font-size: clamp(2.4rem, 11vw, 3.2rem); }
+      .hero-sub { font-size: 1rem; }
+      .hero-actions { gap: .6rem; }
+      .hero-eyebrow { font-size: .68rem; padding: .3rem .75rem; }
+      .scroll-hint  { display: none; }
+
+      /* Sections */
+      .section, #stats, #map-section, #install,
+      #contribute, #cta, #llm, #stack { padding: 3rem 0; }
+      .container { padding: 0 1rem; }
+      .section-header { margin-bottom: 2rem; }
+      h2 { font-size: clamp(1.6rem, 6vw, 2.2rem); }
+      .section-sub { font-size: .9rem; }
+
+      /* Stats */
+      .stats-row { gap: 1.25rem; }
+      .stat-num  { font-size: 2.2rem; }
+
+      /* Bento features */
+      .features-bento { gap: .75rem; }
+      .bento-card { padding: 1.4rem; }
+      .bento-big-num { font-size: 3.5rem; }
+      /* bento flex → colonne */
+      .bento-card[style*="flex"] {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: .75rem !important;
+        align-items: flex-start !important;
+      }
+
+      /* Map preview */
+      .map-wrapper { border-radius: var(--radius) var(--radius) 0 0; }
+      .map-wrapper img { height: 240px !important; object-position: center; }
+      .map-overlay-ui { display: none; }
+      .map-launch-btn { font-size: .85rem; padding: .65rem 1.4rem; }
+
+      /* Modules */
+      .modules-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .module-img-area { height: 180px; }
+
+      /* Use cases */
+      .cases-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .case-img   { height: 160px; }
+
+      /* LLM pills */
+      .llm-row    { gap: .6rem; }
+      .llm-pill   { padding: .7rem 1rem; }
+      .llm-pill-name { font-size: .85rem; }
+
+      /* Install */
+      .install-tabs { gap: .4rem; }
+      .tab-btn { padding: .35rem .75rem; font-size: .75rem; }
+      .code-block { padding: 1rem; }
+      pre { font-size: .75rem; line-height: 1.7; }
+      .env-row { flex-direction: column; gap: .35rem; }
+      .env-key  { min-width: unset; }
+
+      /* Stack */
+      .stack-grid { grid-template-columns: 1fr; gap: 1rem; }
+
+      /* Contribute */
+      .roadmap-row { font-size: .82rem; }
+      .contrib-link h4 { font-size: .82rem; }
+
+      /* CTA */
+      #cta h2 { font-size: clamp(1.8rem, 7vw, 2.8rem); }
+      #cta p  { font-size: .95rem; }
+
+      /* Footer */
+      .footer-links { gap: 1rem; font-size: .78rem; flex-wrap: wrap; justify-content: center; }
+    }
+
+    /* ── Très petit mobile ≤ 380px ────────────────────── */
+    @media (max-width: 380px) {
+      #hero h1    { font-size: 2.2rem; }
+      .btn-lg     { padding: .65rem 1.1rem; font-size: .85rem; }
+      .nav-logo   { font-size: .95rem; }
+      .nav-cta .btn-green { padding: .45rem .9rem; font-size: .8rem; }
+      .stat-num   { font-size: 1.9rem; }
+      .bento-big-num { font-size: 3rem; }
+      .map-wrapper img { height: 200px !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ NAV ═══════════════════════════════════════════ -->
+  <nav>
+    <div class="nav-logo">
+      <div class="nav-logo-icon">◈</div>
+      OpenMapAgents
+    </div>
+    <ul class="nav-links">
+      <li><a href="#features">Fonctionnalités</a></li>
+      <li><a href="#modules">Vectorielle & Raster</a></li>
+      <li><a href="#install">Installation</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a href="https://github.com/diouck/openmapagents" target="_blank" class="btn btn-glass">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        GitHub
+      </a>
+      <a href="https://openmapagents.geoafrica.fr/" target="_blank" rel="noopener" class="btn btn-green">
+        Voir la carte →
+      </a>
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══════════════════════════════════════════ -->
+  <section id="hero">
+    <!-- Live map background -->
+    <div id="map-bg"></div>
+
+    <!-- Floating info cards -->
+    <div class="float-card float-card-1">
+      <div class="float-card-label">Overture Maps</div>
+      <div class="float-card-value"><span class="float-card-dot"></span>5B+ objets</div>
+    </div>
+    <div class="float-card float-card-2">
+      <div class="float-card-label">Serveurs MCP</div>
+      <div class="float-card-value"><span class="float-card-dot"></span>10 actifs · 45 outils</div>
+    </div>
+    <div class="float-card float-card-3">
+      <div class="float-card-label">Agents LLM</div>
+      <div class="float-card-value"><span class="float-card-dot"></span>Claude · GPT-4 · Ollama</div>
+    </div>
+
+    <div class="hero-content">
+      <div class="hero-eyebrow">
+        <div class="hero-eyebrow-dot"></div>
+        Open Source · MCP Compatible · Multi-LLM
+      </div>
+
+      <h1>
+        <span class="h1-map">OpenMap</span><span class="h1-ai">Agents</span>
+      </h1>
+
+      <p class="hero-sub">
+        Explorez 5 milliards d'objets géospatiaux, analysez des images satellites
+        et calculez des itinéraires — en langage naturel.
+      </p>
+
+      <div class="hero-actions">
+        <a href="https://openmapagents.geoafrica.fr/" target="_blank" rel="noopener" class="btn btn-green btn-lg">
+          🗺️ Ouvrir la carte
+        </a>
+        <a href="#install" class="btn btn-glass btn-lg">
+          Installer en 5 min
+        </a>
+      </div>
+    </div>
+
+    <div class="scroll-hint">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      Découvrir
+    </div>
+  </section>
+
+  <!-- ═══ STATS ═══════════════════════════════════════════ -->
+  <section id="stats">
+    <div class="container">
+      <div class="stats-row">
+        <div class="stat-item reveal">
+          <div class="stat-num">10</div>
+          <div class="stat-label">Serveurs MCP</div>
+        </div>
+        <div class="stat-item reveal">
+          <div class="stat-num">45+</div>
+          <div class="stat-label">Outils exposés</div>
+        </div>
+        <div class="stat-item reveal">
+          <div class="stat-num">6</div>
+          <div class="stat-label">Agents spécialisés</div>
+        </div>
+        <div class="stat-item reveal">
+          <div class="stat-num">7</div>
+          <div class="stat-label">Providers LLM</div>
+        </div>
+        <div class="stat-item reveal">
+          <div class="stat-num">5B+</div>
+          <div class="stat-label">Objets Overture Maps</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FEATURES BENTO ══════════════════════════════════ -->
+  <section id="features" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Fonctionnalités</div>
+        <h2>Tout ce dont vous avez besoin</h2>
+        <p class="section-sub">Une plateforme géo-IA complète, de la requête NL au rendu cartographique.</p>
+      </div>
+
+      <div class="features-bento">
+        <div class="bento-card bento-1 reveal">
+          <div class="bento-glow"></div>
+          <div class="bento-icon">🗺️</div>
+          <h3>Cartographie interactive</h3>
+          <p>MapLibre GL 5 avec tuiles vectorielles, styles dynamiques, contrôle des couches par commande naturelle — sans aucune clé API.</p>
+        </div>
+
+        <div class="bento-card bento-2 reveal" style="display:flex;align-items:center;gap:2rem;">
+          <div>
+            <div class="bento-big-num">45+</div>
+            <h3>Outils MCP</h3>
+            <p>Exposés directement dans Claude Desktop et Cursor via le Model Context Protocol.</p>
+          </div>
+          <div style="flex-shrink:0;font-size:3rem;opacity:.3;line-height:1;">🔌</div>
+        </div>
+
+        <div class="bento-card bento-3 reveal">
+          <div class="bento-icon">🛰️</div>
+          <h3>Satellite</h3>
+          <p>Google Earth Engine intégré : NDVI, LST, NDWI, EVI, timelapse, détection de changement.</p>
+        </div>
+
+        <div class="bento-card bento-4 reveal">
+          <div class="bento-icon">🦆</div>
+          <h3>DuckDB S3</h3>
+          <p>5 milliards d'objets Overture interrogés en SQL in-memory, sans serveur.</p>
+        </div>
+
+        <div class="bento-card bento-5 reveal">
+          <div class="bento-icon">🧠</div>
+          <h3>RAG vectoriel</h3>
+          <p>pgvector sélectionne automatiquement les meilleurs outils selon l'intention.</p>
+        </div>
+
+        <div class="bento-card bento-6 reveal" style="display:flex;align-items:center;gap:2rem;">
+          <div>
+            <div class="bento-big-num">10</div>
+            <h3>Étapes d'orchestration</h3>
+            <p>Mémoire → Routeur → RAG → Débat agents → Exécution MCP → Validation → Rendu.</p>
+          </div>
+          <div style="flex-shrink:0;font-size:3rem;opacity:.3;">⚙️</div>
+        </div>
+
+        <div class="bento-card bento-7 reveal">
+          <div class="bento-icon">📦</div>
+          <h3>Export multi-formats</h3>
+          <p>GeoJSON · GeoPackage · CSV · Parquet · PDF cartographique. Import shapefile natif.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CAPABILITIES ════════════════════════════════════ -->
+  <section id="modules" class="section" style="background:var(--bg)">
+    <div class="container">
+      <div class="section-header center">
+        <div class="section-tag">Fonctionnalités</div>
+        <h2>Interrogez. Analysez. Visualisez.</h2>
+        <p class="section-sub">Chat IA en langage naturel ou modules directs — vectoriel, raster, import, services OGC. Tout en une interface.</p>
+      </div>
+
+      <!-- Screenshot app cliquable -->
+      <a href="https://openmapagents.geoafrica.fr/" target="_blank" rel="noopener" class="cap-app-banner reveal">
+        <img src="./screenshots/openmapagents.png" alt="Interface OpenMapAgents" />
+        <div class="cap-app-overlay">
+          <div class="cap-app-launch">
+            Ouvrir l'application →
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </div>
+        </div>
+      </a>
+
+      <!-- Titre + Onglets -->
+      <div style="text-align:center;margin-bottom:1.25rem;" class="reveal">
+        <div style="display:inline-flex;align-items:center;gap:.6rem;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.18);border-radius:50px;padding:.35rem 1.1rem;margin-bottom:1rem;">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--green3);display:inline-block;animation:pulse 1.8s infinite;"></span>
+          <span style="font-size:.72rem;color:var(--green2);font-family:'JetBrains Mono',monospace;letter-spacing:.08em;">10 MODULES · LANGAGE NATUREL</span>
+        </div>
+        <h3 style="font-size:clamp(1.5rem,4vw,2.1rem);font-weight:900;letter-spacing:-.03em;margin:0 0 .35rem;">
+          Parlez à la carte — ou pilotez<br>
+          <span style="background:linear-gradient(90deg,var(--green3),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">les modules directement.</span>
+        </h3>
+        <p style="font-size:.9rem;color:var(--text2);max-width:560px;margin:0 auto;">
+          Via le <strong style="color:var(--green3)">chat IA</strong> en langage naturel, ou en appelant les <strong style="color:var(--teal)">10 modules MCP</strong> directement depuis Claude Desktop, Cursor ou l'API — à vous de choisir.
+        </p>
+      </div>
+      <div class="cap-tabs">
+        <button class="cap-tab active" data-tab="vector">🗺️ Données Vectorielles</button>
+        <button class="cap-tab"        data-tab="raster">🛰️ Données Raster</button>
+      </div>
+
+      <!-- ── Panel Vectorielle ─────────────────────────────── -->
+      <div class="cap-panel active" id="tab-vector">
+        <div class="cap-grid">
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/isochrone.png" alt="Isochrones accessibilité" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Zone accessible à pied en 10 min depuis la gare centrale"</div>
+              <h4>Isochrones d'accessibilité</h4>
+              <p>Calculez les zones accessibles en 5, 10, 15 ou 30 minutes à pied, à vélo ou en voiture. Rendu en dégradé polygonal par palier de temps.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Routing</span>
+                <span class="cap-tag">Open Route Service</span>
+                <span class="cap-tag">Accessibilité</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/restaurant.png" alt="Points d'intérêt Overture Maps" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Restaurants dans un rayon de 500 m autour de moi"</div>
+              <h4>Points d'intérêt & commerces</h4>
+              <p>Interrogez les 5 milliards d'objets Overture Maps via DuckDB S3. Filtres par type, catégorie et distance avec statistiques H3.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Overture Maps</span>
+                <span class="cap-tag">DuckDB</span>
+                <span class="cap-tag">Lieux</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/OSM.png" alt="Données OpenStreetMap" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Pharmacies et stations vélo dans ce quartier"</div>
+              <h4>Données OpenStreetMap</h4>
+              <p>Toute la richesse OSM en temps réel via Overpass API — amenities, voiries, parcs, cours d'eau. Géocodage Nominatim intégré.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">OpenStreetMap</span>
+                <span class="cap-tag">Overpass API</span>
+                <span class="cap-tag">Nominatim</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/quartier.png" alt="Analyse spatiale PostGIS" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Jointure entre ma table population et les quartiers PostGIS"</div>
+              <h4>Analyse spatiale SQL</h4>
+              <p>Connectez PostgreSQL/PostGIS, MySQL ou SQLite. Jointures spatiales, buffers, découpes et requêtes en langage naturel, converties en GeoJSON.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">PostGIS</span>
+                <span class="cap-tag">MySQL</span>
+                <span class="cap-tag">Analyse spatiale</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/ouverturemap.png" alt="Import données géospatiales" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Charge ce Shapefile de zones inondables sur la carte"</div>
+              <h4>Import de données géospatiales</h4>
+              <p>Importez GeoJSON, Shapefile (.zip), CSV géoréférencé, GPX ou KML. Conversion automatique et rendu immédiat sur la carte.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Shapefile</span>
+                <span class="cap-tag">GeoJSON</span>
+                <span class="cap-tag">GDAL · Fiona</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/choroplete.png" alt="Choroplèthe World Bank" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Carte du PIB par habitant en Afrique Sub-saharienne"</div>
+              <h4>Indicateurs socio-économiques</h4>
+              <p>1 000+ indicateurs Banque Mondiale (PIB, population, santé…) visualisés en choroplèthe sur les divisions administratives Overture.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">World Bank API</span>
+                <span class="cap-tag">250+ pays</span>
+                <span class="cap-tag">Choroplèthe</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/wms.png" alt="Services OGC WMS WMTS WFS" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Ajoute la couche ortho HD IGN en WMS"</div>
+              <h4>Services OGC — WMS / WMTS / WFS</h4>
+              <p>Connectez n'importe quel géoserveur OGC — IGN, Copernicus, GeoServer privé. Tuiles et données vectorielles superposées instantanément.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">WMS</span>
+                <span class="cap-tag">WMTS</span>
+                <span class="cap-tag">WFS</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/imprim.png" alt="Edition sémiographique impression" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Crée une carte choroplèthe avec légende et exporte en PDF A3"</div>
+              <h4>Edition sémiographique & impression</h4>
+              <p>Personnalisez symboles, couleurs et légende. Comparez plusieurs cartes côte à côte. Exportez en PDF haute résolution ou PNG.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Sémiologie</span>
+                <span class="cap-tag">Impression PDF</span>
+                <span class="cap-tag">Comparaison cartes</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+              <img src="./screenshots/compare.png" alt="Comparaison multi-cartes" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Compare la carte NDVI 2020 vs 2024 côte à côte"</div>
+              <h4>Comparaison multi-cartes</h4>
+              <p>Affichez plusieurs cartes côte à côte pour comparer différentes dates, couches ou indicateurs. Synchronisation automatique du zoom et du centre.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Comparaison</span>
+                <span class="cap-tag">Multi-cartes</span>
+                <span class="cap-tag">Synchronisation</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── Panel Raster ──────────────────────────────────── -->
+      <div class="cap-panel" id="tab-raster">
+        <div class="cap-grid">
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/ndvi.png" alt="Agriculture précision NDVI" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Calcule le NDVI sur mes parcelles depuis Sentinel-2"</div>
+              <h4>Agriculture de précision — NDVI</h4>
+              <p>Indices NDVI, EVI et NDWI sur vos parcelles agricoles. Détectez le stress hydrique, la vigueur de la végétation et les zones à irriguer.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">Google Earth Engine</span>
+                <span class="cap-tag">Sentinel-2</span>
+                <span class="cap-tag">NDVI · EVI</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/déforestation.png" alt="Détection de changement" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Montre la déforestation en Amazonie entre 2015 et 2024"</div>
+              <h4>Détection de changement</h4>
+              <p>Comparez automatiquement deux dates et visualisez les zones déboisées, urbanisées ou brûlées. Statistiques de superficie calculées.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">GEE · Landsat</span>
+                <span class="cap-tag">Change Detection</span>
+                <span class="cap-tag">MODIS</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/timelaps.png" alt="Timelapse satellite" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Génère un timelapse de l'expansion urbaine de Dubaï depuis 2000"</div>
+              <h4>Timelapse satellite multi-temporel</h4>
+              <p>Animation satellite sur 25 ans sur n'importe quelle zone. Observez l'évolution des villes, des glaciers, du trait de côte ou des zones agricoles.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">GEE · Landsat</span>
+                <span class="cap-tag">Timelapse</span>
+                <span class="cap-tag">25 ans</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/lst.png" alt="Température surface LST" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Carte des îlots de chaleur urbains à Paris en été 2023"</div>
+              <h4>Température de surface (LST)</h4>
+              <p>Cartographiez les températures de surface avec MODIS/Landsat. Identifiez les îlots de chaleur pour les politiques d'adaptation climatique.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">GEE · MODIS</span>
+                <span class="cap-tag">LST</span>
+                <span class="cap-tag">Climatologie</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/claassification.png" alt="Classification supervisée" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Classe l'occupation du sol en forêt, eau, urbain et agriculture"</div>
+              <h4>Classification supervisée & non supervisée</h4>
+              <p>Entraînez un classifieur Random Forest ou k-means en quelques mots. Classification Google WorldCover 10 m incluse pour référence.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">GEE · ML</span>
+                <span class="cap-tag">Random Forest</span>
+                <span class="cap-tag">WorldCover</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/profil.png" alt="Profil altimétrique pentes" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Profil altimétrique et pentes critiques de ce tracé GPX"</div>
+              <h4>Profil altimétrique & pentes</h4>
+              <p>DEM haute résolution via MapTiler. Profil interactif, pentes en degrés ou %, exposition des versants et dénivelé cumulé sur votre parcours.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">MapTiler DEM</span>
+                <span class="cap-tag">SRTM</span>
+                <span class="cap-tag">Pentes · Aspect</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cap-card reveal">
+            <div class="cap-img">
+                            <img src="./screenshots/ocs.png" alt="Occupation du sol WorldCover" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </div>
+            <div class="cap-body">
+              <div class="cap-query">"Montre l'occupation du sol de cette région à 10 m de résolution"</div>
+              <h4>Occupation du sol — WorldCover 10 m</h4>
+              <p>Classification ESA WorldCover à 10 m de résolution — forêt, eau, cultures, zones bâties, zones humides. Couverture mondiale complète.</p>
+              <div class="cap-tags">
+                <span class="cap-tag">ESA WorldCover</span>
+                <span class="cap-tag">GEE</span>
+                <span class="cap-tag">10 m résolution</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- SECTIONS MERGÉES (redirections compat nav) -->
+  <div id="map-section" style="display:none"></div>
+  <div id="usecases"    style="display:none"></div>
+
+  <!-- ═══ ORCHESTRATEUR ═══════════════════════════════════ -->
+  <section id="orchestrateur" class="section">
+    <div class="container">
+      <div class="section-header center">
+        <div class="section-tag">Moteur IA</div>
+        <h2>Orchestrateur Multi-agents</h2>
+        <p class="section-sub">Du prompt naturel à la carte en &lt;3s — RAG pgvector, débat agents, validation Pydantic.</p>
+      </div>
+
+      <div class="orc-kpi-grid">
+        <div class="orc-kpi reveal"><div class="orc-kpi-num">10</div><div class="orc-kpi-label">Étapes de pipeline</div><div class="orc-kpi-sub">intent → exec → render</div></div>
+        <div class="orc-kpi reveal"><div class="orc-kpi-num">5</div><div class="orc-kpi-label">Agents en parallèle</div><div class="orc-kpi-sub">débat + modérateur</div></div>
+        <div class="orc-kpi reveal"><div class="orc-kpi-num">&lt;3s</div><div class="orc-kpi-label">Latence moyenne</div><div class="orc-kpi-sub">streaming SSE</div></div>
+        <div class="orc-kpi reveal"><div class="orc-kpi-num">∞</div><div class="orc-kpi-label">Mémoire de session</div><div class="orc-kpi-sub">pgvector RAG</div></div>
+      </div>
+
+      <div class="orc-pipeline reveal">
+        <svg style="width:0;height:0;position:absolute" aria-hidden="true">
+          <defs>
+            <marker id="oa" markerWidth="5" markerHeight="5" refX="4.5" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5 Z" fill="rgba(34,197,94,.55)"/></marker>
+            <marker id="ob" markerWidth="5" markerHeight="5" refX=".5"  refY="2.5" orient="auto"><path d="M5,0 L0,2.5 L5,5 Z" fill="rgba(34,197,94,.55)"/></marker>
+          </defs>
+        </svg>
+        <div class="orc-progress" id="orcDots"></div>
+        <div class="orc-snake"   id="orcSnake"></div>
+        <div class="orc-detail">
+          <div class="orc-d-left">
+            <div class="orc-d-badge" id="orcBadge">01 · session_memory</div>
+            <div class="orc-d-icon"  id="orcDIcon">🧠</div>
+          </div>
+          <div class="orc-d-sep"></div>
+          <p class="orc-d-desc" id="orcDesc">Chargement du contexte utilisateur et historique via pgvector. Les embeddings des échanges passés garantissent la continuité conversationnelle.</p>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:1.5rem;">
+        <a href="https://github.com/diouck/openmapagents/blob/main/backend/orchestrator.py" target="_blank" class="btn btn-glass">
+          Voir l'orchestrateur → Code source
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ LLM ═══════════════════════════════════════════════ -->
+  <section id="llm" class="section">
+    <div class="container">
+      <div class="section-header center">
+        <div class="section-tag">Compatibilité LLM</div>
+        <h2>Votre modèle, votre choix</h2>
+        <p class="section-sub">Basculez de provider sans changer une ligne de code grâce à LiteLLM.</p>
+      </div>
+
+      <div class="llm-row">
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">◆</span>
+          <div>
+            <div class="llm-pill-name">Claude 3.5 / 4</div>
+          </div>
+          <span class="llm-pill-badge rec">Recommandé</span>
+        </div>
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">⬡</span>
+          <div><div class="llm-pill-name">GPT-4o</div></div>
+          <span class="llm-pill-badge ok">Supporté</span>
+        </div>
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">🦙</span>
+          <div><div class="llm-pill-name">Ollama</div></div>
+          <span class="llm-pill-badge free">Gratuit / Local</span>
+        </div>
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">🌊</span>
+          <div><div class="llm-pill-name">Mistral</div></div>
+          <span class="llm-pill-badge ok">Supporté</span>
+        </div>
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">🐋</span>
+          <div><div class="llm-pill-name">DeepSeek</div></div>
+          <span class="llm-pill-badge free">Économique</span>
+        </div>
+        <div class="llm-pill reveal">
+          <span style="font-size:1.3rem;">🔀</span>
+          <div><div class="llm-pill-name">OpenRouter</div></div>
+          <span class="llm-pill-badge ok">200+ modèles</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ INSTALL ═══════════════════════════════════════════ -->
+  <section id="install" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Installation</div>
+        <h2>Opérationnel en 5 minutes</h2>
+        <p class="section-sub">Docker, Linux ou Windows — au choix.</p>
+      </div>
+
+      <div class="install-wrap">
+        <div>
+          <h3 style="font-size:1rem;font-weight:700;color:var(--text2);margin-bottom:1.25rem;">Variables d'environnement</h3>
+          <div class="env-list">
+            <div class="env-row reveal">
+              <span class="env-key">ANTHROPIC_API_KEY</span>
+              <span class="env-desc">Clé Claude — recommandé pour les analyses complexes</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">GEE_SERVICE_ACCOUNT</span>
+              <span class="env-desc">Google Earth Engine — imagerie satellite</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">ORS_API_KEY</span>
+              <span class="env-desc">Open Route Service — routing et isochrones (plan gratuit)</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">MAPTILER_KEY</span>
+              <span class="env-desc">MapTiler — données DEM élévation</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">OPENAI_API_KEY</span>
+              <span class="env-desc">Optionnel — si vous préférez GPT-4o</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="reveal">
+          <div class="install-tabs">
+            <button class="tab-btn active" onclick="switchTab(this,'docker')">🐳 Docker</button>
+            <button class="tab-btn" onclick="switchTab(this,'linux')">🐧 Linux</button>
+            <button class="tab-btn" onclick="switchTab(this,'win')">🪟 Windows</button>
+            <button class="tab-btn" onclick="switchTab(this,'mcp')">🔌 Claude Desktop</button>
+          </div>
+
+          <div id="tab-docker" class="tab-content active">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              <pre><span class="c"># Clonez le dépôt</span>
+<span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
+<span class="cmd">cd</span> OpenMapAgents
+
+<span class="c"># Configurez les variables d'environnement</span>
+<span class="cmd">cp</span> .env.example .env
+
+<span class="c"># Démarrez tous les services</span>
+<span class="cmd">docker compose up -d</span>
+
+<span class="c"># → Application disponible sur http://localhost:5173</span></pre>
+            </div>
+          </div>
+
+          <div id="tab-linux" class="tab-content">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              <pre><span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
+<span class="cmd">cd</span> OpenMapAgents
+<span class="cmd">chmod +x</span> install.sh && <span class="cmd">./install.sh</span>
+<span class="cmd">./start.sh</span></pre>
+            </div>
+          </div>
+
+          <div id="tab-win" class="tab-content">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              <pre><span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
+<span class="cmd">cd</span> OpenMapAgents
+<span class="cmd">.\setup.ps1</span>
+<span class="cmd">python</span> -m uvicorn backend.agent:app --reload</pre>
+            </div>
+          </div>
+
+          <div id="tab-mcp" class="tab-content">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              <pre><span class="c">// ~/.config/claude/claude_desktop_config.json</span>
+{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"overture"</span>: {
+      <span class="str">"command"</span>: <span class="str">"python"</span>,
+      <span class="str">"args"</span>: [<span class="str">"/path/to/mcp_servers/mcp_overture.py"</span>]
+    },
+    <span class="str">"gee"</span>: {
+      <span class="str">"command"</span>: <span class="str">"python"</span>,
+      <span class="str">"args"</span>: [<span class="str">"/path/to/mcp_servers/mcp_gee.py"</span>]
+    }
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ STACK ══════════════════════════════════════════════ -->
+  <section id="stack" class="section">
+    <div class="container">
+      <div class="section-header center">
+        <div class="section-tag">Stack technique</div>
+        <h2>Technologies éprouvées</h2>
+      </div>
+
+      <div class="stack-grid">
+        <div class="stack-group reveal">
+          <div class="stack-group-title">Frontend</div>
+          <div class="stack-item"><span class="stack-item-em">⚛️</span><div><div class="stack-item-name">React 18 + Vite</div><div class="stack-item-desc">Interface réactive, HMR</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🗺️</span><div><div class="stack-item-name">MapLibre GL 5</div><div class="stack-item-desc">Cartographie vectorielle</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">📐</span><div><div class="stack-item-name">Turf.js 7</div><div class="stack-item-desc">Analyse spatiale client</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">📊</span><div><div class="stack-item-name">D3 + Recharts</div><div class="stack-item-desc">Visualisation de données</div></div></div>
+        </div>
+
+        <div class="stack-group reveal">
+          <div class="stack-group-title">Backend</div>
+          <div class="stack-item"><span class="stack-item-em">🐍</span><div><div class="stack-item-name">FastAPI</div><div class="stack-item-desc">API async haute perf</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🦆</span><div><div class="stack-item-name">DuckDB</div><div class="stack-item-desc">SQL in-memory sur S3</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🤖</span><div><div class="stack-item-name">LiteLLM</div><div class="stack-item-desc">Multi-provider LLM</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🌍</span><div><div class="stack-item-name">GeoPandas</div><div class="stack-item-desc">Traitement géospatial</div></div></div>
+        </div>
+
+        <div class="stack-group reveal">
+          <div class="stack-group-title">Infrastructure</div>
+          <div class="stack-item"><span class="stack-item-em">🐳</span><div><div class="stack-item-name">Docker Compose</div><div class="stack-item-desc">Déploiement conteneurisé</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🔌</span><div><div class="stack-item-name">MCP Protocol</div><div class="stack-item-desc">Claude Desktop / Cursor</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🗃️</span><div><div class="stack-item-name">pgvector</div><div class="stack-item-desc">Embeddings RAG</div></div></div>
+          <div class="stack-item"><span class="stack-item-em">🌐</span><div><div class="stack-item-name">Nginx</div><div class="stack-item-desc">Serving production</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CONTRIBUTE ════════════════════════════════════════ -->
+  <section id="contribute" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Open Source</div>
+        <h2>Contribuez</h2>
+        <p class="section-sub">OpenMapAgents est en développement actif. Toutes les contributions sont bienvenues.</p>
+      </div>
+
+      <div class="contrib-grid">
+        <div>
+          <h3 style="font-size:1rem;font-weight:700;color:var(--text2);margin-bottom:1.25rem;">Roadmap</h3>
+          <div class="roadmap">
+            <div class="roadmap-row reveal"><div class="rm-dot rm-done">✓</div><div class="rm-text"><strong>10 serveurs MCP</strong> — Overture, GEE, ORS, PostGIS, OSM, WorldBank, STAC, MapTiler</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-done">✓</div><div class="rm-text"><strong>Orchestrateur multi-agents</strong> — RAG, débat, validation Pydantic</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-done">✓</div><div class="rm-text"><strong>Interface MapLibre</strong> — 37+ composants React, dark/light mode</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-wip">…</div><div class="rm-text"><strong>Classification supervisée GEE</strong> — Pipeline ML complet</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-wip">…</div><div class="rm-text"><strong>Microsoft Planetary Computer</strong> — Intégration STAC avancée</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-plan">○</div><div class="rm-text"><strong>MCP Copernicus / ERA5</strong> — Données climatiques</div></div>
+            <div class="roadmap-row reveal"><div class="rm-dot rm-plan">○</div><div class="rm-text"><strong>Mode collaboration temps réel</strong> — Sessions multi-utilisateurs</div></div>
+          </div>
+        </div>
+
+        <div class="contrib-links">
+          <a href="https://github.com/diouck/openmapagents" target="_blank" class="contrib-link reveal">
+            <div class="contrib-link-icon">⭐</div>
+            <div><h4>Donner une étoile</h4><p>Aidez le projet à gagner en visibilité</p></div>
+          </a>
+          <a href="https://github.com/diouck/openmapagents/issues/new?labels=bug" target="_blank" class="contrib-link reveal">
+            <div class="contrib-link-icon">🐛</div>
+            <div><h4>Signaler un bug</h4><p>Ouvrez une issue avec les étapes de reproduction</p></div>
+          </a>
+          <a href="https://github.com/diouck/openmapagents/issues?q=good+first+issue" target="_blank" class="contrib-link reveal">
+            <div class="contrib-link-icon">🌱</div>
+            <div><h4>Good first issues</h4><p>Issues balisées pour les nouveaux contributeurs</p></div>
+          </a>
+          <a href="https://github.com/diouck/openmapagents/discussions" target="_blank" class="contrib-link reveal">
+            <div class="contrib-link-icon">💬</div>
+            <div><h4>Discussions</h4><p>Questions, idées, retours d'expérience</p></div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CTA ════════════════════════════════════════════════ -->
+  <section id="cta">
+    <div class="container">
+      <h2 class="reveal">Prêt à explorer ?</h2>
+      <p class="reveal">Open source · Gratuit · Votre modèle · Vos données</p>
+      <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;" class="reveal">
+        <a href="https://openmapagents.geoafrica.fr/" target="_blank" rel="noopener" class="btn btn-green btn-lg">🗺️ Ouvrir la carte</a>
+        <a href="https://github.com/diouck/openmapagents" target="_blank" class="btn btn-glass btn-lg">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ════════════════════════════════════════════ -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/diouck/openmapagents" target="_blank">GitHub</a>
+        <a href="https://github.com/diouck/openmapagents/blob/main/LICENSE" target="_blank">Licence MIT</a>
+        <a href="https://github.com/diouck/openmapagents/blob/main/README.md" target="_blank">Documentation</a>
+        <a href="https://github.com/diouck/openmapagents/issues" target="_blank">Issues</a>
+      </div>
+      <p>OpenMapAgents — Cartographie IA Open Source · Licence MIT</p>
+      <p style="margin-top:.2rem;font-size:.75rem;color:var(--text3);">Overture Maps · Google Earth Engine · MCP Protocol</p>
+    </div>
+  </footer>
+
+  <script>
+    // ─── Map background (hero) ───────────────────────────
+    const mapBg = L.map('map-bg', {
+      zoomControl: false, attributionControl: false,
+      dragging: false, scrollWheelZoom: false,
+      doubleClickZoom: false, touchZoom: false,
+      keyboard: false
+    }).setView([40.7128, -74.0060], 12);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(mapBg);
+
+    // ─── Tab switching ───────────────────────────────────
+    function switchTab(btn, id) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + id).classList.add('active');
+    }
+
+    // ─── Orchestrateur interactive pipeline ─────────────────
+    (function(){
+      const STEPS=[
+        {n:'01',icon:'🧠',name:'session_memory',col:1,row:1,desc:"Chargement du contexte & historique via pgvector. Les embeddings des échanges passés garantissent la continuité conversationnelle."},
+        {n:'02',icon:'🎯',name:'intent_router', col:3,row:1,desc:"Classification de la requête : géovisualisation, analyse raster, routing, comparaison. Routage dynamique vers le sous-pipeline adapté."},
+        {n:'03',icon:'🔍',name:'rag_retriever', col:5,row:1,desc:"Recherche vectorielle pgvector — top-K requêtes similaires injectées dans le contexte pour améliorer la précision de la réponse."},
+        {n:'04',icon:'⚔️',name:'debate_layer',  col:7,row:1,desc:"5 agents IA proposent des plans d'action en parallèle avec des approches différentes. La diversité garantit la robustesse du résultat."},
+        {n:'05',icon:'⚖️',name:'moderator',     col:9,row:1,desc:"Agent modérateur qui évalue les 5 plans par vote pondéré. Sélectionne le meilleur plan et fusionne les idées complémentaires."},
+        {n:'06',icon:'⚡',name:'mcp_executor',  col:9,row:3,desc:"Exécution des serveurs MCP sélectionnés en parallèle : Overture, GEE, ORS, PostGIS, OSM… Résultats géospatiaux streamés en temps réel."},
+        {n:'07',icon:'✅',name:'geo_validator', col:7,row:3,desc:"Validation Pydantic stricte des géométries GeoJSON. Correction automatique des topologies invalides et normalisation des projections."},
+        {n:'08',icon:'🗺️',name:'renderer',      col:5,row:3,desc:"Rendu vectoriel MapLibre GL avec styles adaptatifs. Couches, symbologie et étiquettes générés automatiquement selon le contexte."},
+        {n:'09',icon:'📡',name:'sse_stream',    col:3,row:3,desc:"Streaming Server-Sent Events vers l'interface React. Chaque étape notifiée progressivement pour un feedback temps réel fluide."},
+        {n:'10',icon:'💾',name:'memory_update', col:1,row:3,desc:"Mise à jour du vecteur de session pgvector. Apprentissage des préférences utilisateur pour améliorer les futures interactions."},
+      ];
+      const snake=document.getElementById('orcSnake');
+      const dotsEl=document.getElementById('orcDots');
+      if(!snake)return;
+      // Nodes
+      STEPS.forEach((s,i)=>{
+        const d=document.createElement('div');
+        d.className='orc-node'; d.dataset.i=i;
+        d.style.cssText=`grid-column:${s.col};grid-row:${s.row}`;
+        d.innerHTML=`<div class="orc-nc"><span>${s.icon}</span><span class="orc-nb">${s.n}</span></div><div class="orc-nn">${s.name.replace('_','<br>')}</div>`;
+        snake.appendChild(d);
+      });
+      // Row-1 connectors →
+      [2,4,6,8].forEach(c=>{
+        const d=document.createElement('div'); d.className='orc-conn';
+        d.style.cssText=`grid-column:${c};grid-row:1`;
+        d.innerHTML=`<svg viewBox="0 0 20 10" preserveAspectRatio="none"><path d="M1,5 H19" stroke="rgba(34,197,94,.45)" stroke-width="1.5" fill="none" marker-end="url(#oa)"/></svg>`;
+        snake.appendChild(d);
+      });
+      // Turn
+      const sp=document.createElement('div'); sp.style.cssText='grid-column:1/9;grid-row:2'; snake.appendChild(sp);
+      const tv=document.createElement('div'); tv.className='orc-turn-v'; snake.appendChild(tv);
+      // Row-3 connectors ←
+      [2,4,6,8].forEach(c=>{
+        const d=document.createElement('div'); d.className='orc-conn';
+        d.style.cssText=`grid-column:${c};grid-row:3`;
+        d.innerHTML=`<svg viewBox="0 0 20 10" preserveAspectRatio="none"><path d="M19,5 H1" stroke="rgba(34,197,94,.45)" stroke-width="1.5" fill="none" marker-end="url(#ob)"/></svg>`;
+        snake.appendChild(d);
+      });
+      // Dots
+      STEPS.forEach((_,i)=>{
+        const dot=document.createElement('div'); dot.className='orc-dot'; dot.dataset.i=i;
+        dot.addEventListener('click',()=>{clearInterval(timer);activate(i);startTimer();});
+        dotsEl.appendChild(dot);
+      });
+      const badge=document.getElementById('orcBadge');
+      const desc=document.getElementById('orcDesc');
+      const dicon=document.getElementById('orcDIcon');
+      let active=0,timer;
+      function activate(i){
+        active=i;
+        document.querySelectorAll('.orc-node').forEach(n=>n.classList.toggle('active',+n.dataset.i===i));
+        document.querySelectorAll('.orc-dot').forEach(d=>d.classList.toggle('active',+d.dataset.i===i));
+        const s=STEPS[i];
+        badge.textContent=`${s.n} · ${s.name}`;
+        desc.textContent=s.desc;
+        dicon.textContent=s.icon;
+      }
+      function startTimer(){timer=setInterval(()=>activate((active+1)%10),1500);}
+      snake.addEventListener('mouseover',e=>{const nd=e.target.closest('.orc-node');if(!nd)return;clearInterval(timer);activate(+nd.dataset.i);});
+      snake.addEventListener('mouseleave',startTimer);
+      activate(0); startTimer();
+    })();
+
+    // ─── Capabilities tab switcher ───────────────────────
+    document.querySelectorAll('.cap-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.cap-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.cap-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const panel = document.getElementById('tab-' + btn.dataset.tab);
+        if (panel) panel.classList.add('active');
+      });
+    });
+
+    // ─── Copy code ───────────────────────────────────────
+    function copyCode(btn) {
+      const text = btn.closest('.code-block').querySelector('pre').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✓ copié';
+        setTimeout(() => btn.textContent = 'copy', 2000);
+      });
+    }
+
+    // ─── Scroll reveal ───────────────────────────────────
+    const io = new IntersectionObserver(entries => {
+      entries.forEach((e, i) => {
+        if (e.isIntersecting) {
+          setTimeout(() => e.target.classList.add('visible'), i * 60);
+        }
+      });
+    }, { threshold: .12 });
+
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    // ─── 3D card tilt ───────────────────────────────────
+    document.querySelectorAll('.bento-card').forEach(card => {
+      card.addEventListener('mousemove', e => {
+        const r = card.getBoundingClientRect();
+        const x = ((e.clientX - r.left) / r.width  - .5) * 8;
+        const y = ((e.clientY - r.top)  / r.height - .5) * -8;
+        card.style.transform = `perspective(600px) rotateX(${y}deg) rotateY(${x}deg) translateY(-4px)`;
+        card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+        card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+      });
+    });
+
+    // ─── Section background maps + flux ─────────────────
+    const SEC_CITIES = {
+      'stats':       { lat: 40.7128, lng: -74.0060, z: 12, ov: 'rgba(12,26,16,.90)', name:'New York'   },
+      'features':    { lat: 51.5074, lng:  -0.1278, z: 13, ov: 'rgba(6,13,8,.88)',   name:'Londres'    },
+      'map-section': { lat: 14.7167, lng: -17.4677, z: 13, ov: 'rgba(9,18,16,.84)',  name:'Dakar'      },
+      'usecases':    { lat: 35.6762, lng: 139.6503, z: 12, ov: 'rgba(9,18,16,.88)',  name:'Tokyo'      },
+      'modules':     { lat: 52.3676, lng:   4.9041, z: 13, ov: 'rgba(6,13,8,.88)',   name:'Amsterdam'  },
+      'llm':         { lat:-23.5505, lng: -46.6333, z: 12, ov: 'rgba(6,13,8,.88)',   name:'São Paulo'  },
+      'install':     { lat: -1.2921, lng:  36.8219, z: 13, ov: 'rgba(9,18,16,.88)',  name:'Nairobi'    },
+      'stack':       { lat:  6.4531, lng:   3.3958, z: 13, ov: 'rgba(6,13,8,.88)',   name:'Lagos'      },
+      'orchestrateur':{ lat: 1.2921,  lng:  36.8219, z: 13, ov: 'rgba(6,13,8,.90)',  name:'Nairobi'    },
+      'contribute':  { lat: 33.5731, lng:  -7.5898, z: 13, ov: 'rgba(9,18,16,.88)',  name:'Casablanca' },
+      'cta':         { lat: 48.2082, lng:  16.3738, z: 13, ov: 'rgba(6,13,8,.88)',   name:'Vienne'     },
+    };
+
+    const _initialized = new Set();
+
+    function initSecMap(secId) {
+      if (_initialized.has(secId)) return;
+      _initialized.add(secId);
+      const city = SEC_CITIES[secId];
+      const sec  = document.getElementById(secId);
+      if (!sec || !city) return;
+
+      // Remove solid background, set relative+overflow
+      sec.style.background = 'transparent';
+      sec.style.position   = 'relative';
+      sec.style.overflow   = 'hidden';
+
+      // 1 — Map tile background
+      const bgDiv = document.createElement('div');
+      bgDiv.style.cssText = 'position:absolute;inset:0;z-index:0;pointer-events:none;' +
+        'filter:saturate(.55) brightness(.30) hue-rotate(95deg);';
+      sec.insertBefore(bgDiv, sec.firstChild);
+
+      // 2 — Dark colour overlay (matches original section bg)
+      const ov = document.createElement('div');
+      ov.style.cssText = `position:absolute;inset:0;z-index:1;pointer-events:none;background:${city.ov};`;
+      sec.insertBefore(ov, sec.children[1]);
+
+      // 3 — Flux SVG container
+      const fx = document.createElement('div');
+      fx.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden;';
+      sec.insertBefore(fx, sec.children[2]);
+
+      // 4 — Push all original children above overlays
+      Array.from(sec.children).slice(3).forEach(c => {
+        c.style.position = 'relative';
+        c.style.zIndex   = '3';
+      });
+
+      // 5 — City label badge (bottom-right)
+      const lbl = document.createElement('div');
+      lbl.textContent = '📍 ' + city.name;
+      lbl.style.cssText = 'position:absolute;bottom:1rem;right:1.25rem;z-index:4;' +
+        'font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;' +
+        'color:var(--green3);opacity:.5;font-family:"Inter",sans-serif;pointer-events:none;';
+      sec.appendChild(lbl);
+
+      // 6 — Init Leaflet (static, no interaction)
+      const map = L.map(bgDiv, {
+        zoomControl:false, attributionControl:false,
+        dragging:false, scrollWheelZoom:false,
+        doubleClickZoom:false, touchZoom:false, keyboard:false
+      }).setView([city.lat, city.lng], city.z);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        { maxZoom:19 }).addTo(map);
+
+      // 7 — Draw flux once tiles start loading
+      setTimeout(() => drawFlux(fx, secId), 400);
+    }
+
+    function drawFlux(container, seed) {
+      const ns  = 'http://www.w3.org/2000/svg';
+      const W   = container.offsetWidth  || 1200;
+      const H   = container.offsetHeight || 500;
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+      Object.assign(svg.style, { position:'absolute', inset:'0', width:'100%', height:'100%' });
+
+      const palette = ['#22c55e','#2dd4bf','#a3e635','#4ade80','#22c55e'];
+      const n = seed.charCodeAt(0) % 4 + 3; // 3-6 routes per section
+
+      // ── Animated routes ──────────────────────────────
+      for (let i = 0; i < n; i++) {
+        const d   = curvePath(W, H, seed.charCodeAt(i % seed.length) + i * 37);
+        const col = palette[i % palette.length];
+        const pid = 'p' + seed + i;
+        const dur = 5 + i * 1.4;
+        const del = i * 0.7;
+
+        // Path
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('id', pid);
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', col);
+        path.setAttribute('stroke-width', i < 2 ? '2' : '1.5');
+        path.setAttribute('stroke-opacity', i < 2 ? '.40' : '.25');
+        path.setAttribute('stroke-dasharray', i % 2 === 0 ? '12 6' : '6 10');
+        path.setAttribute('stroke-linecap', 'round');
+
+        // Dash animation
+        const da = document.createElementNS(ns, 'animate');
+        da.setAttribute('attributeName', 'stroke-dashoffset');
+        da.setAttribute('from', '60'); da.setAttribute('to', '0');
+        da.setAttribute('dur', dur + 's');
+        da.setAttribute('begin', del + 's');
+        da.setAttribute('repeatCount', 'indefinite');
+        path.appendChild(da);
+        svg.appendChild(path);
+
+        // Moving dot
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('r', i === 0 ? '5' : '3.5');
+        dot.setAttribute('fill', col);
+        dot.setAttribute('opacity', '.95');
+
+        const am = document.createElementNS(ns, 'animateMotion');
+        am.setAttribute('dur', (dur * 1.8) + 's');
+        am.setAttribute('begin', del + 's');
+        am.setAttribute('repeatCount', 'indefinite');
+        am.setAttribute('rotate', 'auto');
+        const mp = document.createElementNS(ns, 'mpath');
+        mp.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#' + pid);
+        am.appendChild(mp);
+        dot.appendChild(am);
+        svg.appendChild(dot);
+
+        // Glow dot (larger, transparent)
+        const glow = document.createElementNS(ns, 'circle');
+        glow.setAttribute('r', '10');
+        glow.setAttribute('fill', col);
+        glow.setAttribute('opacity', '.18');
+        const am2 = am.cloneNode(true);
+        glow.appendChild(am2);
+        svg.insertBefore(glow, dot);
+      }
+
+      // ── Pulsing location pins ─────────────────────────
+      const pinCount = 4;
+      for (let i = 0; i < pinCount; i++) {
+        const sn  = seed.charCodeAt(i % seed.length);
+        const x   = ((sn * (i + 1) * 73) % (W - 100)) + 50;
+        const y   = ((sn * (i + 2) * 53) % (H - 80))  + 40;
+        const col = palette[i % palette.length];
+        const del = i * 0.9;
+
+        // Outer pulse
+        const ring = document.createElementNS(ns, 'circle');
+        ring.setAttribute('cx', x); ring.setAttribute('cy', y);
+        ring.setAttribute('r', '6'); ring.setAttribute('fill', 'none');
+        ring.setAttribute('stroke', col); ring.setAttribute('stroke-width', '1.5');
+        ring.setAttribute('opacity', '0');
+
+        const ra = document.createElementNS(ns, 'animate');
+        ra.setAttribute('attributeName', 'r');
+        ra.setAttribute('values', '6;24;6');
+        ra.setAttribute('dur', '3.2s');
+        ra.setAttribute('begin', del + 's');
+        ra.setAttribute('repeatCount', 'indefinite');
+
+        const oa = document.createElementNS(ns, 'animate');
+        oa.setAttribute('attributeName', 'opacity');
+        oa.setAttribute('values', '0.65;0;0.65');
+        oa.setAttribute('dur', '3.2s');
+        oa.setAttribute('begin', del + 's');
+        oa.setAttribute('repeatCount', 'indefinite');
+
+        ring.appendChild(ra); ring.appendChild(oa);
+        svg.appendChild(ring);
+
+        // Inner dot
+        const center = document.createElementNS(ns, 'circle');
+        center.setAttribute('cx', x); center.setAttribute('cy', y);
+        center.setAttribute('r', '4'); center.setAttribute('fill', col);
+        center.setAttribute('opacity', '.85');
+        svg.appendChild(center);
+
+        // Crosshair lines
+        const hline = document.createElementNS(ns, 'line');
+        hline.setAttribute('x1', x - 8); hline.setAttribute('x2', x + 8);
+        hline.setAttribute('y1', y);      hline.setAttribute('y2', y);
+        hline.setAttribute('stroke', col); hline.setAttribute('stroke-width', '1');
+        hline.setAttribute('opacity', '.4');
+        svg.appendChild(hline);
+
+        const vline = document.createElementNS(ns, 'line');
+        vline.setAttribute('x1', x); vline.setAttribute('x2', x);
+        vline.setAttribute('y1', y - 8); vline.setAttribute('y2', y + 8);
+        vline.setAttribute('stroke', col); vline.setAttribute('stroke-width', '1');
+        vline.setAttribute('opacity', '.4');
+        svg.appendChild(vline);
+      }
+
+      container.appendChild(svg);
+    }
+
+    function curvePath(W, H, seed) {
+      const r = n => ((Math.sin(n) * 0.5 + 0.5));
+      const x0  = r(seed)       * W * 0.4;
+      const y0  = r(seed + 1)   * H * 0.8 + H * 0.1;
+      const cx1 = r(seed + 2)   * W * 0.7 + W * 0.1;
+      const cy1 = r(seed + 3)   * H;
+      const cx2 = r(seed + 4)   * W * 0.5 + W * 0.3;
+      const cy2 = r(seed + 5)   * H * 0.6;
+      const x1  = r(seed + 6)   * W * 0.4 + W * 0.55;
+      const y1  = r(seed + 7)   * H * 0.7 + H * 0.1;
+      return `M${~~x0},${~~y0} C${~~cx1},${~~cy1} ${~~cx2},${~~cy2} ${~~x1},${~~y1}`;
+    }
+
+    // Lazy init via IntersectionObserver
+    const bgObs = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) initSecMap(e.target.id); });
+    }, { threshold: 0.05 });
+
+    Object.keys(SEC_CITIES).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) bgObs.observe(el);
+    });
+
+    // ─── Active nav highlight ────────────────────────────
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-links a');
+    window.addEventListener('scroll', () => {
+      let cur = '';
+      sections.forEach(s => {
+        if (window.scrollY >= s.offsetTop - 80) cur = s.id;
+      });
+      navLinks.forEach(a => {
+        a.style.color = a.getAttribute('href') === '#' + cur ? 'var(--green2)' : '';
+      });
+    });
+  </script>
+</body>
+</html>
+
+
