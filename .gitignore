@@ -24,3 +24,7 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Garder l'exemple de config (jamais de vrais secrets dedans)
+!.env.example
+!backend/.env.example
