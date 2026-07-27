@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
+import { IcCheck, IcX, IcAlert, IcSearch, IcMaximize, IcMove, IcPrint } from "../icons";
 
 // ── Helper : applique une ombre de texte forte pour lisibilité sans fond ──
 function setShadow(ctx, blur) {
@@ -49,7 +50,7 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
         lines.push({ type: "layer", layer: l });
         const cr = l.classResult;
 
-        // ── Raster GEE ──────────────────────────────────────────
+        // ── Raster GEE palette/gradient ──────────────────────────
         if (l.isRaster && l.visParams) {
           const vp   = l.visParams;
           const name = l.name || "";
@@ -62,6 +63,12 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
             lines.push({ type: "gee_gradient", colors, min: vp.min ?? 0, max: vp.max ?? 1 });
           }
           return; // RGB → juste le nom, pas de légende supplémentaire
+        }
+
+        // ── Raster classification (supervisée / auto / cluster) ──
+        if (l.isRaster && l.legend?.length > 0) {
+          lines.push({ type: "classif_legend", entries: l.legend });
+          return;
         }
 
         if (cr?.type === "categorized") {
@@ -103,10 +110,11 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
       const boxW   = Math.round(W * 0.24);
       // Hauteur dynamique : les lignes GEE (gradient, worldcover) occupent plus qu'une ligne fixe
       const estimatedH = lines.reduce((acc, ln) => {
-        if (ln.type === "gee_worldcover") return acc + ln.classes.length * (SMALL * 1.65);
-        if (ln.type === "gee_gradient")   return acc + Math.round(SMALL * 0.72) + SMALL * 1.8;
+        if (ln.type === "gee_worldcover")      return acc + ln.classes.length * (SMALL * 1.65);
+        if (ln.type === "gee_gradient")        return acc + Math.round(SMALL * 0.72) + SMALL * 1.8;
+        if (ln.type === "classif_legend")      return acc + ln.entries.length * (SMALL * 1.55);
         if (ln.type === "prop_circles_nested") return acc + Math.max(4, Math.min(FONT * 2.2, ln.maxR * (FONT / 10))) * 2 + PAD * 2;
-        if (ln.type === "prop_lines_nested") return acc + ln.entries.length * (SMALL * 1.8) + PAD;
+        if (ln.type === "prop_lines_nested")   return acc + ln.entries.length * (SMALL * 1.8) + PAD;
         return acc + lineH;
       }, 0);
       const boxH   = PAD + estimatedH + PAD;
@@ -238,6 +246,40 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
           });
           return;
 
+        } else if (line.type === "classif_legend") {
+          // Classes de classification raster — petits carrés + label + surface
+          const rowH = SMALL * 1.55;
+          line.entries.forEach(({ label, color, area_ha }) => {
+            const sqSz = Math.round(SMALL * 0.72);
+            setShadow(ctx, SH * 0.5);
+            ctx.fillStyle = color || "#888";
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(bx + PAD * 1.2, ly - sqSz * 0.82, sqSz, sqSz, 2);
+            else ctx.rect(bx + PAD * 1.2, ly - sqSz * 0.82, sqSz, sqSz);
+            ctx.fill();
+            clearShadow(ctx);
+            setShadow(ctx, SH);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = `${SMALL}px sans-serif`;
+            // Tronquer le label
+            const maxLbl = 22;
+            const lbl = (label || "").length > maxLbl ? (label || "").slice(0, maxLbl) + "…" : (label || "");
+            ctx.fillText(lbl, bx + PAD * 1.2 + sqSz + 4, ly);
+            // Surface (optionnelle, à droite)
+            if (area_ha > 0) {
+              const surfTxt = area_ha >= 100
+                ? `${(area_ha / 100).toFixed(1)} km²`
+                : area_ha >= 1 ? `${area_ha.toFixed(1)} ha` : `${Math.round(area_ha * 10000)} m²`;
+              ctx.font = `${Math.round(SMALL * 0.82)}px sans-serif`;
+              ctx.fillStyle = "rgba(255,255,255,0.6)";
+              const tw = ctx.measureText(surfTxt).width;
+              ctx.fillText(surfTxt, bx + boxW - PAD * 0.5 - tw, ly);
+            }
+            clearShadow(ctx);
+            ly += rowH;
+          });
+          return;
+
         } else if (line.type === "gee_gradient") {
           // Palette continue : gradient canvas + labels min/mid/max
           const barW = Math.round(boxW * 0.78);
@@ -354,21 +396,108 @@ function drawOverlaysOnCanvas(ctx, W, H, opts) {
   }
 }
 
-// ── Génère un canvas "aperçu complet" avec titre/desc/sources + carte ──
-async function buildPreviewCanvas(mapRef, layers, viewState, opts) {
+// ── Dimensions papier en pixels à 150 DPI ────────────────────────────────────
+const PDF_DPI = 150;
+function getPaperPx(format, orientation) {
+  const mm = format === "A3" ? { w: 297, h: 420 } : { w: 210, h: 297 };
+  const pw  = orientation === "portrait" ? mm.w : mm.h;
+  const ph  = orientation === "portrait" ? mm.h : mm.w;
+  return {
+    w: Math.round(pw / 25.4 * PDF_DPI),
+    h: Math.round(ph / 25.4 * PDF_DPI),
+  };
+}
+
+// ── Emprise géographique de toutes les couches visibles ──────────────────────
+function getLayersBbox(layers) {
+  const vis = (layers || []).filter(l => l.visible && l.bbox?.length === 4);
+  if (!vis.length) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  vis.forEach(l => {
+    const [w, s, e, n] = l.bbox;
+    if (w < minX) minX = w; if (s < minY) minY = s;
+    if (e > maxX) maxX = e; if (n > maxY) maxY = n;
+  });
+  return isFinite(minX) ? [minX, minY, maxX, maxY] : null;
+}
+
+// ── Attend que la carte soit stable (idle) ────────────────────────────────────
+function waitIdle(map) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      map.off("idle", onIdle);
+      resolve();
+    };
+    const onIdle = finish;
+    map.on("idle", onIdle);
+    map.triggerRepaint();
+    setTimeout(finish, 3000);
+  });
+}
+
+// ── Génère un canvas carte + mise en page ────────────────────────────────────
+// target = null  → aperçu : dimensions écran, letterbox si nécessaire
+// target = {w,h} → impression : redimensionne le conteneur, fit-to-extent, capture propre
+async function buildPreviewCanvas(mapRef, layers, viewState, opts, target = null) {
   const { title, subtitle, sources, showLegend, legendPos, showNorth, showScale } = opts;
+  const map = mapRef.current?.getMap?.();
+  if (!map) throw new Error("Carte non disponible");
 
-  // 1. Capturer la carte
-  const mapDataUrl = await new Promise((resolve, reject) => {
-    const map = mapRef.current?.getMap?.();
-    if (!map) return reject(new Error("Carte non disponible"));
+  // ── Calcul des zones header / footer (basé sur la largeur cible) ─────────
+  const refW    = target ? target.w : map.getCanvas().width;
+  const F_SIZE  = Math.round(refW * 0.022);
+  const SF_SIZE = Math.round(refW * 0.015);
+  const SM_SIZE = Math.round(refW * 0.011);
+  const PAD     = Math.round(refW * 0.018);
+  const headerH = Math.round(PAD + F_SIZE + (subtitle ? SF_SIZE * 1.8 : 0) + SM_SIZE * 2 + PAD);
+  const footerH = Math.round(SM_SIZE * 2.5 + PAD);
+  const TW      = target ? target.w : map.getCanvas().width;
+  const TH      = target ? target.h : (map.getCanvas().height + headerH + footerH);
+  const mapAreaW = TW;
+  const mapAreaH = TH - headerH - footerH;
 
+  // ── Mode impression : resize conteneur → fit-to-extent → capture ─────────
+  let savedCenter, savedZoom, savedBearing, savedPitch;
+  let origW, origH, container;
+
+  if (target) {
+    container = map.getContainer();
+    // Sauvegarder l'état original
+    origW         = container.style.width;
+    origH         = container.style.height;
+    savedCenter   = map.getCenter();
+    savedZoom     = map.getZoom();
+    savedBearing  = map.getBearing();
+    savedPitch    = map.getPitch();
+
+    // Redimensionner à la proportion exacte de la zone carte A4/A3
+    container.style.width  = mapAreaW + "px";
+    container.style.height = mapAreaH + "px";
+    map.resize();
+
+    // Zoomer sur l'emprise des couches visibles
+    const bbox = getLayersBbox(layers);
+    if (bbox) {
+      const pad = Math.round(Math.min(mapAreaW, mapAreaH) * 0.06);
+      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+        padding: pad, duration: 0, animate: false,
+      });
+    }
+
+    // Attendre stabilisation
+    await waitIdle(map);
+  }
+
+  // ── Capture le canvas de la carte ────────────────────────────────────────
+  const rawMap = await new Promise((resolve, reject) => {
     const doCapture = () => {
       try {
-        const container = map.getContainer();
-        const canvases  = Array.from(container.querySelectorAll("canvas"));
+        const ctr      = map.getContainer();
+        const canvases = Array.from(ctr.querySelectorAll("canvas"));
         if (!canvases.length) return reject(new Error("Aucun canvas trouvé"));
-
         const main = canvases.reduce((a, b) =>
           a.width * a.height >= b.width * b.height ? a : b
         );
@@ -376,64 +505,55 @@ async function buildPreviewCanvas(mapRef, layers, viewState, opts) {
         if (!W || !H) return reject(new Error(
           "Canvas vide — ajoutez preserveDrawingBuffer={true} sur <Map>"
         ));
-
         const out = document.createElement("canvas");
         out.width = W; out.height = H;
-        const ctx = out.getContext("2d");
-        ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(0, 0, W, H);
-        canvases.forEach(c => {
-          if (c.width > 0 && c.height > 0) {
-            try { ctx.drawImage(c, 0, 0, W, H); } catch (_) {}
+        const c = out.getContext("2d");
+        c.fillStyle = "#1a1a1a";
+        c.fillRect(0, 0, W, H);
+        canvases.forEach(cv => {
+          if (cv.width > 0 && cv.height > 0) {
+            try { c.drawImage(cv, 0, 0, W, H); } catch (_) {}
           }
         });
-
-        // Overlays sur la carte
-        drawOverlaysOnCanvas(ctx, W, H, { layers, showLegend, legendPos, showNorth, showScale, vs: viewState });
-
         resolve({ dataUrl: out.toDataURL("image/png"), W, H });
-      } catch (e) {
-        reject(new Error("Erreur capture : " + e.message));
-      }
+      } catch (e) { reject(new Error("Erreur capture : " + e.message)); }
     };
-
     map.once("render", doCapture);
     map.triggerRepaint();
   });
 
-  // 2. Composer carte + textes sur un canvas final
-  const { dataUrl: mapUrl, W: MW, H: MH } = mapDataUrl;
-  const SCALE    = 1;
-  const F_SIZE   = Math.round(MW * 0.022);   // titre
-  const SF_SIZE  = Math.round(MW * 0.015);   // sous-titre
-  const SM_SIZE  = Math.round(MW * 0.011);   // sources / coords
-  const PAD      = Math.round(MW * 0.018);
-  const headerH  = PAD + F_SIZE + (subtitle ? SF_SIZE * 1.8 : 0) + SM_SIZE * 2 + PAD;
-  const footerH  = SM_SIZE * 2.5 + PAD;
-  const TW       = MW;
-  const TH       = MH + headerH + footerH;
+  // ── Restaurer l'état original de la carte ────────────────────────────────
+  if (target && container) {
+    container.style.width  = origW;
+    container.style.height = origH;
+    map.resize();
+    map.jumpTo({ center: savedCenter, zoom: savedZoom,
+                 bearing: savedBearing, pitch: savedPitch });
+  }
+
+  // ── Composer le canvas final ──────────────────────────────────────────────
+  const { dataUrl: mapUrl, W: MW, H: MH } = rawMap;
 
   const final = document.createElement("canvas");
   final.width  = TW;
   final.height = TH;
   const ctx = final.getContext("2d");
 
-  // Fond global
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, TW, TH);
 
-  // ── Header ──
+  // ── Header ──────────────────────────────────────────────────────
   let y = PAD + F_SIZE;
   ctx.fillStyle = "#111111";
   ctx.font      = `700 ${F_SIZE}px sans-serif`;
-  ctx.fillText(title || "Carte", PAD, y);
+  ctx.fillText((title || "Carte").slice(0, 80), PAD, y);
   y += Math.round(F_SIZE * 0.4);
 
   if (subtitle) {
     y += SF_SIZE * 1.2;
     ctx.fillStyle = "#555555";
     ctx.font      = `400 ${SF_SIZE}px sans-serif`;
-    ctx.fillText(subtitle, PAD, y);
+    ctx.fillText(subtitle.slice(0, 120), PAD, y);
   }
 
   y += SM_SIZE * 1.8;
@@ -444,27 +564,46 @@ async function buildPreviewCanvas(mapRef, layers, viewState, opts) {
     `${vs.longitude.toFixed(4)}, ${vs.latitude.toFixed(4)}  |  zoom ${vs.zoom.toFixed(1)}  |  ${new Date().toLocaleDateString("fr-FR")} ${new Date().toLocaleTimeString("fr-FR")}`,
     PAD, y
   );
-
-  // Ligne séparatrice
   y += PAD * 0.6;
-  ctx.strokeStyle = "#e0e0e0";
-  ctx.lineWidth   = 1;
-  ctx.beginPath();
-  ctx.moveTo(PAD, y);
-  ctx.lineTo(TW - PAD, y);
-  ctx.stroke();
+  ctx.strokeStyle = "#e0e0e0"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(TW - PAD, y); ctx.stroke();
 
-  // ── Carte ──
+  // ── Zone carte ──────────────────────────────────────────────────
   const mapImg = new Image();
   await new Promise(res => { mapImg.onload = res; mapImg.src = mapUrl; });
-  ctx.drawImage(mapImg, 0, headerH, TW, MH);
 
-  // ── Footer sources ──
-  const fy = TH - PAD * 0.6;
+  if (target) {
+    // MODE IMPRESSION : la carte a été capturée exactement aux bonnes proportions
+    // → dessin direct, pleine largeur, aucune déformation
+    ctx.drawImage(mapImg, 0, headerH, mapAreaW, mapAreaH);
+    ctx.save();
+    ctx.translate(0, headerH);
+    drawOverlaysOnCanvas(ctx, mapAreaW, mapAreaH,
+      { layers, showLegend, legendPos, showNorth, showScale, vs: viewState });
+    ctx.restore();
+  } else {
+    // MODE APERÇU : letterbox (la carte est à taille écran)
+    const scale   = Math.min(mapAreaW / MW, mapAreaH / MH);
+    const scaledW = Math.round(MW * scale);
+    const scaledH = Math.round(MH * scale);
+    const mapX    = Math.round((mapAreaW - scaledW) / 2);
+    const mapY    = headerH + Math.round((mapAreaH - scaledH) / 2);
+    ctx.fillStyle = "#f0f0f0";
+    ctx.fillRect(0, headerH, TW, mapAreaH);
+    ctx.drawImage(mapImg, mapX, mapY, scaledW, scaledH);
+    ctx.save();
+    ctx.translate(mapX, mapY);
+    drawOverlaysOnCanvas(ctx, scaledW, scaledH,
+      { layers, showLegend, legendPos, showNorth, showScale, vs: viewState });
+    ctx.restore();
+  }
+
+  // ── Footer ──────────────────────────────────────────────────────
+  const fy = TH - Math.round(PAD * 0.5);
   ctx.font      = `400 ${SM_SIZE}px sans-serif`;
   ctx.fillStyle = "#999999";
   ctx.textAlign = "left";
-  ctx.fillText(sources || "Overture Maps Explorer", PAD, fy);
+  ctx.fillText(sources || "OpenMapAgents", PAD, fy);
   ctx.textAlign = "right";
   ctx.fillText("OpenMapAgents", TW - PAD, fy);
   ctx.textAlign = "left";
@@ -503,10 +642,10 @@ function PreviewVeil({ dataUrl, legendPos, onLegendPos, onClose, previewing }) {
               cursor: "pointer", fontSize: 16,
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-            {legendPos === c.key ? "✓" : ARROW[c.key]}
+            {legendPos === c.key ? <IcCheck size={16}/> : ARROW[c.key]}
           </button>
         ))}
-        <button onClick={onClose} style={{ position: "absolute", top: 8, right: 8, width: 32, height: 32, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "1px solid #555", color: "#fff", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <button onClick={onClose} style={{ position: "absolute", top: 8, right: 8, width: 32, height: 32, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "1px solid #555", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IcX size={15}/></button>
         <div style={{ position: "absolute", bottom: 46, left: "50%", transform: "translateX(-50%)", background: "rgba(0,0,0,0.65)", borderRadius: 20, padding: "4px 12px", fontSize: 10, color: "rgba(255,255,255,0.6)", whiteSpace: "nowrap", pointerEvents: "none" }}>
           Cliquez un coin pour repositionner la légende
         </div>
@@ -595,17 +734,23 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
     setPrinting(true);
     try {
       const { jsPDF } = await import("jspdf");
-      const imgUrl = preview || await doCapture();
+
+      // Générer le canvas EXACTEMENT aux dimensions A4/A3 → aucune déformation
+      const paperPx = getPaperPx(format, orientation);
+      const opts    = { title, subtitle, sources, showLegend, legendPos, showNorth, showScale };
+      const imgUrl  = await buildPreviewCanvas(mapRef, layers, viewState, opts, paperPx);
 
       const pdf = new jsPDF({ orientation, unit: "mm", format: format === "A3" ? "a3" : "a4" });
       const pw  = pdf.internal.pageSize.getWidth();
       const ph  = pdf.internal.pageSize.getHeight();
-      const mg  = 8;
-      pdf.addImage(imgUrl, "JPEG", mg, mg, pw - mg * 2, ph - mg * 2);
+
+      // L'image est déjà au bon ratio → placement pleine page, aucune marge
+      pdf.addImage(imgUrl, "JPEG", 0, 0, pw, ph);
       pdf.save(`carte_${format}_${Date.now()}.pdf`);
     } catch (e) { setError(e.message); }
     setPrinting(false);
-  }, [preview, doCapture, format, orientation]);
+  }, [mapRef, layers, viewState, legendPos, format, orientation,
+      title, subtitle, sources, showLegend, showNorth, showScale]);
 
   const inp = { fontFamily: F, fontSize: 11, padding: "5px 9px", borderRadius: 6, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", width: "100%", boxSizing: "border-box" };
 
@@ -643,10 +788,10 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
           onMouseDown={onDragStart}
           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "grab", paddingBottom: 2 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.txt, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2 }}>⠿</span>
-            ⎙ Impression
+            <span style={{ display: "flex", color: C.dim }}><IcMove size={13}/></span>
+            <IcPrint size={15}/> Impression
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 16 }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex", padding: 2 }}><IcX size={16}/></button>
         </div>
 
         {/* Prérequis */}
@@ -698,7 +843,7 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", flexShrink: 0, marginRight: 2 }}>Carte</div>
           {[["Légende", showLegend, setShowLegend], ["Nord", showNorth, setShowNorth], ["Échelle", showScale, setShowScale]].map(([lbl, val, set]) => (
-            <button key={lbl} onClick={() => set(v => !v)} style={{ fontFamily: F, fontSize: 10, padding: "3px 8px", borderRadius: 4, background: val ? C.acc + "18" : "transparent", border: `0.5px solid ${val ? C.acc + "55" : C.bdr}`, color: val ? C.acc : C.dim, cursor: "pointer", whiteSpace: "nowrap" }}>{val ? "✓ " : ""}{lbl}</button>
+            <button key={lbl} onClick={() => set(v => !v)} style={{ fontFamily: F, fontSize: 10, padding: "3px 8px", borderRadius: 4, background: val ? C.acc + "18" : "transparent", border: `0.5px solid ${val ? C.acc + "55" : C.bdr}`, color: val ? C.acc : C.dim, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>{val && <IcCheck size={11}/>}{lbl}</button>
           ))}
         </div>
 
@@ -717,7 +862,7 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
                   display: "flex", alignItems: "center", justifyContent: "center", height: 28,
                 }}>
                 {legendPos === pos
-                  ? <span style={{ fontSize: 9, fontWeight: 600 }}>✓</span>
+                  ? <IcCheck size={13}/>
                   : ARROWS[pos]
                 }
               </button>
@@ -729,12 +874,12 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
 
         {/* Erreur */}
         {error && (
-          <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>❌ {error}</div>
+          <div style={{ fontSize: 10, color: C.red, background: C.red + "12", border: `0.5px solid ${C.red}33`, borderRadius: 5, padding: "6px 8px", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", gap: 6 }}><IcAlert size={13} style={{ flexShrink: 0, marginTop: 1 }}/> <span>{error}</span></div>
         )}
 
         {/* Bouton aperçu */}
         <button onClick={generatePreview} disabled={previewing} style={{ fontFamily: F, fontSize: 11, padding: "7px 12px", borderRadius: 6, background: C.hover, color: C.txt, border: `0.5px solid ${C.bdr}`, cursor: previewing ? "default" : "pointer", opacity: previewing ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          {previewing ? "⏳ Capture…" : "🔍 Aperçu carte"}
+          <IcSearch size={13}/> {previewing ? "Capture…" : "Aperçu carte"}
         </button>
 
         {/* Preview */}
@@ -750,13 +895,13 @@ export default function PrintPanel({ mapRef, layers, viewState, onClose }) {
                 onMouseEnter={e => e.currentTarget.style.opacity = 1}
                 onMouseLeave={e => e.currentTarget.style.opacity = 0}
               >
-                <div style={{ background: "rgba(0,0,0,0.7)", borderRadius: 16, padding: "5px 12px", fontSize: 11, color: "#fff" }}>🔎 Plein écran</div>
+                <div style={{ background: "rgba(0,0,0,0.7)", borderRadius: 16, padding: "5px 12px", fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5 }}><IcMaximize size={13}/> Plein écran</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={() => setVeil(true)} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.mut, cursor: "pointer" }}>🔎 Plein écran</button>
-              <button onClick={generatePreview} disabled={previewing} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.dim, cursor: "pointer" }}>↺ Rafraîchir</button>
-              <button onClick={() => setPreview(null)} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.dim, cursor: "pointer" }}>✕ Effacer</button>
+              <button onClick={() => setVeil(true)} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.mut, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><IcMaximize size={12}/> Plein écran</button>
+              <button onClick={generatePreview} disabled={previewing} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.dim, cursor: "pointer" }}>Rafraîchir</button>
+              <button onClick={() => setPreview(null)} style={{ fontFamily: F, fontSize: 9, padding: "4px 0", borderRadius: 4, flex: 1, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.dim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><IcX size={11}/> Effacer</button>
             </div>
           </div>
         )}

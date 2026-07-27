@@ -23,8 +23,10 @@ export function getLayerAttrs(layer) {
 
 export function getNumVals(layer, attr) {
   return (layer.geojson?.features || [])
-    .map(f => { const v = f.properties?.[attr]; return typeof v === "number" ? v : Number(v); })
-    .filter(v => !isNaN(v));
+    .map(f => f.properties?.[attr])
+    .filter(v => v != null && v !== "" && v !== "None")  // exclure null/undefined AVANT conversion
+    .map(v => typeof v === "number" ? v : Number(v))
+    .filter(v => !isNaN(v) && isFinite(v));
 }
 
 export function getUniques(layer, attr) {
@@ -78,18 +80,20 @@ function classifyJenks(vals, n) {
 
 export function buildClassification(layer, cfg) {
   if (!cfg || cfg.type === "none") return null;
-  const { type, attribute, method, nClasses, ramp, customBreaks } = cfg;
+  const { type, attribute, method, nClasses, ramp, customBreaks, invertRamp } = cfg;
 
   if (type === "categorized") {
     const u = getUniques(layer, attribute);
-    const cols = RAMPS[ramp] || RAMPS.categorial;
+    const baseCols = RAMPS[ramp] || RAMPS.categorial;
+    const cols = cfg.invertRamp ? [...baseCols].reverse() : baseCols;
     const entries = u.slice(0, cols.length).map((v, i) => ({
       value: v.value, color: cols[i % cols.length], count: v.count,
     }));
     const expr = ["match", ["to-string", ["get", attribute]]];
     entries.forEach(e => { expr.push(e.value); expr.push(e.color); });
     expr.push("#888");
-    return { type: "categorized", attribute, entries, expression: expr };
+    return { type: "categorized", attribute, entries, expression: expr,
+             invertRamp: !!cfg.invertRamp };
   }
 
   // ── Icône / Emoji ────────────────────────────────────────────
@@ -120,13 +124,20 @@ export function buildClassification(layer, cfg) {
       minVal, minSize,
       maxVal, maxSize,
     ];
+    // Couleur : le panneau propose une palette pour les symboles proportionnels
+    // (et l'aperçu montre 3 cercles de teintes différentes) — on construit donc
+    // bien une expression couleur graduée sur le même attribut, sinon la palette
+    // choisie était ignorée et les cercles restaient de la couleur de la couche.
+    const colorCr = buildClassification(layer, { ...cfg, type: "graduated" });
     return {
       type: "proportional",
       attribute,
       minVal, maxVal, minSize, maxSize,
       radiusExpression: expr,
-      // Pas d'expression couleur — la couleur de base reste
-      expression: null,
+      expression: colorCr?.expression || null,
+      classes:    colorCr?.classes    || [],
+      breaks:     colorCr?.breaks     || [],
+      ramp, invertRamp: !!cfg.invertRamp,
     };
   }
 
@@ -160,12 +171,14 @@ export function buildClassification(layer, cfg) {
     let br;
     switch (method) {
       case "quantile": br = classifyQuantile(vals, nc); break;
-      case "jenks": br = classifyJenks(vals, nc); break;
-      case "equal": br = classifyEqual(vals, nc); break;
-      case "fixed": br = customBreaks || classifyEqual(vals, nc); break;
-      default: br = classifyQuantile(vals, nc);
+      case "jenks":    br = classifyJenks(vals, nc);    break;
+      case "equal":    br = classifyEqual(vals, nc);    break;
+      case "fixed":    br = customBreaks || classifyEqual(vals, nc); break;
+      default:         br = classifyQuantile(vals, nc);
     }
-    const cols = RAMPS[ramp] || RAMPS.viridis;
+    // Inverser la palette si demandé (cfg.invertRamp === true)
+    const baseCols = RAMPS[ramp] || RAMPS.viridis;
+    const cols = cfg.invertRamp ? [...baseCols].reverse() : baseCols;
     const classes = [];
     for (let i = 0; i < br.length - 1; i++) {
       const count = vals.filter(v => v >= br[i] && (i === br.length - 2 ? v <= br[i + 1] : v < br[i + 1])).length;
@@ -175,10 +188,17 @@ export function buildClassification(layer, cfg) {
         count,
       });
     }
+    // MapLibre exige des bornes STRICTEMENT croissantes dans un `step` : sur des
+    // données peu variées, deux ruptures peuvent être égales → on saute les
+    // doublons, sinon l'expression est rejetée et le style ne s'applique pas.
     const expr = ["step", ["to-number", ["get", attribute], 0]];
     expr.push(classes[0]?.color || "#888");
-    classes.forEach((c, i) => { if (i > 0) { expr.push(c.min); expr.push(c.color); } });
-    return { type: "graduated", attribute, method, classes, breaks: br, expression: expr };
+    let lastStop = -Infinity;
+    classes.forEach((c, i) => {
+      if (i > 0 && c.min > lastStop) { expr.push(c.min); expr.push(c.color); lastStop = c.min; }
+    });
+    return { type: "graduated", attribute, method, classes, breaks: br, expression: expr,
+             invertRamp: !!cfg.invertRamp };
   }
   return null;
 }

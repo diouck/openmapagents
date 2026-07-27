@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import Map, { Source, Layer, Popup, NavigationControl, ScaleControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import * as turf from "@turf/turf";
+import { Link } from "react-router-dom";
 
 import { useTheme, ThemeContext, useThemeContext } from "./theme";
 import { F, M, API, MAP_STYLES, LAYER_COLORS, EXPORT_FORMATS } from "./config";
@@ -21,9 +22,28 @@ import BottomPanel from "./components/BottomPanel";
 import MiniMap from "./components/MiniMap";
 import PrintPanel from "./components/PrintPanel";
 import SpatialPanel from "./components/SpatialPanel";
+import JoinPanel from "./components/JoinPanel";
+import BurnSeverityPanel from "./components/BurnSeverityPanel";
+import WatershedPanel from "./components/WatershedPanel";
+import VectorCatalogPanel from "./components/VectorCatalogPanel";
+import FloodPanel from "./components/FloodPanel";
+import WeatherPanel from "./components/WeatherPanel";
+import ChartLayer from "./components/ChartLayer";
 import DBPanel from "./components/DBPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
+import Scene3DPanel from "./components/Scene3DPanel";
+import LidarPanel from "./components/LidarPanel";
+import ThematicMenu from "./components/ThematicMenu";
+import IndicatorModal from "./components/IndicatorModal";
+import BivariateModal from "./components/BivariateModal";
+import SearchPalette from "./components/SearchPalette";
+import ProjectionExplorer from "./components/ProjectionExplorer";
+import StarField from "./components/StarField";
+import PrecipLayer from "./components/PrecipLayer";
+import { nextZ, bumpZ } from "./utils/zorder";
+import { set3DVisible, remove3DLayer, setGlobe } from "./utils/deck3d";
+import { setPCOpacity, removePC } from "./utils/lidarStyle";
 import ProfilPanel from "./components/ProfilPanel";
 import EditorPanel from "./components/EditorPanel";
 import TimelapsePanel from "./components/TimelapsePanel";
@@ -48,58 +68,14 @@ function useAnalytics() {
   }, [location]);
 }
 
-// ─── Icônes SVG — cohérentes et sémantiques ──────────────────
-// Règle : une icône = une signification unique dans toute l'appli
-const Ic = ({ d, d2, size = 15, sw = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
-    <path d={d} />
-    {d2 && <path d={d2} />}
-  </svg>
-);
-
-// Navigation
-const IcArrow     = () => <Ic d="M5 3l14 9-7 1-4 7z" />;               // pointer / sélection
-// Mesure & dessin
-const IcRulerTool = () => <Ic d="M22 11.08V12a10 10 0 11-5.93-9.14" d2="M22 4L12 14.01l-3-3" />; // distance (check = confirmer)
-const IcHexagon   = () => <Ic d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />; // surface
-const IcCircleDot = () => <Ic d="M12 2a10 10 0 100 20A10 10 0 0012 2zM12 8v4l3 3" />;             // buffer (cercle = zone)
-const IcPencil    = () => <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z" />; // dessin libre
-// Routing
-const IcNavigation= () => <Ic d="M3 11l19-9-9 19-2-8-8-2z" />;         // itinéraire (flèche de navigation)
-const IcRadar     = () => <Ic d="M22 12h-4M6 12H2M12 6V2M12 22v-4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M19.07 4.93l-2.83 2.83M7.76 16.24l-2.83 2.83" />; // isochrone (rayonnement)
-// Données & vues
-const IcStack     = () => <Ic d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />;   // couches (layers)
-const IcBarChart  = () => <Ic d="M18 20V10M12 20V4M6 20v-6" />;         // statistiques
-const IcArrowDown = () => <Ic d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />; // export/télécharger
-// Analyse
-const IcVenn      = () => <Ic d="M9 3a6 6 0 100 18A6 6 0 009 3zm6 0a6 6 0 100 18A6 6 0 0015 3z" />; // analyse spatiale (intersection)
-const IcDatabase  = () => <Ic d="M12 2C7 2 3 4 3 6v12c0 2 4 4 9 4s9-2 9-4V6c0-2-4-4-9-4z" d2="M3 6c0 2 4 4 9 4s9-2 9-4M3 12c0 2 4 4 9 4s9-2 9-4" />; // base de données
-const IcSatellite = () => <Ic d="M12 12m-1 0a1 1 0 102 0 1 1 0 10-2 0M4.5 4.5c4.5-4.5 11.5-4.5 16 0M7.5 7.5c3-3 7-3 9 0M15 12a3 3 0 11-6 0 3 3 0 016 0" />; // GEE / satellite
-const IcServer    = () => <Ic d="M2 6a2 2 0 012-2h16a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM2 14a2 2 0 012-2h16a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2z" />; // OGC / services web
-const IcMountain  = () => <Ic d="M8 3l4 8 5-5 5 15H2L8 3z" />; // Profil altimétrique
-const IcEdit      = () => <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z" />; // Éditeur vectoriel
-const IcFilm      = () => <Ic d="M15 10l-4 2.5L15 15V10zM2 8v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2H4a2 2 0 00-2 2z" />; // Timelapse
-const IcDiff      = () => <Ic d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10m0 0h10M9 13H5m0 0v6a2 2 0 002 2h10a2 2 0 002-2v-6M5 13H3" />; // Détection changement
-const IcCompare   = () => <Ic d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h4M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M12 3v18" />; // Comparateur A/B
-const IcOSM       = () => <Ic d="M12 2a10 10 0 100 20A10 10 0 0012 2zM2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />; // OpenStreetMap
-const IcLeaf = () => <Ic d="M6.5 20C4 20 2 18 2 15.5c0-3 2-5 5-7 1.5-1 3-2.5 4-4.5 1 2 2.5 3.5 4 4.5 3 2 5 4 5 7C20 18 18 20 15.5 20c-1.5 0-3-.7-3.5-2-.5 1.3-2 2-3.5 2z" />;//AgriPanel
-const IcClassif = () => (
-  <svg width={15} height={15} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="7"  cy="7"  r="2.5"/>
-    <circle cx="17" cy="17" r="2.5"/>
-    <path d="M14.5 5h4v4M5 19l14-14"/>
-  </svg>
-); // Classification supervisée
-// Actions
-const IcPrint     = () => <Ic d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z" />;
-const IcUpload    = () => <Ic d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />;
-const IcShare     = () => <Ic d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />;
-const IcSun       = () => <Ic d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 6a6 6 0 100 12A6 6 0 0012 6z" />;
-const IcMoon      = () => <Ic d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />;
-const IcChat      = () => <Ic d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />;
-const IcX         = () => <Ic d="M18 6L6 18M6 6l12 12" />;
+// ─── Icônes : Lucide React uniquement (voir src/icons.jsx) ───────────────────
+import {
+  IcArrow, IcRulerTool, IcHexagon, IcCircleDot, IcPencil, IcNavigation, IcRadar,
+  IcStack, IcBarChart, IcArrowDown, IcVenn, IcDatabase, IcSatellite, IcServer,
+  IcMountain, IcCube, IcEdit, IcFilm, IcDiff, IcCompare, IcOSM, IcLeaf, IcClassif,
+  IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap,
+  IcCloudRain, IcSnowflake, IcChevronDown, IcTable, IcFlame, IcDroplets, IcBoxes, IcInfo,
+} from "./icons";
 
 // ─── Configuration du rail — groupes logiques, icônes uniques ─
 const RAIL_GROUPS = [
@@ -142,6 +118,10 @@ const RAIL_GROUPS = [
     label: "Analyse",
     items: [
       { id: "spatial",  sub: "Spatial",  label: "Analyse spatiale",          Icon: IcVenn,     hasPanel: true },
+      { id: "join",     sub: "Jointure", label: "Jointure attributaire",     Icon: IcTable,    hasPanel: true },
+      { id: "burnsev",  sub: "Incendie", label: "Sévérité d'incendie (dNBR)", Icon: IcFlame,  hasPanel: true },
+      { id: "flood",    sub: "Inondation", label: "Cartographie des inondations", Icon: IcDroplets, hasPanel: true },
+      { id: "watershed", sub: "Bassin",  label: "Bassin versant",            Icon: IcDroplets, hasPanel: true },
       { id: "profil",   sub: "Profil",   label: "Profil altimétrique",       Icon: IcMountain, hasPanel: true },
       { id: "classif",  sub: "Classif.", label: "Classification supervisée", Icon: IcClassif,  hasPanel: true },
     ],
@@ -150,6 +130,7 @@ const RAIL_GROUPS = [
     id: "remote",
     label: "Données",
     items: [
+      { id: "vectorcat", sub: "Catalogue", label: "Catalogue vectoriel",  Icon: IcBoxes,     hasPanel: true },
       { id: "database",  sub: "BDD",       label: "Base de données",      Icon: IcDatabase,  hasPanel: true },
       { id: "ogc",       sub: "OGC",       label: "Services OGC/WMS",     Icon: IcServer,    hasPanel: true },
       { id: "osm",       sub: "OSM",       label: "Import OSM",           Icon: IcOSM,       hasPanel: true },
@@ -159,6 +140,20 @@ const RAIL_GROUPS = [
     ],
   },
 
+  {
+    id: "view3d",
+    label: "3D",
+    items: [
+      { id: "scene3d", sub: "3D", label: "Vue 3D / Globe (nuages, 3D Tiles, glTF, splats)", Icon: IcCube, hasPanel: true },
+    ],
+  },
+  {
+    id: "lidar",
+    label: "LiDAR",
+    items: [
+      { id: "lidar", sub: "Forêt", label: "LiDAR — MNT/MNS/MNH, arbres & houppiers", Icon: IcMountain, hasPanel: true },
+    ],
+  },
   {
     id: "agri",
     label: "Agri",
@@ -171,6 +166,13 @@ const RAIL_GROUPS = [
     label: "Édition",
     items: [
       { id: "editor", sub: "Éditeur", label: "Éditeur vectoriel", Icon: IcEdit, hasPanel: true },
+    ],
+  },
+  {
+    id: "meteo",
+    label: "Météo",
+    items: [
+      { id: "weather", sub: "Météo", label: "Météo temps réel", Icon: IcCloudRain, hasPanel: true },
     ],
   },
 
@@ -451,6 +453,7 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
 
   const [pos,  setPos]  = useState({ x: null, y: null });
   const [size, setSize] = useState({ w: initW, h: autoH ? 60 : preset.h });
+  const [z, setZ] = useState(() => nextZ());   // profondeur partagée : clic = au premier plan
   const stateRef  = useRef({ pos: { x: null, y: null }, size: { w: initW, h: autoH ? 60 : preset.h } });
   const panelRef  = useRef(null);
   const contentRef = useRef(null);
@@ -536,10 +539,10 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
   const edgeStyle = (cursor, extra) => ({ position: "absolute", zIndex: 10, cursor, ...extra });
 
   return (
-    <div ref={panelRef} style={{
+    <div ref={panelRef} onMouseDown={() => setZ(bumpZ)} style={{
       position: "fixed",
       ...(pos.x !== null ? { left: pos.x, top: pos.y } : { top: "50%", left: "50%", transform: "translate(-50%,-50%)" }),
-      width: size.w, height: size.h, zIndex: 300,
+      width: size.w, height: size.h, zIndex: z,
       background: C.card, border: `0.5px solid ${C.bdr}`,
       borderRadius: 10, boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
       display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none",
@@ -561,11 +564,11 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
         padding: "9px 12px 8px", borderBottom: `0.5px solid ${C.bdr}`,
         cursor: "grab", flexShrink: 0, background: C.card,
       }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: C.acc, display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-          <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2 }}>⠿</span>
-          {title}
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: C.txt, display: "flex", alignItems: "center", gap: 6, userSelect: "none", minWidth: 0 }}>
+          <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2, flexShrink: 0 }}>⠿</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 16 }}>✕</button>
+        <button onClick={onClose} title="Fermer" style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex", flexShrink: 0, padding: 2 }}><IcX size={16}/></button>
       </div>
 
       {/* ── Contenu ── */}
@@ -585,7 +588,7 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
 // ── Wrapper Stats — gère l'état activeTab localement ─────────
 function StatsPanelWrapper({ layers, onZoom, onAddLayer }) {
   const [activeTab, setActiveTab] = useState("stats");
-  const visLayers = layers.filter(l => l.visible && !l.isRaster);
+  const visLayers = layers.filter(l => l.visible && !l.isRaster && l.geojson);
   return (
     <BottomPanel
       layers={visLayers}
@@ -602,6 +605,42 @@ export default function App() {
 
   // ── Map ───────────────────────────────────────────────────
   const [layers, setLayers] = useState([]);
+  // Fenêtres flottantes empilables (indicateurs + bivariée) : plusieurs ouvertes
+  // en même temps, déplaçables, et click = passe au-dessus (z-index).
+  const [modals, setModals] = useState([]);   // [{ id, type:"indicator"|"bivariate", indKey?, z, pos }]
+  const modalSeq = useRef(0);
+  // (profondeur des fenêtres : compteur partagé nextZ() — voir utils/zorder.js)
+  const openModal = useCallback((m) => {
+    setModals(prev => {
+      const id = `mw_${++modalSeq.current}`;
+      const k = prev.length % 6;
+      // Ouvrir à DROITE du rail thématique (bande 52 + accordéon 258 ≈ 320) pour ne
+      // pas apparaître sous le panneau ; en cascade. Sur petit écran, on borne.
+      const baseX = Math.min(340 + k * 28, (typeof window !== "undefined" ? window.innerWidth - 400 : 340));
+      return [...prev, { id, z: nextZ(), pos: { x: Math.max(60, baseX), y: 88 + k * 28 }, ...m }];
+    });
+  }, []);
+  const closeModal = useCallback((id) => setModals(prev => prev.filter(m => m.id !== id)), []);
+  // Palette de recherche globale (Ctrl/⌘+K)
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setSearchOpen(v => !v); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // Passe la fenêtre au premier plan via le compteur PARTAGÉ (panneaux inclus).
+  // bumpZ compare au compteur GLOBAL : comparer au max des seules `modals` faisait
+  // croire à une fenêtre déjà en tête de SA famille qu'elle était au premier plan,
+  // alors qu'un FloatingPanel (ex. Gestionnaire de couches) était passé devant.
+  const focusModal = useCallback((id) => setModals(prev => {
+    const cur = prev.find(m => m.id === id);
+    if (!cur) return prev;
+    const nz = bumpZ(cur.z);
+    if (nz === cur.z) return prev;                // déjà au sommet, tous types confondus
+    return prev.map(m => m.id === id ? { ...m, z: nz } : m);
+  }), []);
   const [notification, setNotification] = useState(null); // {message, type}
   const [showAuth,   setShowAuth]   = useState(false);
   const [showSave,   setShowSave]   = useState(false);
@@ -664,13 +703,168 @@ export default function App() {
   const lctr             = useRef(0);
   const classifClickRef  = useRef(null);  // handler de clic pour ClassifSupPanel
 
+  // ── Mode globe (projection MapLibre) ──────────────────────
+  const [globeOn, setGlobeOn] = useState(false);
+  const globeRef = useRef(false);   // miroir de globeOn lisible dans les callbacks MapLibre
+  // Couche actuellement animée (timelapse) : sa tuile fixe est masquée, l'animation
+  // pilote deux couches raster en ping-pong à la place.
+  const [tlLayerId, setTlLayerId] = useState(null);
+  const [projOpen, setProjOpen] = useState(false);  // explorateur de projections (d3)
+  // ── Ciel ────────────────────────────────────────────────────
+  // Un seul point de décision : le ciel dépend du MODE, et les réglages des
+  // différents modes se contredisent (l'espace du globe doit être transparent
+  // pour laisser voir les étoiles, le ciel du relief doit être opaque et coloré).
+  //
+  // Moments de la journée : MapLibre ne dessine pas de disque solaire — son ciel
+  // est un dégradé VERTICAL, sans direction. On restitue donc l'heure par la
+  // couleur du ciel, de l'horizon et de la brume, pas par une source ponctuelle.
+  //
+  // Déclaré AVANT applyTerrain, qui en dépend : l'ordre compte, une const lue
+  // avant son initialisation lève une ReferenceError au montage.
+  const SKY_MOMENTS = {
+    day:   { label: "Jour",       sky: "#7fb2e5", horizon: "#dbe8f2", fog: "#e6eef4", ground: 0.10 },
+    dawn:  { label: "Aube",       sky: "#5d84cc", horizon: "#f7c89a", fog: "#efd6bd", ground: 0.18 },
+    dusk:  { label: "Crépuscule", sky: "#3a4a80", horizon: "#ef9a5e", fog: "#d5a189", ground: 0.20 },
+    night: { label: "Nuit",       sky: "#080d1e", horizon: "#1a2445", fog: "#141c34", ground: 0.25 },
+  };
+  const [skyMoment, setSkyMoment] = useState("day");
+  // "none" | "rain" | "snow" — la neige couvre moins fort que l'averse
+  const WEATHER = { none: { label: "Dégagé", k: 0, fog: 0 },
+                    rain: { label: "Pluie",  k: 0.62, fog: 0.22 },
+                    snow: { label: "Neige",  k: 0.45, fog: 0.16 } };
+  const [weather, setWeather] = useState("none");
+  const [amb3DOpen, setAmb3DOpen] = useState(false);   // panneau d'ambiance (liste)
+  const skyRef = useRef({ globe: false, terrain: false, moment: "day", weather: "none" });
+
+  // Couverture nuageuse : désature ET assombrit. La cible est un gris tiré de la
+  // CLARTÉ de la couleur d'origine, plafonné puis atténué — viser un gris moyen
+  // fixe éclaircirait les teintes sombres, et une nuit pluvieuse se retrouverait
+  // plus claire qu'une nuit dégagée.
+  const overcast = (hex, k) => {
+    if (!k) return hex;
+    const n = parseInt(hex.slice(1), 16);
+    const r0 = (n >> 16) & 255, g0 = (n >> 8) & 255, b0 = n & 255;
+    const target = Math.min(0.299 * r0 + 0.587 * g0 + 0.114 * b0, 150) * 0.82;
+    const mix = (c) => Math.max(0, Math.min(255, Math.round(c + (target - c) * k)));
+    return `#${((mix(r0) << 16) | (mix(g0) << 8) | mix(b0)).toString(16).padStart(6, "0")}`;
+  };
+
+  const refreshSky = useCallback((map) => {
+    const m = map || mapRef.current?.getMap?.(); if (!m?.setSky) return;
+    const { globe, terrain, moment, weather: w } = skyRef.current;
+    try {
+      if (globe) {
+        // Espace transparent : sans ça le ciel par défaut (bleu, atmosphere-blend
+        // 0.8) recouvre tout le canvas et masque complètement le StarField.
+        m.setSky({
+          "sky-color": "rgba(0,0,0,0)", "horizon-color": "rgba(0,0,0,0)",
+          "fog-color": "rgba(0,0,0,0)", "sky-horizon-blend": 0,
+          "fog-ground-blend": 0, "atmosphere-blend": 0,
+        });
+      } else if (terrain) {
+        const p = SKY_MOMENTS[moment] || SKY_MOMENTS.day;
+        const wx = WEATHER[w] || WEATHER.none;
+        m.setSky({
+          "sky-color": overcast(p.sky, wx.k),
+          "horizon-color": overcast(p.horizon, wx.k),
+          "fog-color": overcast(p.fog, wx.k),
+          "sky-horizon-blend": 0.55,    // dégradé zénith → horizon
+          "horizon-fog-blend": 0.55,    // fondu horizon → brume
+          // Intempérie : la brume monte, les lointains se noient — c'est ce qui
+          // distingue visuellement une averse d'un simple filtre gris.
+          "fog-ground-blend": Math.min(0.45, p.ground + wx.fog),
+          "atmosphere-blend": 0.85,
+        });
+      } else {
+        m.setSky({});   // vue à plat : ciel par défaut, invisible à pitch 0
+      }
+    } catch (_) { /* setSky non critique */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const changeMoment = useCallback((k) => {
+    setSkyMoment(k); skyRef.current.moment = k; refreshSky();
+  }, [refreshSky]);
+
+  const changeWeather = useCallback((w) => {
+    setWeather(w); skyRef.current.weather = w; refreshSky();
+  }, [refreshSky]);
+
+  // ── Relief 3D (terrain MapLibre + DEM Terrarium public) ──
+  const [terrain3D, setTerrain3D] = useState(false);
+  const [terrainExag, setTerrainExag] = useState(1.5);
+  const exagRef = useRef(1.5);   // relu après un changement de fond de plan
+  const applyTerrain = useCallback((on, exag) => {
+    const map = mapRef.current?.getMap?.(); if (!map) return;
+    try {
+      if (on) {
+        if (!map.getSource("terrain-dem")) {
+          map.addSource("terrain-dem", {
+            type: "raster-dem", encoding: "terrarium", tileSize: 256, maxzoom: 14,
+            tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          });
+        }
+        map.setTerrain({ source: "terrain-dem", exaggeration: exag });
+        // 72° : au-delà de ~60 le regard porte vers la ligne d'horizon et le ciel
+        // occupe le haut de l'écran. C'est ce basculement qui donne la lecture
+        // « depuis le sol » d'un relief montagneux.
+        if (map.getPitch() < 20) map.easeTo({ pitch: 72, duration: 900, essential: true });
+      } else {
+        map.setTerrain(null);
+        map.easeTo({ pitch: 0, duration: 600, essential: true });
+      }
+      skyRef.current.terrain = !!on;
+      refreshSky(map);
+    } catch (_) { /* setTerrain non critique */ }
+  }, [refreshSky]);
+  const toggleTerrain = useCallback(() => {
+    setTerrain3D(v => { const nv = !v; applyTerrain(nv, terrainExag); return nv; });
+  }, [applyTerrain, terrainExag]);
+  const changeExag = useCallback((v) => {
+    setTerrainExag(v); exagRef.current = v;
+    if (terrain3D) applyTerrain(true, v);
+  }, [applyTerrain, terrain3D]);
+
+  // Sélecteur explicite Plan (Mercator) / Globe de la carte live (MapLibre v5).
+  const setProjectionMode = useCallback((globe) => {
+    const map = mapRef.current?.getMap?.(); if (!map) return;
+    if (!setGlobe(map, globe)) return;
+    setGlobeOn(globe); globeRef.current = globe;
+    skyRef.current.globe = globe;
+    try {
+      // Zoom automatique au niveau mondial pour cadrer le globe entier.
+      if (globe) map.easeTo({ zoom: 1.4, duration: 900, essential: true });
+      refreshSky(map);
+    } catch (_) { /* setSky/easeTo non critiques */ }
+  }, [refreshSky]);
+
   // ── Changement de style carte via API MapLibre ────────────
   useEffect(() => {
     const map = mapRef.current?.getMap?.();
     if (!map) return;
     const style = MAP_STYLES[mapSt];
-    try { map.setStyle(style); } catch (_) {}
-  }, [mapSt]);
+    try {
+      map.setStyle(style);
+      // setStyle réinitialise projection, terrain ET ciel → on les réapplique une
+      // fois le nouveau style chargé, sinon changer de fond de plan fait perdre le
+      // relief et rallume le ciel par défaut.
+      map.once?.("style.load", () => {
+        if (globeRef.current) setGlobe(map, true);
+        if (skyRef.current.terrain) {
+          try {
+            if (!map.getSource("terrain-dem")) {
+              map.addSource("terrain-dem", {
+                type: "raster-dem", encoding: "terrarium", tileSize: 256, maxzoom: 14,
+                tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+              });
+            }
+            map.setTerrain({ source: "terrain-dem", exaggeration: exagRef.current });
+          } catch (_) {}
+        }
+        refreshSky(map);
+      });
+    } catch (_) {}
+  }, [mapSt, refreshSky]);
 
   // ── Restauration viewport différée (après fermeture Dashboard) ────
   useEffect(() => {
@@ -761,6 +955,8 @@ export default function App() {
   //  ACTIVATION D'UN OUTIL
   // ══════════════════════════════════════════════════════════
   const activateItem = useCallback((id) => {
+    if (id === "bivariate") { openModal({ type: "bivariate" }); return; }  // fenêtre bivariée (pas un panneau du rail)
+    if (id === "projections") { setProjOpen(true); return; }               // explorateur de projections (modal d3)
     if (PANEL_IDS.has(id)) {
       setOpenPanels(prev => {
         const next = new Set(prev);
@@ -771,7 +967,22 @@ export default function App() {
     } else {
       setActiveTool(id);
     }
-  }, []);
+  }, [openModal]);
+
+  // Deep-link depuis la documentation : /app.html?open=CLE&kind=indicator|tool
+  // → ouvre directement l'indicateur (IndicatorModal) ou l'outil, puis nettoie l'URL.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const open = q.get("open");
+    if (!open) return;
+    const kind = q.get("kind");
+    try { window.history.replaceState({}, "", window.location.pathname); } catch (_) {}
+    const t = setTimeout(() => {
+      if (kind === "tool") activateItem(open);
+      else openModal({ type: "indicator", indKey: open });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [activateItem, openModal]);
 
   const closePanel = useCallback((id) => {
     setOpenPanels(prev => { const next = new Set(prev); next.delete(id); return next; });
@@ -810,8 +1021,54 @@ export default function App() {
       featureCount:"raster", classCfg:null, classResult:null,
       bbox:     info.bbox      || null,
       visParams:  info.visParams  || null,  // palette/min/max GEE → RasterStylePanel
-      _geeParams: info.geeParams  || null,  // params pour restyle sans rechargement
+      _geeParams: info.geeParams || info._geeParams || null, // params pour restyle sans rechargement
+      legend:     info.legend    || null,   // [{class_id, label, color}] pour couches classif
+      bivariate:  info.bivariate || null,   // matrice 3×3 sémiologie bivariée → Legend
+      job_id:     info.job_id    || null,   // pour restyle depuis LayerPanel
     }]);
+  }, []);
+
+  // ── Ajoute une couche raster IMAGE (overlay PNG géoréférencé, 4 coins lon/lat) ──
+  // Rendue en <Source type="image"> déclaratif → survit au changement de fond,
+  // apparaît dans le menu Couches (toggle/opacité/suppression standard).
+  const addImageLayer = useCallback((info) => {
+    const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
+    const id = info.id || `img_${Date.now()}_${lctr.current}`;
+    setLayers(p => [...p, {
+      id, name: info.name, theme: "image", isRaster: true, kind: "image",
+      imageUrl: info.imageUrl,            // data URL PNG
+      coordinates: info.coordinates,      // [[lng,lat] × 4] : TL,TR,BR,BL
+      geojson: null, visible: true,
+      color: LAYER_COLORS[ci], opacity: info.opacity ?? 0.85,
+      featureCount: "raster", classCfg: null, classResult: null,
+      bbox: info.bbox || null,
+      // restyle (rasters mono-bande importés) — comme les rasters GEE
+      rasterToken: info.rasterToken || null,
+      bands: info.bands || null,
+      vmin: info.vmin, vmax: info.vmax, dataMin: info.dataMin, dataMax: info.dataMax,
+      legend: info.legend || null,
+    }]);
+    if (info.bbox && info.fit !== false) {
+      const [w, s, e, n] = info.bbox;
+      setTimeout(() => { try { mapRef.current?.getMap?.()?.fitBounds([[w, s], [e, n]], { padding: 60, duration: 1000 }); } catch (_) {} }, 150);
+    }
+    return id;
+  }, []);
+
+  // ── Enregistre un nuage de points (deck.gl) comme couche du menu Couches ──
+  // Rendu par deck.gl (overlay, survit au fond) ; ici on l'expose juste pour le
+  // toggle/suppression via le gestionnaire de couches (pas de <Source> natif).
+  const addPointcloudLayer = useCallback((info) => {
+    const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
+    setLayers(p => [
+      ...p.filter(l => l.id !== info.id),   // remplace si même id (re-import)
+      {
+        id: info.id, name: info.name, kind: "pointcloud", theme: "pointcloud",
+        isRaster: false, geojson: null, visible: true,
+        color: LAYER_COLORS[ci], opacity: 1, featureCount: info.count || "nuage 3D",
+        bbox: info.bbox || null, classCfg: null, classResult: null,
+      },
+    ]);
   }, []);
 
   // ── Met à jour une couche raster après restyle GEE (swap source MapLibre) ──
@@ -927,6 +1184,17 @@ export default function App() {
       return { type: "graduated",   attribute: preferred, method: "quantile", nClasses: 5, ramp: "viridis" };
     }
     return null;
+  }, []);
+
+  // Remplace le GeoJSON d'une couche après ajout d'un champ calculé. La
+  // classification en place reste valide : elle porte sur d'autres attributs,
+  // et la nouvelle colonne devient aussitôt disponible pour en créer une.
+  const updateGeojson = useCallback((id, geojson, col) => {
+    setLayers(p => p.map(l => l.id === id
+      ? { ...l, geojson, featureCount: geojson.features?.length ?? l.featureCount }
+      : l));
+    setNotification({ message: `Colonne « ${col} » ajoutée.`, msgType: "success" });
+    setTimeout(() => setNotification(null), 4000);
   }, []);
 
   const addLayer = useCallback((geojson, name, theme = "data") => {
@@ -1461,6 +1729,7 @@ export default function App() {
   // Layer ops
   const toggleL = id => setLayers(p => p.map(l => {
     if (l.id !== id) return l; const nv = !l.visible;
+    if (l.kind === "pointcloud") { try { set3DVisible(mapRef.current?.getMap?.(), id, nv); } catch(_){} return { ...l, visible: nv }; }
     try {
       const map = mapRef.current?.getMap?.();
       if (map) {
@@ -1479,11 +1748,28 @@ export default function App() {
   }));
   const removeL = id => {
     const l = layers.find(x => x.id === id);
-    if (l?.isRaster) { try { const map = mapRef.current?.getMap?.(); if (map) { [`${id}-layer`,`${id}-fill`,`${id}-line`,`${id}-circle`].forEach(lid => { if (map.getLayer(lid)) map.removeLayer(lid); }); if (map.getSource(id)) map.removeSource(id); } } catch(_){} }
+    if (l?.kind === "pointcloud") { try { remove3DLayer(mapRef.current?.getMap?.(), id); removePC(id); } catch(_){} }
+    else if (l?.isRaster) { try { const map = mapRef.current?.getMap?.(); if (map) { [`${id}-layer`,`${id}-fill`,`${id}-line`,`${id}-circle`].forEach(lid => { if (map.getLayer(lid)) map.removeLayer(lid); }); if (map.getSource(id)) map.removeSource(id); } } catch(_){} }
     setLayers(p => p.filter(x => x.id !== id));
   };
+  // Suppression par NOM — pour qu'un outil (bassin versant, inondation…) remplace
+  // ses propres couches à la relance au lieu de les empiler. Les couches RASTER
+  // sont ajoutées impérativement à la carte → on nettoie source/layer ; les
+  // vecteurs sont rendus par React (le filtrage de setLayers suffit).
+  const removeLayersByName = (names) => setLayers(prev => {
+    const map = mapRef.current?.getMap?.();
+    prev.filter(l => names.includes(l.name) && l.isRaster && map).forEach(l => {
+      try {
+        [`${l.id}-layer`, `${l.id}-fill`, `${l.id}-line`, `${l.id}-circle`]
+          .forEach(lid => { if (map.getLayer(lid)) map.removeLayer(lid); });
+        if (map.getSource(l.id)) map.removeSource(l.id);
+      } catch (_) {}
+    });
+    return prev.filter(l => !names.includes(l.name));
+  });
   const styleL = (id, s) => setLayers(p => p.map(l => {
     if (l.id !== id) return l;
+    if (l.kind === "pointcloud") { if (s.opacity !== undefined) { try { setPCOpacity(mapRef.current?.getMap?.(), id, s.opacity); } catch(_){} } return { ...l, ...s }; }
     if (l.isRaster && s.opacity !== undefined) { try { const map = mapRef.current?.getMap?.(); if (map) { if (map.getLayer(`${id}-layer`)) map.setPaintProperty(`${id}-layer`,"raster-opacity",s.opacity); if (map.getLayer(`${id}-fill`)) map.setPaintProperty(`${id}-fill`,"fill-opacity",s.opacity); if (map.getLayer(`${id}-line`)) map.setPaintProperty(`${id}-line`,"line-opacity",s.opacity); if (map.getLayer(`${id}-circle`)) map.setPaintProperty(`${id}-circle`,"circle-opacity",s.opacity); } } catch(_){} }
     return { ...l, ...s };
   }));
@@ -1524,9 +1810,28 @@ export default function App() {
   const zoomFeat = useCallback((ln, lt) => { mapRef.current?.getMap?.()?.flyTo({center:[ln,lt],zoom:17,duration:800}); }, []);
 
   const doImport = useCallback(async (file) => {
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    // ── GeoTIFF → reprojection serveur en 4326 + overlay image ──
+    if (ext === "tif" || ext === "tiff") {
+      try {
+        const fd = new FormData(); fd.append("file", file);
+        const r = await fetch(`${API}/api/raster/import`, { method: "POST", body: fd });
+        if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
+        const d = await r.json();
+        addImageLayer({
+          name: file.name.replace(/\.[^.]+$/, ""),
+          imageUrl: `data:image/png;base64,${d.png_b64}`,
+          coordinates: d.image_coordinates, bbox: d.bbox, opacity: 0.9,
+          rasterToken: d.raster_token, bands: d.bands,
+          vmin: d.vmin, vmax: d.vmax, dataMin: d.data_min, dataMax: d.data_max,
+        });
+      } catch (e) { alert("Import GeoTIFF : " + (e.message || e)); }
+      return;
+    }
+    // ── Vecteurs (GeoJSON, Shapefile, CSV…) ──
     try { const gj = await importFile(file); if (gj?.features?.length) addLayer(gj, file.name.replace(/\.[^.]+$/,""), "import"); else alert("Fichier vide ou format non reconnu."); }
     catch (e) { alert("Erreur import: " + e.message); }
-  }, [addLayer]);
+  }, [addLayer, addImageLayer]);
 
   const shareLink = useCallback(() => {
     const hash = encodePermalink(vs, mapSt, layers);
@@ -1675,6 +1980,7 @@ export default function App() {
         mapRef={mapRef}
         layers={layers}
         addRasterLayer={addRasterLayer}
+        updateRasterLayer={updateRasterLayer}
         classifClickRef={classifClickRef}
       />
     );
@@ -1811,7 +2117,7 @@ export default function App() {
           onExport={exportL} onClassify={classifyL} onExportFmt={exportFmt}
           onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown}
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
-          onFilter={filterL}
+          onFilter={filterL} onUpdateGeojson={updateGeojson}
         />
       </Embed>
     );
@@ -1848,6 +2154,48 @@ export default function App() {
     );
 
     // ── Analyse spatiale ────────────────────────────────────
+    if (activeTool === "burnsev") return (
+      <Embed>
+        <BurnSeverityPanel layers={layers} mapRef={mapRef}
+          onAddRasterLayer={addRasterLayer} onAddLayer={addLayer} />
+      </Embed>
+    );
+
+    if (activeTool === "watershed") return (
+      <Embed>
+        <WatershedPanel layers={layers} mapRef={mapRef}
+          onAddLayer={addLayer} onAddLayerSilent={addLayerSilent}
+          onRemoveLayers={removeLayersByName} />
+      </Embed>
+    );
+
+    if (activeTool === "vectorcat") return (
+      <Embed>
+        <VectorCatalogPanel layers={layers} mapRef={mapRef}
+          onAddLayer={addLayer} onAddLayerSilent={addLayerSilent} />
+      </Embed>
+    );
+
+    if (activeTool === "flood") return (
+      <Embed>
+        <FloodPanel layers={layers} mapRef={mapRef}
+          onAddRasterLayer={addRasterLayer} onAddLayer={addLayer}
+          onRemoveLayers={removeLayersByName} />
+      </Embed>
+    );
+
+    if (activeTool === "weather") return (
+      <Embed>
+        <WeatherPanel mapRef={mapRef} />
+      </Embed>
+    );
+
+    if (activeTool === "join") return (
+      <Embed>
+        <JoinPanel layers={layers.filter(l=>!l.isRaster&&l.geojson)} onAddLayer={addLayer} />
+      </Embed>
+    );
+
     if (activeTool === "spatial") return (
       <Embed>
         <SpatialPanel layers={layers.filter(l=>l.visible&&!l.isRaster)} onAddLayer={addLayer} />
@@ -1865,6 +2213,18 @@ export default function App() {
     if (activeTool === "gee") return (
       <Embed>
         <GEEPanel mapRef={mapRef} onAddRasterLayer={addRasterLayer} layers={layers} />
+      </Embed>
+    );
+
+    // ── Vue 3D / Globe (deck.gl : LiDAR, 3D Tiles, glTF, splats) ──
+    if (activeTool === "lidar") return (
+      <Embed>
+        <LidarPanel mapRef={mapRef} onAddLayer={addLayer} onAddImageLayer={addImageLayer} onAddPointcloudLayer={addPointcloudLayer} />
+      </Embed>
+    );
+    if (activeTool === "scene3d") return (
+      <Embed>
+        <Scene3DPanel mapRef={mapRef} onAddLayer={addLayer} />
       </Embed>
     );
 
@@ -1982,7 +2342,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb:hover{background:${C.mut}}
       `}</style>
 
-      <input ref={fileRef} type="file" accept=".geojson,.json,.csv,.tsv,.zip,.shp" style={{display:"none"}}
+      <input ref={fileRef} type="file" accept=".geojson,.json,.csv,.tsv,.zip,.shp,.tif,.tiff" style={{display:"none"}}
         onChange={e=>{if(e.target.files?.[0])doImport(e.target.files[0]);e.target.value="";}} />
 
       {dragOver && (
@@ -1996,33 +2356,121 @@ export default function App() {
 
         {/* ── Gauche : logo + nom + sur mobile thème & chat ── */}
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-          <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:6}}>
-              <rect width="26" height="26" rx="6" fill={C.acc}/>
-              {/* Globe */}
-              <circle cx="13" cy="13" r="8" stroke="#fff" strokeWidth="1.2" fill="none" opacity="0.95"/>
-              {/* Meridians */}
-              <ellipse cx="13" cy="13" rx="3.5" ry="8" stroke="#fff" strokeWidth="1" fill="none" opacity="0.7"/>
-              <line x1="5" y1="13" x2="21" y2="13" stroke="#fff" strokeWidth="1" opacity="0.7"/>
-              {/* Parallels */}
-              <ellipse cx="13" cy="10" rx="6.5" ry="2" stroke="#fff" strokeWidth="0.9" fill="none" opacity="0.55"/>
-              <ellipse cx="13" cy="16" rx="6.5" ry="2" stroke="#fff" strokeWidth="0.9" fill="none" opacity="0.55"/>
-            </svg>
-          <div>
-            <div style={{fontSize:13,fontWeight:600,color:C.txt,lineHeight:1}}>OpenMapAgents</div>
-            <div style={{fontSize:9,color:C.dim,marginTop:1}}>Overture Maps · DuckDB · LiteLLM</div>
-          </div>
-
+          <a href="/" title="Accueil OpenMapAgents" style={{display:"flex",alignItems:"center",gap:6,textDecoration:"none"}}>
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:6}}>
+                <rect width="26" height="26" rx="6" fill={C.acc}/>
+                {/* Globe */}
+                <circle cx="13" cy="13" r="8" stroke="#fff" strokeWidth="1.2" fill="none" opacity="0.95"/>
+                {/* Meridians */}
+                <ellipse cx="13" cy="13" rx="3.5" ry="8" stroke="#fff" strokeWidth="1" fill="none" opacity="0.7"/>
+                <line x1="5" y1="13" x2="21" y2="13" stroke="#fff" strokeWidth="1" opacity="0.7"/>
+                {/* Parallels */}
+                <ellipse cx="13" cy="10" rx="6.5" ry="2" stroke="#fff" strokeWidth="0.9" fill="none" opacity="0.55"/>
+                <ellipse cx="13" cy="16" rx="6.5" ry="2" stroke="#fff" strokeWidth="0.9" fill="none" opacity="0.55"/>
+              </svg>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:C.txt,lineHeight:1}}>OpenMapAgents</div>
+              <div style={{fontSize:9,color:C.dim,marginTop:1}}>Overture Maps · DuckDB · LiteLLM</div>
+            </div>
+          </a>
+          <Link to="/doc" title="Documentation — indicateurs et outils" className="rib"
+            style={{display:"flex",alignItems:"center",gap:5,textDecoration:"none",fontFamily:F,fontSize:11,
+              padding:isMobile?"5px 7px":"4px 10px",borderRadius:6,border:`0.5px solid ${C.bdr}`,
+              color:C.dim,background:"transparent",marginLeft:2}}>
+            <IcInfo size={13}/>{!isMobile&&"Documentation"}
+          </Link>
         </div>
 
-        {/* ── Centre : styles carte — desktop uniquement ── */}
-        {!isMobile&&<div style={{display:"flex",gap:3}}>
+        {/* ── Centre : styles carte + globe — desktop uniquement ── */}
+        {/* Un SEUL enfant d'en-tête pour tout ce groupe : le <header> est en
+            justify-content:space-between, une section supplémentaire serait
+            écartée des autres au lieu de rester collée à « Projections ». */}
+        <div style={{display:"flex",gap:3,alignItems:"center"}}>
+          {!isMobile&&<>
           {Object.keys(MAP_STYLES).map(k=>(
             <button key={k} onClick={()=>setMapSt(k)} className="rib"
               style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${mapSt===k?C.acc+"55":C.bdr}`,background:mapSt===k?C.acc+"15":"transparent",color:mapSt===k?C.acc:C.dim,cursor:"pointer"}}>
               {k.charAt(0).toUpperCase() + k.slice(1)}
             </button>
           ))}
-        </div>}
+          <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
+          {/* Sélecteur de projection de la carte live : seuls Plan (Mercator) et Globe sont possibles sous MapLibre */}
+          <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
+            {[["Plan",false],["Globe",true]].map(([l,g])=>(
+              <button key={l} onClick={()=>setProjectionMode(g)} className="rib" title={g?"Globe 3D (MapLibre)":"Carte plate — projection Mercator"}
+                style={{fontFamily:F,fontSize:10,padding:"3px 9px",border:"none",borderLeft:g?`0.5px solid ${C.bdr}`:"none",background:globeOn===g?C.acc+"18":"transparent",color:globeOn===g?C.acc:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                {g&&<IcGlobe size={12}/>}{l}
+              </button>
+            ))}
+          </div>
+          {/* Explorateur pédagogique : Robinson, Peters, Mollweide… (hors carte live) */}
+          <button onClick={()=>setProjOpen(true)} className="rib" title="Explorateur de projections — Le pouvoir des cartes (Robinson, Peters, Mollweide…)"
+            style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${C.bdr}`,background:"transparent",color:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+            <IcMap size={12}/> Projections
+          </button>
+          </>}
+
+          {/* Relief 3D + Ambiance : hors du `!isMobile` mais DANS le même groupe,
+              donc toujours collés a « Projections ». Sur telephone, seuls ces
+              deux boutons restent, en icones. */}
+          <button onClick={toggleTerrain} className="rib" title={terrain3D?"Désactiver le relief 3D":"Relief 3D (terrain) — monter/baisser la hauteur"}
+            style={{fontFamily:F,fontSize:10,padding:isMobile?"5px 7px":"3px 9px",borderRadius:5,border:`0.5px solid ${terrain3D?C.acc+"55":C.bdr}`,background:terrain3D?C.acc+"15":"transparent",color:terrain3D?C.acc:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+            <IcMountain size={12}/>{!isMobile&&" Relief 3D"}
+          </button>
+          {/* Ambiance 3D — un seul bouton, réglages en LISTE dépliante. Six
+              contrôles alignés débordaient de l'en-tête sur mobile. */}
+          {terrain3D&&<div style={{position:"relative"}}>
+            <button onClick={()=>setAmb3DOpen(v=>!v)} className="rib" title="Ambiance : exagération, moment de la journée, météo"
+              style={{fontFamily:F,fontSize:10,padding:isMobile?"5px 7px":"3px 9px",borderRadius:5,border:`0.5px solid ${amb3DOpen?C.acc+"55":C.bdr}`,background:amb3DOpen?C.acc+"15":"transparent",color:amb3DOpen?C.acc:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+              {weather==="rain"?<IcCloudRain size={12}/>:weather==="snow"?<IcSnowflake size={12}/>:<IcSun size={12}/>}
+              {!isMobile&&"Ambiance"}
+              <IcChevronDown size={11}/>
+            </button>
+            {amb3DOpen&&(<>
+              {/* Voile de fermeture : un clic hors du panneau le referme */}
+              <div onClick={()=>setAmb3DOpen(false)} style={{position:"fixed",inset:0,zIndex:2800}}/>
+              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:2801,width:210,maxWidth:"calc(100vw - 24px)",
+                           background:C.card,border:`0.5px solid ${C.bdr}`,borderRadius:9,boxShadow:"0 10px 30px rgba(0,0,0,.35)",
+                           padding:10,display:"flex",flexDirection:"column",gap:11}}>
+                <div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:5}}>
+                    <span>Exagération</span><span style={{fontFamily:M,color:C.mut}}>×{terrainExag}</span>
+                  </div>
+                  <input type="range" min="0.5" max="6" step="0.5" value={terrainExag}
+                    onChange={e=>changeExag(parseFloat(e.target.value))} style={{width:"100%",height:3}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:5}}>Moment</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                    {Object.entries(SKY_MOMENTS).map(([k,p])=>(
+                      <button key={k} onClick={()=>changeMoment(k)}
+                        style={{fontFamily:F,fontSize:11,padding:"6px 9px",borderRadius:6,border:"none",textAlign:"left",
+                                background:skyMoment===k?C.acc+"18":"transparent",color:skyMoment===k?C.acc:C.mut,cursor:"pointer"}}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:5}}>Météo</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                    {Object.entries(WEATHER).map(([k,p])=>{
+                      const Ico = k==="rain"?IcCloudRain:k==="snow"?IcSnowflake:IcSun;
+                      return (
+                        <button key={k} onClick={()=>changeWeather(k)}
+                          style={{fontFamily:F,fontSize:11,padding:"6px 9px",borderRadius:6,border:"none",textAlign:"left",
+                                  background:weather===k?C.acc+"18":"transparent",color:weather===k?C.acc:C.mut,cursor:"pointer",
+                                  display:"flex",alignItems:"center",gap:7}}>
+                          <Ico size={13}/> {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>)}
+          </div>}
+        </div>
 
         {/* ── Droite : actions ── */}
         <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -2107,7 +2555,25 @@ export default function App() {
       {/* ══════ BODY ══════ */}
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
 
-        {/* ── RAIL GAUCHE 56px — accordéon par groupe ── */}
+        {/* ── RAIL THÉMATIQUE UNIFIÉ (piloté par menuTree.js) ── */}
+        <ThematicMenu
+          C={C} activeTool={activeTool} onActivate={activateItem} onIndicator={(id) => openModal({ type: "indicator", indKey: id })}
+          layersCount={layers.length} openPanels={openPanels} panelIds={PANEL_IDS}
+          onImport={() => fileRef.current?.click()} onPrint={() => activateItem("print")}
+          onOpenSearch={() => setSearchOpen(true)} isMobile={isMobile}
+        />
+
+        {/* ── Palette de recherche globale (Ctrl+K) ── */}
+        {searchOpen && (
+          <SearchPalette
+            onClose={() => setSearchOpen(false)}
+            onSelect={(r) => { if (r.kind === "indicator") openModal({ type: "indicator", indKey: r.id }); else activateItem(r.id); }}
+          />
+        )}
+
+        {/* ── Explorateur de projections (Le pouvoir des cartes) ── */}
+        {projOpen && <ProjectionExplorer layers={layers} mapStyle={mapSt} onClose={() => setProjOpen(false)} />}
+        {false && (
         <div style={{width:56,background:C.card,borderRight:`0.5px solid ${C.bdr}`,display:"flex",flexDirection:"column",alignItems:"center",padding:"4px 0",flexShrink:0,overflowY:"auto",overflowX:"hidden"}}>
           {RAIL_GROUPS.map((group, gi) => {
             // groupe "nav" toujours visible, pas de header cliquable
@@ -2186,14 +2652,21 @@ export default function App() {
             </button>
           </div>
         </div>
+        )}
 
         {/* Sidebar étendue retirée — modules dans FloatingPanels sur la carte */}
 
         {/* ── CARTE ── */}
-        <div style={{flex:1,position:"relative",minWidth:0}}>
+        <div style={{flex:1,position:"relative",minWidth:0,background:globeOn?"#010206":undefined}}>
+          {/* Fond spatial (étoiles + filantes) visible dans l'espace autour du globe */}
+          {globeOn && <StarField />}
           <Map ref={mapRef} {...vs} onMove={e=>setVs(e.viewState)}
-            style={{width:"100%",height:"100%"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES["positron"]}
+            style={{width:"100%",height:"100%",background:"transparent"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES["positron"]}
             maplibreLogo={false} attributionControl={false} preserveDrawingBuffer={true}
+            /* MapLibre plafonne l'inclinaison à 60° par défaut : impossible d'amener
+               la ligne d'horizon dans le champ, donc de voir le ciel. 85° = maximum
+               supporté, on regarde alors quasiment à l'horizontale. */
+            maxPitch={85}
             onClick={handleMapClick} interactiveLayerIds={activeTool==="pointer"?intIds:[]}
             cursor={(activeTool!=="pointer"||routePickMode)?"crosshair":"grab"}
             onDoubleClick={(e)=>{
@@ -2225,6 +2698,23 @@ export default function App() {
             
             {/* ── Auth ── */}
             {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+
+            {/* ── Fenêtres flottantes empilables (menu thématique) ── */}
+            {modals.map(m => m.type === "bivariate" ? (
+              <BivariateModal
+                key={m.id} mapRef={mapRef} layers={layers}
+                onAddRasterLayer={addRasterLayer}
+                z={m.z} initialPos={m.pos}
+                onFocus={() => focusModal(m.id)} onClose={() => closeModal(m.id)}
+              />
+            ) : (
+              <IndicatorModal
+                key={m.id} indKey={m.indKey} mapRef={mapRef} layers={layers}
+                onAddRasterLayer={addRasterLayer} onAnimate={setTlLayerId}
+                z={m.z} initialPos={m.pos}
+                onFocus={() => focusModal(m.id)} onClose={() => closeModal(m.id)}
+              />
+            ))}
 
             {/* ── Sauvegarder ── */}
             {showSave && (
@@ -2326,11 +2816,16 @@ export default function App() {
               </div>
             )}
 
-            {layers.map(l=>{if(!l.isRaster)return null;if(l.theme==="vector")return(<Source key={l.id} id={l.id} type="vector" tiles={[l.tileUrl]} minzoom={0} maxzoom={22}><Layer id={`${l.id}-fill`} type="fill" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":l.color||C.acc,"fill-opacity":l.opacity??0.3}}/><Layer id={`${l.id}-line`} type="line" layout={{visibility:l.visible?"visible":"none"}} filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":l.color||C.acc,"line-width":1.5,"line-opacity":l.opacity??1}}/><Layer id={`${l.id}-circle`} type="circle" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Point"]} paint={{"circle-color":l.color||C.acc,"circle-radius":4,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-opacity":l.opacity??1}}/></Source>);return(<Source key={l.id} id={l.id} type="raster" tiles={[l.tileUrl]} tileSize={256}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:l.visible?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85}}/></Source>);})}
-            {layers.map(l=>l.visible&&!l.isRaster&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const _mkSize=parseInt(cr.makiSize)||30;void makiTick;const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",_mkSize);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
+            {layers.map(l=>{if(!l.isRaster)return null;if(l.kind==="image")return(<Source key={`${l.id}-${l.styleV||0}`} id={l.id} type="image" url={l.imageUrl} coordinates={l.coordinates}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:l.visible?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85,"raster-fade-duration":0}}/></Source>);if(l.theme==="vector")return(<Source key={l.id} id={l.id} type="vector" tiles={[l.tileUrl]} minzoom={0} maxzoom={22}><Layer id={`${l.id}-fill`} type="fill" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":l.color||C.acc,"fill-opacity":l.opacity??0.3}}/><Layer id={`${l.id}-line`} type="line" layout={{visibility:l.visible?"visible":"none"}} filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":l.color||C.acc,"line-width":1.5,"line-opacity":l.opacity??1}}/><Layer id={`${l.id}-circle`} type="circle" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Point"]} paint={{"circle-color":l.color||C.acc,"circle-radius":4,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-opacity":l.opacity??1}}/></Source>);return(<Source key={l.id} id={l.id} type="raster" tiles={[l.tileUrl]} tileSize={256}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:(l.visible&&l.id!==tlLayerId)?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85}}/></Source>);})}
+            {layers.map(l=>l.visible&&!l.isRaster&&l.geojson&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const _mkSize=parseInt(cr.makiSize)||30;void makiTick;const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",_mkSize);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.extrude&&(<Source key={`${l.id}-3d`} id={`${l.id}-3d`} type="geojson" data={l.geojson}><Layer id={`${l.id}-extrude`} type="fill-extrusion" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={{"fill-extrusion-color":l.classResult?.expression||l.color,"fill-extrusion-height":l.extrudeAttr?["*",["to-number",["get",l.extrudeAttr],5],l.extrudeScale||1]:["*",["to-number",["get","height"],5],l.extrudeScale||1],"fill-extrusion-base":0,"fill-extrusion-opacity":l.opacity*0.85}}/>{l.labels&&<Layer id={`${l.id}-3dlabel`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":10,"text-anchor":"center"}} paint={{"text-color":"#fff","text-halo-color":"#000","text-halo-width":1}}/>}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.cluster&&(<Source key={`${l.id}-cl`} id={`${l.id}-cl`} type="geojson" data={l.geojson} cluster={true} clusterMaxZoom={14} clusterRadius={50}><Layer id={`${l.id}-clusters`} type="circle" filter={["has","point_count"]} paint={{"circle-color":["step",["get","point_count"],l.color,10,C.amb,50,C.red],"circle-radius":["step",["get","point_count"],18,10,24,50,32],"circle-opacity":0.85,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id={`${l.id}-cluster-count`} type="symbol" filter={["has","point_count"]} layout={{"text-field":"{point_count_abbreviated}","text-size":12}} paint={{"text-color":"#fff"}}/><Layer id={`${l.id}-unclustered`} type="circle" filter={["!",["has","point_count"]]} paint={{"circle-radius":l.radius||5,"circle-color":l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}}/></Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.heatmap&&(<Source key={`${l.id}-hm`} id={`${l.id}-hm`} type="geojson" data={l.geojson}><Layer id={`${l.id}-heat`} type="heatmap" paint={{"heatmap-weight":1,"heatmap-intensity":["interpolate",["linear"],["zoom"],0,1,15,3],"heatmap-color":["interpolate",["linear"],["heatmap-density"],0,"rgba(0,0,0,0)",.2,C.acc,.4,C.amb,.6,"#D85A30",.8,C.red,1,"#fff"],"heatmap-radius":["interpolate",["linear"],["zoom"],0,4,15,30],"heatmap-opacity":l.opacity}}/></Source>))}
+
+            {/* Graphiques par entite (camembert, barres, treemap...) */}
+            {layers.map(l => l.visible && !l.isRaster && l.chartCfg && (
+              <ChartLayer key={`${l.id}-chart`} layer={l} mapRef={mapRef} />
+            ))}
 
             {/* Overlays mesure/dessin/buffer */}
             {measureGJ&&<Source id="measure" type="geojson" data={measureGJ}><Layer id="mpts" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":"#fff","circle-stroke-width":2,"circle-stroke-color":C.amb}}/><Layer id="mline" type="line" filter={["==",["geometry-type"],"LineString"]} paint={{"line-color":C.amb,"line-width":2,"line-dasharray":[4,2]}}/><Layer id="mpoly" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.amb,"fill-opacity":.15}}/></Source>}
@@ -2383,6 +2878,10 @@ export default function App() {
               </FloatingPanel>
             );
           })}
+
+          {/* Précipitations : APRÈS </Map> pour se peindre sur les tuiles, AVANT la
+              légende et les panneaux pour rester dessous. */}
+          {terrain3D && weather !== "none" && <PrecipLayer type={weather} />}
 
           <Legend layers={layers}/>
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}

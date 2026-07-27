@@ -1,4 +1,20 @@
 export const API = "/api";
+
+/**
+ * Saisie libre du chat activée ou non — pilotée au build par VITE_CHAT_INPUT.
+ *
+ *   VITE_CHAT_INPUT=false   → la zone de saisie disparaît (instance en lecture seule)
+ *   absente ou toute autre valeur → saisie active (comportement par défaut)
+ *
+ * Seule la saisie PAR L'UTILISATEUR est retirée : les envois programmatiques
+ * déclenchés par les autres panneaux continuent de fonctionner.
+ *
+ * Vite fige les `import.meta.env` au moment du build : changer la variable
+ * impose de relancer `npm run build`, un redémarrage du serveur ne suffit pas.
+ */
+export const CHAT_INPUT_ENABLED = !["false", "0", "off", "no"].includes(
+  String(import.meta.env.VITE_CHAT_INPUT ?? "true").trim().toLowerCase()
+);
 export const F = "'DM Sans',system-ui,sans-serif";
 export const M = "'JetBrains Mono',monospace";
 export const MAPBOX_TOKEN = "pk.eyJ1IjoiZGlvdWNrIiwiYSI6ImNrc3E2NmlrdDA5djkydm1kMXo0NGRyOW8ifQ.B_LfncIjrhY-STiNTseOGQ";
@@ -7,6 +23,27 @@ export const MAP_STYLES = {
   dark: "https://tiles.openfreemap.org/styles/dark",
   liberty: "https://tiles.openfreemap.org/styles/liberty",
   positron: "https://tiles.openfreemap.org/styles/positron",
+
+  satellite: {
+    version: 8,
+    sources: {
+      esri: {
+        type: "raster",
+        tiles: [
+          "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        ],
+        tileSize: 256,
+        attribution: "© Esri"
+      }
+    },
+    layers: [
+      {
+        id: "satellite",
+        type: "raster",
+        source: "esri"
+      }
+    ]
+  }
 };
 
 export const LAYER_COLORS = [
@@ -27,3 +64,5 @@ export const EXPORT_FORMATS = ["GeoJSON", "GeoPackage", "Shapefile", "CSV", "Fla
 export function hexToRgb(hex) {
   return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 }
+
+

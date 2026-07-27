@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { geocodeAddress } from "../utils/routing";
+import { IcMapPin } from "../icons";
 
 // ── Champ adresse avec autocomplétion ──────────────────────────
 function AddressInput({ label, value, onChange, onCoord, placeholder, color, pickActive, onPickToggle }) {
@@ -73,9 +74,10 @@ function AddressInput({ label, value, onChange, onCoord, placeholder, color, pic
             border: `0.5px solid ${pickActive ? (color || C.acc) + "88" : C.bdr}`,
             background: pickActive ? (color || C.acc) + "22" : "transparent",
             color: pickActive ? (color || C.acc) : C.dim, cursor: "pointer",
+            display: "flex", alignItems: "center",
           }}
         >
-          📍
+          <IcMapPin size={15}/>
         </button>
       </div>
       {pickActive && (

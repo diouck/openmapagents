@@ -110,6 +110,9 @@ export async function importFile(file) {
     return gj;
   }
 
+  if (/\.(las|laz|glb|gltf|ply|splat|ksplat)$/.test(name) || name.endsWith("tileset.json")) {
+    throw new Error("Donnée 3D détectée → ouvrez le panneau « Vue 3D / Globe » (🌐) et utilisez « Choisir un fichier » pour les LiDAR (.las/.laz), modèles (.glb/.gltf) et splats.");
+  }
   throw new Error("Format non supporté (GeoJSON, CSV, Shapefile ZIP)");
 }
 

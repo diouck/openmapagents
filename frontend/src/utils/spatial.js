@@ -1,8 +1,16 @@
 /**
  * Spatial Analysis Engine — turf.js operations
  * Groupes : Overlay, Proximité, Géométrie, Mesure, Statistiques, Mobilité/Flux, Génération
+ *
+ * NOTE PROJECTION :
+ *   turf.js travaille EXCLUSIVEMENT en WGS84 (EPSG:4326 — lon/lat degrés).
+ *   Toute couche dans une autre projection (Lambert 93, Mercator métrique, etc.)
+ *   doit être reprojetée vers WGS84 AVANT traitement, puis optionnellement
+ *   re-projetée dans le CRS d'origine sur le résultat.
+ *   La fonction `toWgs84(geojson)` gère cette normalisation automatiquement.
  */
 import * as turf from "@turf/turf";
+import proj4 from "proj4";
 
 // ─── OPERATION REGISTRY ──────────────────────────────────────
 export const SPATIAL_OPS = [
@@ -380,10 +388,162 @@ function fc(features) {
   return { type: "FeatureCollection", features: features || [] };
 }
 
+// ─── PROJECTION UTILITIES ────────────────────────────────────
+/**
+ * Registre des projections courantes.
+ * Clé = code EPSG (number ou string), valeur = définition proj4.
+ * Étendez ce registre si vos données utilisent d'autres CRS.
+ */
+const PROJ_DEFS = {
+  // ── Europe / France ──
+  2154: "+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs", // RGF93 / Lambert-93
+  3857: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs",                  // Web Mercator
+  3035: "+proj=laea +lat_0=52 +lon_0=10 +x_0=4321000 +y_0=3210000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs",                    // ETRS89 / LAEA Europe
+  27572: "+proj=lcc +lat_1=46.8 +lat_0=46.8 +lon_0=0 +k_0=0.99987742 +x_0=600000 +y_0=2200000 +a=6378249.2 +b=6356515 +towgs84=-168,-60,320,0,0,0,0 +pm=paris +units=m +no_defs", // Lambert II étendu
+  // ── Monde ──
+  32630: "+proj=utm +zone=30 +datum=WGS84 +units=m +no_defs",  // UTM zone 30N
+  32631: "+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs",  // UTM zone 31N
+  32632: "+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs",  // UTM zone 32N
+  4326:  "+proj=longlat +datum=WGS84 +no_defs",                // WGS84 — déjà géographique
+};
+
+/**
+ * Détecte le CRS d'un GeoJSON en lisant :
+ *   1. geojson.crs.properties.name  (format OGC)
+ *   2. geojson.crs.properties.code  (variante)
+ *   3. Heuristique sur les coordonnées (si > 180 → projection métrique)
+ *
+ * Retourne le code EPSG (number) ou null si WGS84 / inconnu.
+ */
+function detectCrs(geojson) {
+  const crs = geojson?.crs;
+  if (crs?.properties?.name) {
+    const name = crs.properties.name;
+    // Ex: "urn:ogc:def:crs:EPSG::2154" ou "EPSG:2154"
+    const match = name.match(/EPSG[:\s]+(\d+)/i);
+    if (match) return parseInt(match[1], 10);
+  }
+  if (crs?.properties?.code) return parseInt(crs.properties.code, 10);
+
+  // Heuristique : si les X ou Y dépassent 180, c'est du métrique
+  const feats = geojson?.features || [];
+  for (const f of feats.slice(0, 5)) {
+    const coords = flatCoords(f?.geometry);
+    for (const [x, y] of coords) {
+      if (Math.abs(x) > 180 || Math.abs(y) > 180) return "METRIC_UNKNOWN";
+    }
+  }
+  return null; // Suppose WGS84
+}
+
+/** Extrait récursivement tous les couples [x, y] d'une géométrie. */
+function flatCoords(geom) {
+  if (!geom) return [];
+  const t = geom.type;
+  if (t === "Point") return [geom.coordinates];
+  if (t === "MultiPoint" || t === "LineString") return geom.coordinates;
+  if (t === "MultiLineString" || t === "Polygon") return geom.coordinates.flat(1);
+  if (t === "MultiPolygon") return geom.coordinates.flat(2);
+  if (t === "GeometryCollection") return geom.geometries.flatMap(flatCoords);
+  return [];
+}
+
+/**
+ * Reprojette un objet de coordonnées [x, y] (ou [x, y, z]).
+ * fromProj / toProj sont des définitions proj4 (string) ou "WGS84".
+ */
+function reprojectCoord(coord, fromProj, toProj) {
+  const [x, y, ...rest] = coord;
+  const [nx, ny] = proj4(fromProj, toProj, [x, y]);
+  return [nx, ny, ...rest];
+}
+
+/** Reprojette récursivement une géométrie GeoJSON. */
+function reprojectGeometry(geom, fromProj, toProj) {
+  if (!geom) return geom;
+  const rp = (c) => reprojectCoord(c, fromProj, toProj);
+  const t = geom.type;
+  if (t === "Point")
+    return { ...geom, coordinates: rp(geom.coordinates) };
+  if (t === "MultiPoint" || t === "LineString")
+    return { ...geom, coordinates: geom.coordinates.map(rp) };
+  if (t === "MultiLineString" || t === "Polygon")
+    return { ...geom, coordinates: geom.coordinates.map(ring => ring.map(rp)) };
+  if (t === "MultiPolygon")
+    return { ...geom, coordinates: geom.coordinates.map(poly => poly.map(ring => ring.map(rp))) };
+  if (t === "GeometryCollection")
+    return { ...geom, geometries: geom.geometries.map(g => reprojectGeometry(g, fromProj, toProj)) };
+  return geom;
+}
+
+/**
+ * Reprojette un FeatureCollection entier vers WGS84 (EPSG:4326).
+ *
+ * - Si le CRS est déjà WGS84 (ou non détecté comme métrique) → retourne tel quel.
+ * - Si le CRS est connu dans PROJ_DEFS → reprojection automatique.
+ * - Si le CRS est métrique mais inconnu → lève une erreur explicite.
+ *
+ * @param {object} geojson  FeatureCollection GeoJSON
+ * @param {string} [layerName]  Nom de la couche (pour les messages d'erreur)
+ * @returns {{ geojson: object, originalEpsg: number|null }}
+ */
+function toWgs84(geojson, layerName = "couche") {
+  if (!geojson) return { geojson: null, originalEpsg: null };
+
+  const epsg = detectCrs(geojson);
+
+  // Déjà en WGS84
+  if (epsg === null || epsg === 4326) {
+    return { geojson, originalEpsg: 4326 };
+  }
+
+  if (epsg === "METRIC_UNKNOWN") {
+    throw new Error(
+      `${layerName} : coordonnées métriques détectées mais la projection n'est pas définie dans le GeoJSON (attribut "crs" manquant). ` +
+      `Ajoutez un champ crs à votre GeoJSON ou re-exportez depuis votre SIG en WGS84 (EPSG:4326).`
+    );
+  }
+
+  const fromDef = PROJ_DEFS[epsg];
+  if (!fromDef) {
+    throw new Error(
+      `${layerName} : projection EPSG:${epsg} détectée mais non supportée. ` +
+      `Ajoutez sa définition proj4 dans PROJ_DEFS dans spatial.js, ou reprojetez en WGS84 avant l'import.`
+    );
+  }
+
+  const toWGS = PROJ_DEFS[4326];
+
+  // Enregistrer la paire pour proj4 si nécessaire
+  proj4.defs(`EPSG:${epsg}`, fromDef);
+  proj4.defs("EPSG:4326", toWGS);
+
+  const reprojectedFeatures = (geojson.features || []).map(f => ({
+    ...f,
+    geometry: reprojectGeometry(f.geometry, `EPSG:${epsg}`, "EPSG:4326"),
+  }));
+
+  const reprojected = {
+    type: "FeatureCollection",
+    features: reprojectedFeatures,
+    // On supprime le crs original puisque le résultat est maintenant WGS84
+    ...(geojson.name ? { name: geojson.name } : {}),
+  };
+
+  console.info(`[spatial.js] ${layerName} reprojetée EPSG:${epsg} → WGS84 (${reprojectedFeatures.length} features)`);
+
+  return { geojson: reprojected, originalEpsg: epsg };
+}
+
 // ─── EXECUTE OPERATION ───────────────────────────────────────
 export function executeSpatialOp(opId, layerA, layerB, params = {}) {
-  const gjA = layerA?.geojson;
-  const gjB = layerB?.geojson;
+  // ── Normalisation projection ──────────────────────────────
+  // turf.js exige WGS84 (lon/lat). On reprojette A et B si nécessaire
+  // avant tout traitement. Une erreur claire est levée si la projection
+  // est métrique mais non identifiable.
+  const { geojson: gjA } = toWgs84(layerA?.geojson, "Couche A");
+  const { geojson: gjB } = toWgs84(layerB?.geojson, "Couche B");
+
   if (!gjA) throw new Error("Couche A requise");
   const featA = gjA.features || [];
   const featB = gjB?.features || [];
@@ -394,13 +554,113 @@ export function executeSpatialOp(opId, layerA, layerB, params = {}) {
     case "intersection": {
       if (!gjB) throw new Error("Couche B requise");
       const results = [];
-      for (const a of featA) for (const b of featB) {
-        try {
-          if (a.geometry.type.includes("Polygon") && b.geometry.type.includes("Polygon")) {
-            const inter = turf.intersect(turf.featureCollection([a, b]));
-            if (inter) { inter.properties = { ...a.properties, ...b.properties, _op: "intersection" }; results.push(inter); }
-          }
-        } catch {}
+      for (const a of featA) {
+        for (const b of featB) {
+          try {
+            const tA = a.geometry.type;
+            const tB = b.geometry.type;
+            const isPolyA = tA.includes("Polygon");
+            const isPolyB = tB.includes("Polygon");
+            const isLineA = tA === "LineString" || tA === "MultiLineString";
+            const isLineB = tB === "LineString" || tB === "MultiLineString";
+            const isPtA   = tA === "Point";
+            const isPtB   = tB === "Point";
+
+            // ── Polygon × Polygon → intersection géométrique ──
+            if (isPolyA && isPolyB) {
+              const inter = turf.intersect(turf.featureCollection([a, b]));
+              if (inter) {
+                inter.properties = { ...a.properties, ...b.properties, _op: "intersection" };
+                results.push(inter);
+              }
+
+            // ── Point × Polygon ──
+            } else if (isPtA && isPolyB) {
+              if (turf.booleanPointInPolygon(a, b))
+                results.push({ ...a, properties: { ...a.properties, ...b.properties, _op: "intersection" } });
+
+            // ── Polygon × Point ──
+            } else if (isPolyA && isPtB) {
+              if (turf.booleanPointInPolygon(b, a))
+                results.push({ ...b, properties: { ...a.properties, ...b.properties, _op: "intersection" } });
+
+            // ── Point × Point → même coordonnée exacte ──
+            } else if (isPtA && isPtB) {
+              const [ax, ay] = a.geometry.coordinates;
+              const [bx, by] = b.geometry.coordinates;
+              if (Math.abs(ax - bx) < 1e-9 && Math.abs(ay - by) < 1e-9)
+                results.push({ ...a, properties: { ...a.properties, ...b.properties, _op: "intersection" } });
+
+            // ── LineString × Polygon → segments de la ligne à l'intérieur ──
+            } else if (isLineA && isPolyB) {
+              try {
+                const split = turf.lineSplit(a, b);
+                for (const seg of (split?.features || [])) {
+                  const mid = turf.midpoint(
+                    turf.point(seg.geometry.coordinates[0]),
+                    turf.point(seg.geometry.coordinates[seg.geometry.coordinates.length - 1])
+                  );
+                  if (turf.booleanPointInPolygon(mid, b)) {
+                    seg.properties = { ...a.properties, ...b.properties, _op: "intersection" };
+                    results.push(seg);
+                  }
+                }
+              } catch {
+                // fallback : bboxClip approximatif
+                try {
+                  const clipped = turf.bboxClip(a, turf.bbox(b));
+                  if (clipped?.geometry?.coordinates?.length >= 2) {
+                    clipped.properties = { ...a.properties, ...b.properties, _op: "intersection" };
+                    results.push(clipped);
+                  }
+                } catch {}
+              }
+
+            // ── Polygon × LineString ──
+            } else if (isPolyA && isLineB) {
+              try {
+                const split = turf.lineSplit(b, a);
+                for (const seg of (split?.features || [])) {
+                  const mid = turf.midpoint(
+                    turf.point(seg.geometry.coordinates[0]),
+                    turf.point(seg.geometry.coordinates[seg.geometry.coordinates.length - 1])
+                  );
+                  if (turf.booleanPointInPolygon(mid, a)) {
+                    seg.properties = { ...a.properties, ...b.properties, _op: "intersection" };
+                    results.push(seg);
+                  }
+                }
+              } catch {}
+
+            // ── LineString × LineString → point(s) d'intersection ──
+            } else if (isLineA && isLineB) {
+              try {
+                const inter = turf.lineIntersect(a, b);
+                for (const pt of (inter?.features || [])) {
+                  pt.properties = { ...a.properties, ...b.properties, _op: "intersection" };
+                  results.push(pt);
+                }
+              } catch {}
+
+            // ── Point × LineString → point situé sur la ligne ──
+            } else if (isPtA && isLineB) {
+              try {
+                const snapped = turf.nearestPointOnLine(b, a);
+                if ((snapped.properties?.dist ?? Infinity) < 0.0001)
+                  results.push({ ...a, properties: { ...a.properties, ...b.properties, _op: "intersection" } });
+              } catch {}
+
+            // ── LineString × Point ──
+            } else if (isLineA && isPtB) {
+              try {
+                const snapped = turf.nearestPointOnLine(a, b);
+                if ((snapped.properties?.dist ?? Infinity) < 0.0001)
+                  results.push({ ...b, properties: { ...a.properties, ...b.properties, _op: "intersection" } });
+              } catch {}
+            }
+
+          } catch {}
+        }
       }
       return fc(results);
     }
