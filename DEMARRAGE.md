@@ -175,7 +175,7 @@ os.environ.setdefault("PG_HOST",     "geoafrica.fr")
 os.environ.setdefault("PG_PORT",     "5435")
 os.environ.setdefault("PG_DB",       "openmapagents")
 os.environ.setdefault("PG_USER",     "postgres")
-os.environ.setdefault("PG_PASSWORD", "Postgres2024!")
+os.environ.setdefault("PG_PASSWORD", "<votre_mot_de_passe>")
 os.environ.setdefault("EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 os.environ.setdefault("EMBED_DIM",   "768")
 
