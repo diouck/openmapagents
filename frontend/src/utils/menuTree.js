@@ -123,6 +123,10 @@ export const INDICATORS = {
            options: [{ dataset: "burned", index: "Zones brûlées", label: "MODIS", res: "500 m · mensuel" }] },
   FIRMS: { title: "Feux actifs", icon: IcFlame, desc: "Foyers de chaleur quasi temps réel (FIRMS).",
            options: [{ dataset: "firms", index: "Feux actifs", label: "FIRMS", res: "1 km · quotidien" }] },
+  SMOKE: { title: "Panache de fumée (GEOS-CF)", icon: IcCloudFog, desc: "PM2.5 modélisé pendant les incendies (NASA GEOS-CF). Idéal pour les études de cas de feux passés (couverture ~2022→2026).",
+           options: [{ dataset: "geos_cf", index: "PM2.5 (fumée)", label: "PM2.5 total", res: "27 km · horaire (2022-2026)" },
+                     { dataset: "geos_cf", index: "Carbone suie (BC)", label: "Carbone suie (BC)", res: "27 km · horaire" },
+                     { dataset: "geos_cf", index: "Carbone organique (OC)", label: "Carbone organique (OC)", res: "27 km · horaire" }] },
   // ── Lot C — Sols / agriculture ──
   SOC: { title: "Carbone organique du sol", icon: IcSprout, desc: "Stock de carbone / fertilité (OpenLandMap).",
            options: [{ dataset: "soil_soc", index: "Carbone organique", label: "OpenLandMap", res: "250 m", static: true }] },
@@ -270,6 +274,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "flood", label: "Cartographie des inondations", desc: "Détection radar SAR (Sentinel-1) ou modèle hauteur d'eau ; surface, population et bâti exposés.", icon: IcDroplets },
     { kind: "indicator", id: "NBR" }, { kind: "indicator", id: "NDSI" },
     { kind: "indicator", id: "BURNED" }, { kind: "indicator", id: "FIRMS" },
+    { kind: "indicator", id: "SMOKE" },
     { kind: "tool", id: "change", label: "Détection de changement", desc: "Compare deux dates et isole ce qui a changé.", icon: IcDiff },
     { kind: "tool", id: "compare", label: "Comparateur A/B", desc: "Deux couches côte à côte, curseur de balayage.", icon: IcCompare },
   ]},

@@ -28,6 +28,8 @@ const STEPS_BY_DATASET = {
   firms:       ["day", "5day", "month", "year"],
   modis_snow:  ["day", "5day", "month", "year"],
   smap:        ["day", "5day", "month", "year"],
+  // Fumée d'incendie : dispersion jour par jour (curseur temporel sur quelques jours).
+  geos_cf:     ["day", "5day"],
   // Composites courts
   modis_lai:   ["5day", "8day", "month", "year"],
   modis_et:    ["8day", "month", "quarter", "year"],
