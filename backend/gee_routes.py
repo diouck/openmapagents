@@ -63,6 +63,10 @@ DATASETS = {
     # émissions de feux QFED). Couverture GEE ~2022→2026 → études de cas de feux
     # (pas de temps réel) ; à confirmer au 1er run (GEE non testable en local).
     "geos_cf": {"label":"GEOS-CF Fumée & PM2.5 (~27km, NASA)","collection":"NASA/GEOS-CF/v1/fcst/tavg1hr","cloud_property":None,"indices":["PM2.5 (fumée)","Carbone suie (BC)","Carbone organique (OC)"],"temporal":"Horaire (prévision 5j)"},
+    # ── Fumée d'incendie TEMPS RÉEL — CAMS (Copernicus/ECMWF, ~44km) ──
+    # Mis à jour quotidiennement (couvre les feux actuels), contrairement à GEOS-CF.
+    # PM2.5 en kg/m³ (→ µg/m³) et épaisseurs optiques d'aérosols (AOD, sans dimension).
+    "cams":    {"label":"CAMS Fumée & PM2.5 temps réel (~44km, ECMWF)","collection":"ECMWF/CAMS/NRT","cloud_property":None,"indices":["PM2.5 (fumée)","Fumée (carbone organique)","Aérosols (AOD)"],"temporal":"Quotidien (prévision 5j)"},
     # ── Lot C — Sols (OpenLandMap, statiques) ──
     "soil_soc":  {"label":"Carbone organique du sol (250m, OpenLandMap)","collection":None,"cloud_property":None,"indices":["Carbone organique"],"temporal":"Statique","static":True},
     "soil_ph":   {"label":"pH du sol (250m, OpenLandMap)","collection":None,"cloud_property":None,"indices":["pH du sol"],"temporal":"Statique","static":True},
@@ -190,6 +194,10 @@ _LOT2_VIS = {
     ("geos_cf", "PM2.5 (fumée)"):          {"min": 0, "max": 150, "palette": _PM25_PAL},
     ("geos_cf", "Carbone suie (BC)"):      {"min": 0, "max": 20,  "palette": _PM25_PAL},
     ("geos_cf", "Carbone organique (OC)"): {"min": 0, "max": 60,  "palette": _PM25_PAL},
+    # CAMS temps réel — PM2.5 en µg/m³ (échelle AQI), AOD sans dimension
+    ("cams", "PM2.5 (fumée)"):             {"min": 0, "max": 150, "palette": _PM25_PAL},
+    ("cams", "Fumée (carbone organique)"): {"min": 0, "max": 1,   "palette": _PM25_PAL},
+    ("cams", "Aérosols (AOD)"):            {"min": 0, "max": 2,   "palette": _PM25_PAL},
     # Lot A — catégoriels
     ("ghsl_smod", "Degré d'urbanisation"): {"min": 10, "max": 30, "palette": ["#7ab6f5", "#cdf57a", "#abcd66", "#375623", "#ffff00", "#a87000", "#732600", "#ff0000"]},
     ("dynamicworld", "Occupation du sol (DW)"): {"min": 0, "max": 8, "palette": ["#419BDF", "#397D49", "#88B053", "#7A87C6", "#E49635", "#DFC35A", "#C4281B", "#A59B8F", "#B39FE1"]},
@@ -323,6 +331,14 @@ def compute_index(image, dataset, index):
                     "Carbone suie (BC)":      "PM25bc_RH35_GCC",
                     "Carbone organique (OC)": "PM25oc_RH35_GCC"}.get(index, "PM25_RH35_GCC")
             return image.select(band).rename("pm25")                 # µg/m³
+        if dataset == "cams":
+            # CAMS temps réel : PM2.5 en kg/m³ → µg/m³ (×1e9) ; AOD sans dimension.
+            if index == "PM2.5 (fumée)":
+                return image.select("particulate_matter_d_less_than_25_um_surface").multiply(1e9).rename("pm25")
+            band = {"Aérosols (AOD)":            "total_aerosol_optical_depth_at_550nm_surface",
+                    "Fumée (carbone organique)": "organic_matter_aerosol_optical_depth_at_550nm_surface"}.get(
+                        index, "total_aerosol_optical_depth_at_550nm_surface")
+            return image.select(band).rename("aod")
         if dataset == "copdem" and index == "Élévation":
             return image.select("DEM").rename("elevation")
         if dataset == "gpw_pop":
@@ -606,6 +622,7 @@ DATASET_DATE_RANGES = {
     "modis_et":   ("2001-01-01", None),
     "smap":       ("2015-03-31", None),
     "geos_cf":    ("2022-10-01", None),
+    "cams":       ("2016-06-22", None),
     # ── Lot G — Océanographie ──
     "modis_ocean":     ("2002-07-04", None),
     "viirs_ocean":     ("2012-01-02", None),
@@ -812,7 +829,7 @@ _STRETCH_SCALE = {
     "sentinel2": 30, "landsat": 30, "landsat8": 30, "landsat9": 30,
     "worldcover": 30, "canopy_height": 30, "modis_ndvi": 500, "modis_lst": 1000, "modis_rgb": 500, "modis_daily": 500,
     "era5": 11000, "srtm": 90, "copdem": 90, "viirs": 500, "chirps": 5000,
-    "modis_et": 500, "smap": 11000, "sentinel5p": 7000, "geos_cf": 27750, "jrc_water": 90, "hansen": 90,
+    "modis_et": 500, "smap": 11000, "sentinel5p": 7000, "geos_cf": 27750, "cams": 44528, "jrc_water": 90, "hansen": 90,
     "gpw_pop": 1000, "ghsl_pop": 100,
     "ghsl_built": 100, "ghsl_smod": 1000, "dynamicworld": 10,
     "burned": 500, "firms": 1000, "soil_soc": 250, "soil_ph": 250, "soil_clay": 250,
@@ -1162,8 +1179,8 @@ def gee_tiles(req: TileRequest):
             image = col.mean()                     # concentration moyenne sur la période
         elif req.dataset == "chirps":
             image = col.sum()                      # cumul de précipitations sur la période
-        elif req.dataset in ("modis_et", "smap", "geos_cf"):
-            image = col.mean()                     # ET / humidité / PM2.5 moyen sur la période
+        elif req.dataset in ("modis_et", "smap", "geos_cf", "cams"):
+            image = col.mean()                     # ET / humidité / PM2.5 / AOD moyen sur la période
         elif req.composite == "median":
             image = col.median()
         elif req.composite == "mosaic":
@@ -1203,10 +1220,17 @@ def gee_tiles(req: TileRequest):
         else:
             # ── Calcul de l'indice ────────────────────────────
             image = compute_index(image, req.dataset, req.index)
-            # Fumée GEOS-CF : masquer l'air « propre » (< 5 µg/m³) → seul le panache
-            # s'affiche, en surimpression translucide sur le fond (rendu type Windy).
-            if req.dataset == "geos_cf":
-                image = image.updateMask(image.gt(5))
+            # Fumée : masquer l'air « propre » → seul le panache s'affiche, en
+            # surimpression translucide sur le fond (rendu type Windy). Seuil par
+            # (dataset, indice) : µg/m³ pour PM2.5, sans dimension pour l'AOD.
+            _smoke_floor = {
+                ("geos_cf", "PM2.5 (fumée)"): 5, ("geos_cf", "Carbone suie (BC)"): 1,
+                ("geos_cf", "Carbone organique (OC)"): 1,
+                ("cams", "PM2.5 (fumée)"): 5, ("cams", "Aérosols (AOD)"): 0.1,
+                ("cams", "Fumée (carbone organique)"): 0.05,
+            }.get((req.dataset, req.index))
+            if _smoke_floor is not None:
+                image = image.updateMask(image.gt(_smoke_floor))
 
         # ── Clip ROI : masquer l'image au contour exact du polygone ──
         # Sans ce clip, GEE retourne des tuiles mondiales même en mode "couche"
@@ -3479,7 +3503,7 @@ def _composite_index(ee, dataset, index, date_start, date_end, bounds, cloud_max
     col = _index_collection(ee, dataset, index, date_start, date_end, bounds, cloud_max)
     if dataset == "chirps":
         img = col.sum()
-    elif dataset in ("sentinel5p", "modis_et", "smap", "geos_cf"):
+    elif dataset in ("sentinel5p", "modis_et", "smap", "geos_cf", "cams"):
         img = col.mean()
     else:
         img = col.median()
@@ -3524,7 +3548,7 @@ def gee_index_timeseries(req: IndexStatsRequest):
         # (sinon la moyenne sur toute la vue × N périodes → timeout « Failed to fetch »).
         _NATIVE = {"sentinel2": 20, "landsat": 30, "landsat8": 30, "landsat9": 30,
                    "modis_ndvi": 500, "modis_lst": 1000, "era5": 11132, "sentinel5p": 1113,
-                   "viirs": 500, "chirps": 5566, "modis_et": 500, "smap": 11000, "geos_cf": 27750}
+                   "viirs": 500, "chirps": 5566, "modis_et": 500, "smap": 11000, "geos_cf": 27750, "cams": 44528}
         native = _NATIVE.get(req.dataset, 100)
         if req.scale:
             scale = req.scale
