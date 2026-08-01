@@ -57,6 +57,9 @@ export const SOURCE_META = {
   modis_et: { label: "MODIS — évapotranspiration (MOD16A2)", provider: "NASA LP DAAC",
     asset: "MODIS/061/MOD16A2", res: "500 m", revisit: "composite 8 jours", coverage: "depuis 2001",
     units: "kg/m²/8 j, équivalent à des mm sur la période" },
+  geos_cf: { label: "NASA GEOS-CF — prévision de composition atmosphérique", provider: "NASA GMAO",
+    asset: "NASA/GEOS-CF/v1/fcst/tavg1hr", res: "~27 km (0,25°)", revisit: "horaire (prévision 5 j)", coverage: "2022 → 2026",
+    units: "PM2.5 et espèces carbonées en µg/m³" },
   modis_gpp: { label: "MODIS — productivité primaire brute (MOD17A2H)", provider: "NASA LP DAAC",
     asset: "MODIS/061/MOD17A2H", res: "500 m", revisit: "composite 8 jours", coverage: "depuis 2000",
     units: "kg C/m²/8 j" },
@@ -311,6 +314,12 @@ export const INDICATOR_DOC = {
     null,
     "Fraction volumique en m³/m³ : environ 0,05 en sol très sec, 0,40 proche de la saturation.",
     "Résolution de l'ordre de 10 km : la valeur est une moyenne de paysage, inadaptée à l'échelle parcellaire."
+  ),
+  SMOKE: D(
+    "Le système GEOS-CF de la NASA (GMAO) modélise la composition de l'atmosphère à l'échelle globale en ingérant les émissions des incendies. Le champ de PM2.5 représente le panache de fumée transporté par les vents : concentration de particules fines à la surface, restituée heure par heure. On l'utilise pour reconstituer l'exposition des populations à la fumée lors d'un feu et suivre sa dispersion sur plusieurs jours.",
+    "PM2.5 = somme des aérosols fins (carbone suie, carbone organique, poussière, sulfate, sel de mer…) à 35 % d'humidité relative",
+    "En µg/m³ à la surface. Repères qualité de l'air : < 12 bon, 12–35 modéré, 35–55 mauvais pour les personnes sensibles, 55–150 mauvais, > 150 très mauvais à dangereux (fumée dense). Le carbone suie (BC) et organique (OC) isolent la part issue de la combustion.",
+    "Modèle à ~27 km : un panache est une masse régionale, pas un front de feu à l'échelle parcellaire. GEOS-CF v1 surestime les aérosols de 20–50 %. Couverture Earth Engine ~2022→2026 : convient aux études de cas de feux passés, pas au temps réel — pour la fumée observée en direct, croiser avec l'indice d'aérosols Sentinel-5P."
   ),
   LST: D(
     "La température de surface est celle de la peau du sol ou de la canopée vue depuis l'espace — distincte de la température de l'air mesurée sous abri. Elle révèle les îlots de chaleur urbains, le stress thermique des cultures et l'activité volcanique.",
