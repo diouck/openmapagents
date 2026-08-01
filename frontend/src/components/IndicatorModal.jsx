@@ -111,7 +111,10 @@ export default function IndicatorModal({ indKey, mapRef, layers = [], onAddRaste
   // Indices NON classifiables : RGB (multi-bandes) et couches catégorielles
   // (classes fixes → une classification quantile n'aurait aucun sens).
   const NO_CLASSIFY = ["RGB", "False Color (NIR)", "SWIR (feux)", "Occupation du sol", "Occupation du sol (DW)",
-                       "Degré d'urbanisation", "Ombrage", "Couverture forêt 2000", "Perte forêt", "Gain forêt"];
+                       "Degré d'urbanisation", "Ombrage", "Couverture forêt 2000", "Perte forêt", "Gain forêt",
+                       // Fumée : rendu continu translucide (jamais en classes opaques).
+                       "PM2.5 (fumée)", "Carbone suie (BC)", "Carbone organique (OC)",
+                       "Aérosols (AOD)", "Fumée (carbone organique)"];
   const canClassify = !NO_CLASSIFY.includes(opt.index);
   // Composite coloré multi-bandes : le masque nuages efface fumées et panaches,
   // soit l'information recherchée. Décoché possible, mais actif par défaut ici.
