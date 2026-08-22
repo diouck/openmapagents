@@ -169,9 +169,10 @@ _INDEX_VIS = {
 # Palette « pollution » commune Sentinel-5P (faible → fort)
 _S5P_PAL = ["#000000", "#0000ff", "#800080", "#00ffff", "#008000", "#ffff00", "#ff0000"]
 
-# Palette « fumée » : l'air de fond étant masqué (transparent), la rampe ne couvre
-# que le panache — du jaune pâle (léger) au marron sombre (dense).
-_PM25_PAL = ["#ffface", "#fed976", "#feb24c", "#fd8d3c", "#f03b20", "#bd0026", "#6a0018"]
+# Palette « fumée » type Windy/Zoom.earth : voile blanc/crème (léger) → tan → brun
+# sombre (dense). Volontairement désaturée pour ressembler à de la vraie fumée
+# posée sur un fond satellite, et non à une heatmap de données.
+_PM25_PAL = ["#ffffff", "#f5e6c8", "#e3c896", "#c99f66", "#a9743f", "#7a4a24", "#3d1f0e"]
 
 # Palettes des datasets Lot 2 (bandes spécifiques → clé (dataset, index))
 _LOT2_VIS = {
@@ -1231,10 +1232,10 @@ def gee_tiles(req: TileRequest):
             # Seuils = juste au-dessus du fond ambiant → seul le panache ressort
             # (le fond européen est déjà ~10-20 µg/m³ ; on ne montre que la fumée).
             _smoke_floor = {
-                ("geos_cf", "PM2.5 (fumée)"): 35, ("geos_cf", "Carbone suie (BC)"): 3,
-                ("geos_cf", "Carbone organique (OC)"): 8,
-                ("cams", "PM2.5 (fumée)"): 35, ("cams", "Aérosols (AOD)"): 0.4,
-                ("cams", "Fumée (carbone organique)"): 0.12,
+                ("geos_cf", "PM2.5 (fumée)"): 12, ("geos_cf", "Carbone suie (BC)"): 1,
+                ("geos_cf", "Carbone organique (OC)"): 3,
+                ("cams", "PM2.5 (fumée)"): 12, ("cams", "Aérosols (AOD)"): 0.15,
+                ("cams", "Fumée (carbone organique)"): 0.05,
             }.get((req.dataset, req.index))
             if _smoke_floor is not None:
                 image = image.updateMask(image.gt(_smoke_floor))
