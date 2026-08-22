@@ -1224,6 +1224,10 @@ def gee_tiles(req: TileRequest):
             # Fumée : masquer l'air « propre » → seul le panache s'affiche, en
             # surimpression translucide sur le fond (rendu type Windy). Seuil par
             # (dataset, indice) : µg/m³ pour PM2.5, sans dimension pour l'AOD.
+            # Lisser les pixels grossiers (27-44 km) → dégradé continu type Windy
+            # au lieu d'un damier de tuiles.
+            if req.dataset in ("geos_cf", "cams"):
+                image = image.resample("bilinear")
             # Seuils = juste au-dessus du fond ambiant → seul le panache ressort
             # (le fond européen est déjà ~10-20 µg/m³ ; on ne montre que la fumée).
             _smoke_floor = {
