@@ -193,13 +193,13 @@ _LOT2_VIS = {
     ("modis_et", "Évapotranspiration"): {"min": 0, "max": 100, "palette": ["#ffffff", "#c6dbef", "#4292c6", "#08306b"]},
     ("smap", "Humidité du sol"):      {"min": 0, "max": 0.5, "palette": ["#8B4513", "#DEB887", "#ffffff", "#AED6F1", "#1A5276"]},
     # GEOS-CF fumée — PM2.5 en µg/m³ (échelle type AQI), espèces carbonées plus basses
-    ("geos_cf", "PM2.5 (fumée)"):          {"min": 0, "max": 150, "palette": _PM25_PAL},
-    ("geos_cf", "Carbone suie (BC)"):      {"min": 0, "max": 20,  "palette": _PM25_PAL},
-    ("geos_cf", "Carbone organique (OC)"): {"min": 0, "max": 60,  "palette": _PM25_PAL},
+    ("geos_cf", "PM2.5 (fumée)"):          {"min": 0, "max": 80,  "palette": _PM25_PAL},
+    ("geos_cf", "Carbone suie (BC)"):      {"min": 0, "max": 12,  "palette": _PM25_PAL},
+    ("geos_cf", "Carbone organique (OC)"): {"min": 0, "max": 35,  "palette": _PM25_PAL},
     # CAMS temps réel — PM2.5 en µg/m³ (échelle AQI), AOD sans dimension
-    ("cams", "PM2.5 (fumée)"):             {"min": 0, "max": 150, "palette": _PM25_PAL},
-    ("cams", "Fumée (carbone organique)"): {"min": 0, "max": 1,   "palette": _PM25_PAL},
-    ("cams", "Aérosols (AOD)"):            {"min": 0, "max": 2,   "palette": _PM25_PAL},
+    ("cams", "PM2.5 (fumée)"):             {"min": 0, "max": 80,  "palette": _PM25_PAL},
+    ("cams", "Fumée (carbone organique)"): {"min": 0, "max": 0.6, "palette": _PM25_PAL},
+    ("cams", "Aérosols (AOD)"):            {"min": 0, "max": 1.2, "palette": _PM25_PAL},
     # Lot A — catégoriels
     ("ghsl_smod", "Degré d'urbanisation"): {"min": 10, "max": 30, "palette": ["#7ab6f5", "#cdf57a", "#abcd66", "#375623", "#ffff00", "#a87000", "#732600", "#ff0000"]},
     ("dynamicworld", "Occupation du sol (DW)"): {"min": 0, "max": 8, "palette": ["#419BDF", "#397D49", "#88B053", "#7A87C6", "#E49635", "#DFC35A", "#C4281B", "#A59B8F", "#B39FE1"]},
@@ -1232,10 +1232,10 @@ def gee_tiles(req: TileRequest):
             # Seuils = juste au-dessus du fond ambiant → seul le panache ressort
             # (le fond européen est déjà ~10-20 µg/m³ ; on ne montre que la fumée).
             _smoke_floor = {
-                ("geos_cf", "PM2.5 (fumée)"): 12, ("geos_cf", "Carbone suie (BC)"): 1,
-                ("geos_cf", "Carbone organique (OC)"): 3,
-                ("cams", "PM2.5 (fumée)"): 12, ("cams", "Aérosols (AOD)"): 0.15,
-                ("cams", "Fumée (carbone organique)"): 0.05,
+                ("geos_cf", "PM2.5 (fumée)"): 20, ("geos_cf", "Carbone suie (BC)"): 2,
+                ("geos_cf", "Carbone organique (OC)"): 5,
+                ("cams", "PM2.5 (fumée)"): 20, ("cams", "Aérosols (AOD)"): 0.25,
+                ("cams", "Fumée (carbone organique)"): 0.08,
             }.get((req.dataset, req.index))
             if _smoke_floor is not None:
                 image = image.updateMask(image.gt(_smoke_floor))
