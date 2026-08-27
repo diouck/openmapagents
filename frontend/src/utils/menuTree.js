@@ -290,6 +290,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "vectorcat", label: "Catalogue vectoriel", desc: "Cherche et ajoute des données vectorielles (limites, routes, rivières, séismes…).", icon: IcBoxes },
     { kind: "tool", id: "sql", label: "SQL Workspace", desc: "Éditeur SQL spatial (DuckDB) sur vos couches → résultat en carte.", icon: IcTable },
+    { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },
     { kind: "tool", id: "join", label: "Jointure attributaire", desc: "Rapatrie les colonnes d'un CSV vers une couche.", icon: IcTable },

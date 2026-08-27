@@ -15,6 +15,7 @@ Déps : rasterio numpy Pillow.
 """
 import io
 import os
+import ast
 import json
 import time
 import uuid
@@ -22,8 +23,10 @@ import glob
 import shutil
 import base64
 import tempfile
+from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/raster", tags=["raster"])
 
@@ -192,8 +195,12 @@ async def raster_import(file: UploadFile = File(...)):
             token = uuid.uuid4().hex[:16]
             jdir = os.path.join(_JOBS, token); os.makedirs(jdir, exist_ok=True)
             np.save(os.path.join(jdir, "band.npy"), band.astype(np.float32))
+            # transform/crs de la grille reprojetée (EPSG:3857) : nécessaires aux
+            # statistiques zonales (rasterisation des polygones sur la même grille).
             with open(os.path.join(jdir, "meta.json"), "w") as mf:
-                json.dump({"coords": coords, "bbox": [w4, s4, e4, n4]}, mf)
+                json.dump({"coords": coords, "bbox": [w4, s4, e4, n4],
+                           "transform": [float(v) for v in list(transform)[:6]],
+                           "crs": dst_crs, "width": int(W), "height": int(H)}, mf)
 
             png_b64, _ = _render(band, mask, _CMAP, p2, p98, 0)
             return {
@@ -234,3 +241,235 @@ def raster_restyle(
     png_b64, legend = _render(band, mask, cmap, float(vmin), float(vmax), int(classes))
     os.utime(jdir, None)   # rafraîchit le TTL
     return {"png_b64": png_b64, "legend": legend, "vmin": vmin, "vmax": vmax, "classes": classes}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Analyse raster : statistiques zonales + calculatrice (map algebra)
+#  Opèrent sur les rasters MONO-BANDE importés (jeton `raster_token` → band.npy
+#  en cache, grille EPSG:3857 + transform/crs dans meta.json).
+# ─────────────────────────────────────────────────────────────────────────────
+def _job_dir(token):
+    if not str(token or "").isalnum():
+        raise HTTPException(400, "Jeton invalide.")
+    return os.path.join(_JOBS, str(token))
+
+
+def _load_job(token):
+    """Charge (band, meta, jdir) d'un raster importé ; 410 si expiré/absent."""
+    import numpy as np
+    jdir = _job_dir(token)
+    bpath = os.path.join(jdir, "band.npy")
+    mpath = os.path.join(jdir, "meta.json")
+    if not os.path.isfile(bpath) or not os.path.isfile(mpath):
+        raise HTTPException(410, "Raster expiré côté serveur — réimportez le GeoTIFF.")
+    band = np.load(bpath)
+    with open(mpath) as f:
+        meta = json.load(f)
+    os.utime(jdir, None)   # rafraîchit le TTL
+    return band, meta, jdir
+
+
+class ZonalReq(BaseModel):
+    raster_token: str
+    zones: dict                       # GeoJSON FeatureCollection (polygones, WGS84)
+    label_field: Optional[str] = None
+
+
+@router.post("/zonal")
+def raster_zonal(req: ZonalReq):
+    """Statistiques zonales : agrège les pixels du raster par polygone.
+
+    Rasterise chaque zone (reprojetée dans la grille du raster) en un label
+    1..N, puis calcule count/min/moyenne/max/écart-type/somme par label en une
+    passe (bincount). Renvoie un tableau + la FeatureCollection enrichie (zs_*).
+    """
+    import numpy as np
+    try:
+        from rasterio.transform import Affine
+        from rasterio.features import rasterize
+        from rasterio.warp import transform_geom
+    except ImportError as e:
+        raise HTTPException(503, f"Dépendance raster manquante : « {getattr(e, 'name', e)} ».")
+
+    band, meta, _ = _load_job(req.raster_token)
+    tr, crs = meta.get("transform"), meta.get("crs")
+    if not tr or not crs:
+        raise HTTPException(422, "Ce raster a été importé avant l'ajout des stats zonales — réimportez-le.")
+    H, W = band.shape
+    affine = Affine(*tr)
+
+    feats = (req.zones or {}).get("features") or []
+    if not feats:
+        raise HTTPException(422, "Aucune zone (polygone) fournie.")
+    if len(feats) > 2000:
+        raise HTTPException(422, f"Trop de zones ({len(feats)}) — limite 2000.")
+
+    shapes, labels_txt = [], []
+    for i, ft in enumerate(feats):
+        g = (ft or {}).get("geometry")
+        props = (ft or {}).get("properties") or {}
+        lbl = None
+        if req.label_field and req.label_field in props:
+            lbl = props.get(req.label_field)
+        else:
+            for k in ("name", "nom", "NAME", "NOM", "label", "id", "ID"):
+                if k in props:
+                    lbl = props[k]; break
+        labels_txt.append(str(lbl) if lbl is not None else f"Zone {i + 1}")
+        if not g:
+            continue
+        try:
+            gp = transform_geom("EPSG:4326", crs, g)
+            shapes.append((gp, i + 1))
+        except Exception:
+            pass
+    if not shapes:
+        raise HTTPException(422, "Aucune géométrie exploitable dans les zones.")
+
+    lab = rasterize(shapes, out_shape=(H, W), transform=affine, fill=0, dtype="uint32")
+    sel = np.isfinite(band) & (lab > 0)
+    fl = lab[sel]
+    fv = band[sel].astype(np.float64)
+    N = len(feats)
+    count = np.bincount(fl, minlength=N + 1).astype(np.int64)
+    ssum = np.bincount(fl, weights=fv, minlength=N + 1)
+    ssq = np.bincount(fl, weights=fv * fv, minlength=N + 1)
+    gmin = np.full(N + 1, np.inf); np.minimum.at(gmin, fl, fv)
+    gmax = np.full(N + 1, -np.inf); np.maximum.at(gmax, fl, fv)
+
+    def _r(v):
+        return None if v is None else round(float(v), 4)
+
+    columns = ["zone", "count", "min", "mean", "max", "std", "sum"]
+    rows, out_feats = [], []
+    for i, ft in enumerate(feats):
+        li, c = i + 1, int(count[i + 1])
+        if c > 0:
+            mean = ssum[li] / c
+            std = max(ssq[li] / c - mean * mean, 0.0) ** 0.5
+            mn, mx, sm = _r(gmin[li]), _r(gmax[li]), _r(ssum[li])
+            mean, std = _r(mean), _r(std)
+        else:
+            mean = std = mn = mx = sm = None
+        rec = {"zone": labels_txt[i], "count": c, "min": mn, "mean": mean, "max": mx, "std": std, "sum": sm}
+        rows.append([rec[k] for k in columns])
+        nf = dict(ft or {})
+        np_ = dict((ft or {}).get("properties") or {})
+        np_.update({"zs_count": c, "zs_min": mn, "zs_mean": mean, "zs_max": mx, "zs_std": std, "zs_sum": sm})
+        nf["properties"] = np_
+        out_feats.append(nf)
+
+    covered = int((count[1:] > 0).sum())
+    return {
+        "columns": columns, "rows": rows,
+        "zones": {"type": "FeatureCollection", "features": out_feats},
+        "nZones": N, "covered": covered,
+        "message": f"{covered}/{N} zone(s) couverte(s) par le raster.",
+    }
+
+
+# ── Calculatrice raster : évaluation sûre d'une expression (map algebra) ──────
+def _calc_env(np):
+    return {
+        "where": np.where, "log": np.log, "log10": np.log10, "log2": np.log2,
+        "sqrt": np.sqrt, "exp": np.exp, "abs": np.abs, "absolute": np.abs,
+        "clip": np.clip, "minimum": np.minimum, "maximum": np.maximum,
+        "sin": np.sin, "cos": np.cos, "tan": np.tan, "arctan": np.arctan,
+        "floor": np.floor, "ceil": np.ceil, "power": np.power,
+        "nan_to_num": np.nan_to_num, "isnan": np.isnan, "isfinite": np.isfinite,
+        "pi": float(np.pi), "e": float(np.e), "nan": float("nan"),
+    }
+
+
+_ALLOWED_NODES = (
+    ast.Expression, ast.BinOp, ast.UnaryOp, ast.Compare, ast.Call, ast.IfExp,
+    ast.Name, ast.Load, ast.Constant, ast.Num,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.FloorDiv,
+    ast.BitAnd, ast.BitOr, ast.BitXor, ast.Invert, ast.USub, ast.UAdd,
+    ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq,
+)
+
+
+def _safe_calc(expr, band, np):
+    """Évalue `expr` (variable A = le raster) sans eval libre : AST verrouillé."""
+    if len(expr) > 500:
+        raise HTTPException(422, "Expression trop longue (500 caractères max).")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        raise HTTPException(422, f"Expression invalide : {e.msg}.")
+    env = _calc_env(np)
+    allowed = set(env.keys()) | {"A", "x"}
+    for node in ast.walk(tree):
+        if not isinstance(node, _ALLOWED_NODES):
+            raise HTTPException(422, f"Élément non autorisé : {type(node).__name__}. Utilisez A, des nombres et les fonctions listées.")
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in env or node.keywords:
+                raise HTTPException(422, "Appel de fonction non autorisé.")
+        if isinstance(node, ast.Name) and node.id not in allowed:
+            raise HTTPException(422, f"Nom inconnu : « {node.id} ». Le raster s'appelle A.")
+        if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
+            raise HTTPException(422, "Seules les constantes numériques sont autorisées.")
+    scope = dict(env); scope["A"] = band; scope["x"] = band
+    try:
+        return eval(compile(tree, "<calc>", "eval"), {"__builtins__": {}}, scope)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(422, f"Erreur d'évaluation : {e}")
+
+
+class CalcReq(BaseModel):
+    raster_token: str
+    expr: str
+    name: Optional[str] = None
+    palette: Optional[str] = ""
+
+
+@router.post("/calc")
+def raster_calc(req: CalcReq):
+    """Calculatrice raster : applique une expression (A = le raster) et renvoie
+    un NOUVEAU raster (même grille) affichable comme couche image."""
+    import numpy as np
+    band, meta, _ = _load_job(req.raster_token)
+    expr = (req.expr or "").strip()
+    if not expr:
+        raise HTTPException(422, "Expression vide.")
+    A = band.astype(np.float64)
+    with np.errstate(all="ignore"):
+        res = _safe_calc(expr, A, np)
+    res = np.asarray(res)
+    if res.dtype == bool:
+        res = res.astype(np.float32)
+    if res.shape != band.shape:
+        if res.ndim == 0:
+            res = np.full(band.shape, float(res), np.float32)
+        else:
+            raise HTTPException(422, "Le résultat n'a pas la forme du raster.")
+    res = res.astype(np.float32)
+    res[~np.isfinite(res)] = np.nan
+    mask = np.isfinite(res)
+    fin = res[mask]
+    if fin.size == 0:
+        raise HTTPException(422, "Résultat vide (aucune valeur définie).")
+    vmin, vmax = float(np.min(fin)), float(np.max(fin))
+    p2, p98 = float(np.percentile(fin, 2)), float(np.percentile(fin, 98))
+
+    token = uuid.uuid4().hex[:16]
+    jdir = os.path.join(_JOBS, token); os.makedirs(jdir, exist_ok=True)
+    np.save(os.path.join(jdir, "band.npy"), res)
+    with open(os.path.join(jdir, "meta.json"), "w") as mf:
+        json.dump({"coords": meta.get("coords"), "bbox": meta.get("bbox"),
+                   "transform": meta.get("transform"), "crs": meta.get("crs"),
+                   "width": meta.get("width"), "height": meta.get("height")}, mf)
+
+    cmap = _ramp_from_hex((req.palette or "").split(",")) if (req.palette or "").strip() else _CMAP
+    png_b64, _ = _render(res, mask, cmap, p2, p98, 0)
+    return {
+        "name": req.name or f"calc · {expr[:40]}",
+        "width": meta.get("width"), "height": meta.get("height"), "bands": 1,
+        "bbox": meta.get("bbox"), "image_coordinates": meta.get("coords"),
+        "png_b64": png_b64, "raster_token": token,
+        "vmin": round(p2, 3), "vmax": round(p98, 3),
+        "data_min": round(vmin, 3), "data_max": round(vmax, 3),
+    }

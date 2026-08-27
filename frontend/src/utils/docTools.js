@@ -195,6 +195,26 @@ export const DOC_TOOLS = {
     ],
     caveat: "La qualité dépend d'échantillons représentatifs et équilibrés : trop peu d'exemples ou des classes déséquilibrées biaisent le résultat.",
   },
+  rasteranalysis: {
+    date: "2026-08-28",
+    dataLine: "GeoTIFF mono-bande importé · DuckDB/numpy · rasterio",
+    abstract: "Deux analyses sur un raster importé (altitude, indice, température…). Les statistiques zonales agrègent les pixels par polygone d'une couche vecteur — nombre, min, moyenne, max, écart-type, somme — et enrichissent les zones pour la carte. La calculatrice applique une expression de « map algebra » (A désigne le raster) et produit une nouvelle couche : seuillage, normalisation, reclassement, masquage.",
+    usage: [
+      "Importez d'abord un GeoTIFF mono-bande (glisser-déposer ou Import), puis ouvrez Menu thématique → Outils & données → Analyse raster.",
+      "Statistiques zonales : choisissez le raster et une couche de polygones, puis « Calculer » ; ajoutez les zones enrichies (zs_mean, zs_max…) à la carte.",
+      "Calculatrice : choisissez le raster et écrivez une expression avec A (ex. where(A > 0, 1, 0), clip(A, 0, 100), (A - min) / (max - min)).",
+      "Le résultat de la calculatrice devient une nouvelle couche image, restylable comme un raster GEE.",
+    ],
+    example: {
+      title: "Extraire les pentes fortes et les compter par commune",
+      body: "Sur un MNT importé, la calculatrice binarise le raster (where(A > seuil, 1, 0)) ; les statistiques zonales, croisées avec une couche de communes, donnent alors la somme de pixels « pente forte » et la moyenne par commune, directement en tableau et sur la carte.",
+      stats: [
+        { v: "6 stats", k: "count · min · moy · max · std · somme" },
+        { v: "Sûr", k: "expression sans exécution de code" },
+      ],
+    },
+    caveat: "Rasters mono-bande uniquement (les imports RGB 3 bandes ne sont pas mis en cache). La calculatrice n'autorise que A, des nombres et une liste de fonctions (where, clip, log, sqrt…) — aucun accès système. Le raster importé expire côté serveur après 1 h : réimportez-le au besoin.",
+  },
   stats: {
     dataLine: "Une couche de la carte",
     abstract: "Statistiques descriptives d'une couche : min, moyenne, médiane, max, écart-type et histogramme sur les valeurs d'un indice ou d'un attribut. La première étape pour choisir des seuils de classification ou vérifier une donnée.",
