@@ -31,6 +31,7 @@ import WeatherPanel from "./components/WeatherPanel";
 import ChartLayer from "./components/ChartLayer";
 import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
+import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
 import Scene3DPanel from "./components/Scene3DPanel";
@@ -76,6 +77,7 @@ import {
   IcMountain, IcCube, IcEdit, IcFilm, IcDiff, IcCompare, IcOSM, IcLeaf, IcClassif,
   IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap,
   IcCloudRain, IcSnowflake, IcChevronDown, IcTable, IcFlame, IcDroplets, IcBoxes, IcInfo,
+  IcGrid,
 } from "./icons";
 
 // ─── Configuration du rail — groupes logiques, icônes uniques ─
@@ -125,6 +127,7 @@ const RAIL_GROUPS = [
       { id: "watershed", sub: "Bassin",  label: "Bassin versant",            Icon: IcDroplets, hasPanel: true },
       { id: "profil",   sub: "Profil",   label: "Profil altimétrique",       Icon: IcMountain, hasPanel: true },
       { id: "classif",  sub: "Classif.", label: "Classification supervisée", Icon: IcClassif,  hasPanel: true },
+      { id: "rasteranalysis", sub: "Raster", label: "Analyse raster (zonal + calc)", Icon: IcGrid, hasPanel: true },
     ],
   },
   {
@@ -2208,6 +2211,13 @@ export default function App() {
     if (activeTool === "sql") return (
       <Embed>
         <SqlPanel onAddLayer={addLayer} layers={layers} />
+      </Embed>
+    );
+
+    // ── Analyse raster : stats zonales + calculatrice ─────────
+    if (activeTool === "rasteranalysis") return (
+      <Embed>
+        <RasterAnalysisPanel layers={layers} onAddLayer={addLayer} onAddImageLayer={addImageLayer} />
       </Embed>
     );
 
