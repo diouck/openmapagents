@@ -280,6 +280,7 @@ export const MENU_TREE = [
     { kind: "indicator", id: "SMOKE" },
     { kind: "tool", id: "change", label: "Détection de changement", desc: "Compare deux dates et isole ce qui a changé.", icon: IcDiff },
     { kind: "tool", id: "compare", label: "Comparateur A/B", desc: "Deux couches côte à côte, curseur de balayage.", icon: IcCompare },
+    { kind: "tool", id: "story", label: "Story map (scrollytelling)", desc: "Raconte une histoire en chapitres animés (vues + couches) et exporte un HTML autonome.", icon: IcFilm },
   ]},
   { id: "relief", label: "Relief & 3D / LiDAR", icon: IcMountain, items: [
     { kind: "indicator", id: "ELEV" }, { kind: "indicator", id: "SLOPE" }, { kind: "indicator", id: "HILLSHADE" },

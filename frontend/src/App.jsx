@@ -33,6 +33,7 @@ import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
 import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
 import StacPanel from "./components/StacPanel";
+import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
 import Scene3DPanel from "./components/Scene3DPanel";
@@ -115,6 +116,7 @@ const RAIL_GROUPS = [
       { id: "layers",  sub: "Gérer",   label: "Gestionnaire",  Icon: IcStack,    hasPanel: true },
       { id: "stats",   sub: "Stats",   label: "Statistiques",  Icon: IcBarChart, hasPanel: true },
       { id: "compare", sub: "Compar.", label: "Comparateur A/B", Icon: IcCompare,  hasPanel: true },
+      { id: "story",   sub: "Story",   label: "Story map (scrollytelling)", Icon: IcFilm, hasPanel: true },
     ],
   },
   {
@@ -2213,6 +2215,13 @@ export default function App() {
     if (activeTool === "stac") return (
       <Embed>
         <StacPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    // ── Story map (scrollytelling + export HTML) ──────────────
+    if (activeTool === "story") return (
+      <Embed>
+        <StoryPanel mapRef={mapRef} layers={layers} />
       </Embed>
     );
 
