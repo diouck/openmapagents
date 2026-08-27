@@ -32,6 +32,7 @@ import ChartLayer from "./components/ChartLayer";
 import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
 import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
+import StacPanel from "./components/StacPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
 import Scene3DPanel from "./components/Scene3DPanel";
@@ -135,6 +136,7 @@ const RAIL_GROUPS = [
     label: "Données",
     items: [
       { id: "vectorcat", sub: "Catalogue", label: "Catalogue vectoriel",  Icon: IcBoxes,     hasPanel: true },
+      { id: "stac",      sub: "STAC",      label: "Navigateur STAC / COG", Icon: IcSatellite, hasPanel: true },
       { id: "sql",       sub: "SQL",       label: "SQL Workspace",        Icon: IcTable,     hasPanel: true },
       { id: "database",  sub: "BDD",       label: "Base de données",      Icon: IcDatabase,  hasPanel: true },
       { id: "ogc",       sub: "OGC",       label: "Services OGC/WMS",     Icon: IcServer,    hasPanel: true },
@@ -2204,6 +2206,13 @@ export default function App() {
     if (activeTool === "spatial") return (
       <Embed>
         <SpatialPanel layers={layers.filter(l=>l.visible&&!l.isRaster)} onAddLayer={addLayer} />
+      </Embed>
+    );
+
+    // ── Navigateur STAC + COG (chercher/ajouter des scènes) ───
+    if (activeTool === "stac") return (
+      <Embed>
+        <StacPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
       </Embed>
     );
 

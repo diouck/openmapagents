@@ -889,6 +889,14 @@ try:
 except Exception as e:
     print(f"✗ Raster routes non chargées: {e}")
 
+# Navigateur STAC + COG (chercher/ajouter des scènes satellite)
+try:
+    from stac_routes import router as stac_router
+    app.include_router(stac_router)
+    print("✓ STAC routes chargées (/api/stac/search, /api/stac/scene)")
+except Exception as e:
+    print(f"✗ STAC routes non chargées: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)
