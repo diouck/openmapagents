@@ -195,6 +195,26 @@ export const DOC_TOOLS = {
     ],
     caveat: "La qualité dépend d'échantillons représentatifs et équilibrés : trop peu d'exemples ou des classes déséquilibrées biaisent le résultat.",
   },
+  stac: {
+    date: "2026-08-28",
+    dataLine: "STAC · Earth Search (Element84) · COG Sentinel-2",
+    abstract: "Un navigateur de scènes satellite : on interroge un catalogue STAC (Earth Search) sur l'emprise affichée, filtré par collection, période et couverture nuageuse, et on récupère une liste de scènes triées du plus clair au plus nuageux. Ajouter une scène lit son Cloud-Optimized GeoTIFF (COG) à la volée — via les aperçus internes du fichier, sans le télécharger entièrement — et la superpose à la carte, reprojetée pour coller au fond.",
+    usage: [
+      "Menu thématique → Outils & données → Navigateur STAC / COG.",
+      "Choisissez la collection (Sentinel-2 L2A par défaut), la période et le seuil de nuages.",
+      "Cadrez la zone voulue sur la carte, puis « Rechercher dans la vue ».",
+      "Parcourez les vignettes ; « Ajouter à la carte » superpose l'aperçu COG de la scène (RVB).",
+    ],
+    example: {
+      title: "Trouver l'image Sentinel-2 la moins nuageuse de l'été",
+      body: "Sur une zone donnée, une recherche entre juin et août avec un seuil de 20 % de nuages renvoie les scènes classées par clarté. La première, quasi sans nuage, s'ajoute en un clic — son COG est lu en aperçu (overviews) et reprojeté en Web Mercator.",
+      stats: [
+        { v: "COG", k: "lecture partielle par plage HTTP" },
+        { v: "Sans clé", k: "Earth Search (Element84)" },
+      ],
+    },
+    caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
+  },
   rasteranalysis: {
     date: "2026-08-28",
     dataLine: "GeoTIFF mono-bande importé · DuckDB/numpy · rasterio",

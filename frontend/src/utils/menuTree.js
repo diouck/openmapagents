@@ -289,6 +289,7 @@ export const MENU_TREE = [
   { id: "outils", label: "Outils & données", icon: IcWrench, items: [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "vectorcat", label: "Catalogue vectoriel", desc: "Cherche et ajoute des données vectorielles (limites, routes, rivières, séismes…).", icon: IcBoxes },
+    { kind: "tool", id: "stac", label: "Navigateur STAC / COG", desc: "Cherche des scènes satellite (Sentinel-2…) sur l'emprise et ajoute leur aperçu COG.", icon: IcSatellite },
     { kind: "tool", id: "sql", label: "SQL Workspace", desc: "Éditeur SQL spatial (DuckDB) sur vos couches → résultat en carte.", icon: IcTable },
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
