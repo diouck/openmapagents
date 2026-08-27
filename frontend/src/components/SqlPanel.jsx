@@ -98,7 +98,7 @@ export default function SqlPanel({ onAddLayer, layers = [] }) {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
       {/* Onglets */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.bdr}` }}>
         {tabBtn("editor", "Éditeur")}
