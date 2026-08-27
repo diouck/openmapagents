@@ -248,6 +248,26 @@ export const DOC_TOOLS = {
       "Le résultat s'ajoute à la carte comme couche vectorielle.",
     ],
   },
+  sql: {
+    date: "2026-08-27",
+    dataLine: "DuckDB spatial · vos couches vecteur",
+    abstract: "Un éditeur SQL spatial qui prend vos couches vecteur déjà chargées comme tables et les interroge avec toute la boîte à outils géométrique de DuckDB (ST_Buffer, ST_Centroid, ST_Area, ST_Intersects…). Le résultat s'affiche en tableau et, dès qu'il contient une géométrie, s'ajoute à la carte comme une nouvelle couche.",
+    usage: [
+      "Menu thématique → Outils & données → SQL Workspace.",
+      "Chaque couche vecteur chargée devient une table : cliquez son nom pour insérer une requête d'aperçu (le nom SQL est le nom de couche nettoyé en alphanumérique).",
+      "Écrivez votre requête (Ctrl/⌘ + Entrée pour l'exécuter) ou partez d'un exemple ; référez les colonnes géométriques sous le nom geom.",
+      "Lisez le tableau ; si le résultat a une géométrie, « Ajouter à la carte » en fait une couche exploitable.",
+    ],
+    example: {
+      title: "Générer des tampons de 500 m autour de points",
+      body: "Sur une couche de points chargée, SELECT *, ST_Buffer(geom, 0.005) AS geom FROM \"ma_couche\" renvoie les zones d'influence sous forme de polygones, ajoutables à la carte en un clic — sans passer par un SIG lourd.",
+      stats: [
+        { v: "DuckDB", k: "SQL spatial en mémoire" },
+        { v: "ST_*", k: "Fonctions géométriques" },
+      ],
+    },
+    caveat: "Les requêtes portent sur les couches chargées, pas sur des fichiers du serveur : par sécurité (application publique) l'accès externe de DuckDB est verrouillé avant d'exécuter votre SQL. Les résultats sont bornés (5 000 lignes) et la géométrie attendue est en WGS84 (degrés) — un tampon se règle donc en degrés, pas en mètres.",
+  },
   ogc: {
     dataLine: "Flux WMS / WFS / WMTS externes",
     abstract: "Le connecteur aux services géographiques standards : on branche un flux WMS, WFS ou WMTS d'un fournisseur (IGN, PDOK, services régionaux…) et sa donnée s'affiche dans la carte, sans import de fichier.",
