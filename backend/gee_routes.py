@@ -623,7 +623,7 @@ DATASET_DATE_RANGES = {
     "chirps":     ("1981-01-01", None),
     "modis_et":   ("2001-01-01", None),
     "smap":       ("2015-03-31", None),
-    "geos_cf":    ("2022-10-01", None),
+    "geos_cf":    ("2022-10-01", "2026-01-02"),   # GEOS-CF v1 s'arrête début 2026 → message clair au-delà
     "cams":       ("2016-06-22", None),
     # ── Lot G — Océanographie ──
     "modis_ocean":     ("2002-07-04", None),
@@ -661,8 +661,12 @@ def _check_date_availability(dataset, date_start, date_end):
             f"Choisissez un autre capteur ou une date postérieure."
         )
     if avail_end and date_start > avail_end:
+        _lbl = DATASETS.get(dataset, {}).get("label", dataset)
+        _hint = (" Pour la fumée récente / temps réel, utilisez la source « CAMS »."
+                 if dataset == "geos_cf" else "")
         raise ValueError(
-            f"« {dataset} » n'a plus de données après {avail_end}."
+            f"« {_lbl} » n'a plus de données après {avail_end} "
+            f"(période demandée : {date_start} → {date_end})." + _hint
         )
 
 # ── Models ────────────────────────────────────────────────────
