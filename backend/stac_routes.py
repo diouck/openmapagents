@@ -40,19 +40,24 @@ router = APIRouter(prefix="/api/stac", tags=["stac"])
 _STAC_URL = "https://earth-search.aws.element84.com/v1/search"
 _MAX_SIDE = 1024
 
-# Collections proposées (Earth Search v1). `visual` = présence d'un COG RVB TCI.
+# Collections proposées (Earth Search v1). Seules celles dont le COG « visual »
+# est sur un bucket S3 PUBLIC (pas de requester-pays) sont proposées : leur
+# aperçu est lisible sans identifiants AWS. (Sentinel-2 L1C et Landsat C2 L2
+# pointent vers des buckets s3:// requester-pays → non lisibles ici.)
 COLLECTIONS = {
     "sentinel-2-l2a": {"label": "Sentinel-2 L2A (surface)", "visual": True},
-    "sentinel-2-l1c": {"label": "Sentinel-2 L1C (TOA)", "visual": True},
-    "landsat-c2-l2": {"label": "Landsat C2 L2", "visual": False},
-    "sentinel-2-c1-l2a": {"label": "Sentinel-2 C1 L2A", "visual": True},
+    "sentinel-2-c1-l2a": {"label": "Sentinel-2 C1 L2A (surface)", "visual": True},
 }
 
-# Hôtes d'assets autorisés pour la lecture COG (anti-SSRF).
-_ALLOWED_HOSTS = {
-    "sentinel-cogs.s3.us-west-2.amazonaws.com",
-    "sentinel-cogs.s3.amazonaws.com",
-}
+
+def _host_ok(href):
+    """Anti-SSRF : n'autorise que des assets https sur des buckets S3 publics
+    (`*.amazonaws.com`). Bloque s3:// (requester-pays) et tout hôte interne."""
+    try:
+        u = urlparse(href or "")
+    except Exception:
+        return False
+    return u.scheme == "https" and bool(u.hostname) and u.hostname.endswith(".amazonaws.com")
 
 
 class StacSearchReq(BaseModel):
@@ -123,7 +128,7 @@ def stac_search(req: StacSearchReq):
             "cloud": props.get("eo:cloud_cover"),
             "bbox": it.get("bbox"),
             "thumb": thumb,
-            "visual": visual if (visual and urlparse(visual).hostname in _ALLOWED_HOSTS) else None,
+            "visual": visual if (visual and _host_ok(visual)) else None,
         })
     return {"count": len(items), "matched": res.get("numberMatched"), "items": items}
 
@@ -142,9 +147,8 @@ def stac_scene(req: StacSceneReq):
         raise HTTPException(503, f"Dépendance raster manquante : « {getattr(e, 'name', e)} ».")
 
     href = (req.href or "").strip()
-    u = urlparse(href)
-    if u.scheme != "https" or u.hostname not in _ALLOWED_HOSTS:
-        raise HTTPException(400, "Source COG non autorisée (hôte hors liste blanche).")
+    if not _host_ok(href):
+        raise HTTPException(400, "Source COG non autorisée (seuls les buckets S3 publics https sont lus).")
 
     try:
         with rasterio.open("/vsicurl/" + href) as src:

@@ -12,9 +12,7 @@ import { F, M, API } from "../config";
 
 const COLLECTIONS = [
   ["sentinel-2-l2a", "Sentinel-2 L2A (surface)"],
-  ["sentinel-2-c1-l2a", "Sentinel-2 C1 L2A"],
-  ["sentinel-2-l1c", "Sentinel-2 L1C (TOA)"],
-  ["landsat-c2-l2", "Landsat C2 L2"],
+  ["sentinel-2-c1-l2a", "Sentinel-2 C1 L2A (surface)"],
 ];
 
 const ymd = (d) => d.toISOString().slice(0, 10);
