@@ -195,6 +195,26 @@ export const DOC_TOOLS = {
     ],
     caveat: "La qualité dépend d'échantillons représentatifs et équilibrés : trop peu d'exemples ou des classes déséquilibrées biaisent le résultat.",
   },
+  story: {
+    date: "2026-08-28",
+    dataLine: "Vos couches + vues de caméra · MapLibre GL JS",
+    abstract: "Un atelier de « story map » : on raconte une histoire en chapitres, chacun mémorisant une vue de la carte (centre, zoom, inclinaison, orientation) capturée d'un clic, un texte et les couches visibles. « Lire » enchaîne les vues dans l'application ; « Exporter en HTML » produit un fichier autonome où, au défilement, la carte vole d'un chapitre à l'autre — le scrollytelling classique, prêt à partager.",
+    usage: [
+      "Menu thématique → Outils & données → Story map (scrollytelling).",
+      "Cadrez la carte sur la première scène, puis « + Chapitre (vue actuelle) » : la vue et les couches visibles sont mémorisées.",
+      "Rédigez le texte de chaque chapitre ; réordonnez, recapturez ou supprimez au besoin.",
+      "« Lire » pour prévisualiser dans l'appli ; « Exporter en HTML » pour récupérer un fichier .html à faire défiler et diffuser.",
+    ],
+    example: {
+      title: "Présenter l'évolution d'un territoire en trois temps",
+      body: "Chapitre 1 : vue large sur la région. Chapitre 2 : zoom sur une ville avec la couche d'occupation du sol. Chapitre 3 : bascule en 3D inclinée sur un quartier. À l'export, le lecteur fait défiler et la carte enchaîne les trois plans toute seule.",
+      stats: [
+        { v: "HTML", k: "fichier autonome partageable" },
+        { v: "Scroll", k: "vols de caméra au défilement" },
+      ],
+    },
+    caveat: "L'export embarque vos couches (GeoJSON en clair, aperçus raster en image) et charge MapLibre GL JS + le fond OpenStreetMap depuis Internet : le fichier s'ouvre donc en ligne, et de gros aperçus raster l'alourdissent. La prévisualisation « Lire » anime la carte de l'appli sans modifier vos couches.",
+  },
   stac: {
     date: "2026-08-28",
     dataLine: "STAC · Earth Search (Element84) · COG Sentinel-2",
