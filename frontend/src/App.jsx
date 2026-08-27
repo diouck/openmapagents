@@ -1815,7 +1815,7 @@ export default function App() {
     if (ext === "tif" || ext === "tiff") {
       try {
         const fd = new FormData(); fd.append("file", file);
-        const r = await fetch(`${API}/api/raster/import`, { method: "POST", body: fd });
+        const r = await fetch(`${API}/raster/import`, { method: "POST", body: fd });
         if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
         const d = await r.json();
         addImageLayer({
