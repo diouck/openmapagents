@@ -852,6 +852,13 @@ try:
 except Exception as e:
     log.warning(f"⚠ Auth/Maps router : {e}")
 
+try:
+    from sql_routes import router as sql_router
+    app.include_router(sql_router)
+    log.info("✓ SQL router chargé (/api/sql/run)")
+except Exception as e:
+    log.warning(f"⚠ SQL router : {e}")
+
 
 
 from osm_routes import router as osm_router
