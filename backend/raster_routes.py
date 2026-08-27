@@ -473,3 +473,148 @@ def raster_calc(req: CalcReq):
         "vmin": round(p2, 3), "vmax": round(p98, 3),
         "data_min": round(vmin, 3), "data_max": round(vmax, 3),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Vectorisation : polygones (polygonize) + courbes de niveau (contours)
+#  Sortie GeoJSON en WGS84 (couche vecteur ajoutable à la carte).
+# ─────────────────────────────────────────────────────────────────────────────
+class PolygonizeReq(BaseModel):
+    raster_token: str
+    classes: int = 5
+    simplify: float = 0.0        # tolérance de simplification (degrés), 0 = aucune
+
+
+class ContoursReq(BaseModel):
+    raster_token: str
+    count: int = 10              # nombre de niveaux (si interval absent)
+    interval: Optional[float] = None
+
+
+_MAX_FEATURES = 20000
+_MAX_VERTICES = 300000
+
+
+@router.post("/polygonize")
+def raster_polygonize(req: PolygonizeReq):
+    """Découpe le raster en `classes` intervalles égaux et vectorise chaque
+    classe en polygones (rasterio.features.shapes) → FeatureCollection WGS84."""
+    import numpy as np
+    try:
+        from rasterio.transform import Affine
+        from rasterio.features import shapes
+        from rasterio.warp import transform_geom
+    except ImportError as e:
+        raise HTTPException(503, f"Dépendance raster manquante : « {getattr(e, 'name', e)} ».")
+
+    band, meta, _ = _load_job(req.raster_token)
+    tr, crs = meta.get("transform"), meta.get("crs")
+    if not tr or not crs:
+        raise HTTPException(422, "Ce raster a été importé avant l'ajout de la vectorisation — réimportez-le.")
+    affine = Affine(*tr)
+    n = max(2, min(int(req.classes or 5), 30))
+    finite = np.isfinite(band)
+    fin = band[finite]
+    if fin.size == 0:
+        raise HTTPException(422, "Raster vide.")
+    vmin, vmax = float(np.min(fin)), float(np.max(fin))
+    span = (vmax - vmin) or 1.0
+    safe = np.where(finite, band, vmin)                       # évite NaN dans le cast int
+    binned = np.clip(np.floor((safe - vmin) / span * n).astype(np.int32), 0, n - 1)
+    binned = np.where(finite, binned, -1).astype(np.int32)   # -1 = nodata (masqué)
+
+    feats = []
+    try:
+        gen = shapes(binned, mask=finite, transform=affine, connectivity=4)
+        for geom, val in gen:
+            v = int(val)
+            if v < 0:
+                continue
+            g4326 = transform_geom(crs, "EPSG:4326", geom)
+            lo = vmin + v * span / n
+            hi = vmin + (v + 1) * span / n
+            feats.append({"type": "Feature", "geometry": g4326,
+                          "properties": {"class": v, "min": round(lo, 4), "max": round(hi, 4)}})
+            if len(feats) > _MAX_FEATURES:
+                break
+    except Exception as e:
+        raise HTTPException(500, f"Vectorisation impossible : {e}")
+
+    truncated = len(feats) > _MAX_FEATURES
+    return {
+        "geojson": {"type": "FeatureCollection", "features": feats[:_MAX_FEATURES]},
+        "count": min(len(feats), _MAX_FEATURES), "classes": n, "truncated": truncated,
+        "message": f"{min(len(feats), _MAX_FEATURES)} polygone(s), {n} classes"
+                   + (" (tronqué — réduisez le nombre de classes)" if truncated else "."),
+    }
+
+
+@router.post("/contours")
+def raster_contours(req: ContoursReq):
+    """Courbes de niveau (skimage.measure.find_contours) → LineStrings WGS84."""
+    import numpy as np
+    try:
+        from rasterio.transform import Affine
+        from rasterio.warp import transform as warp_transform
+        from skimage import measure
+    except ImportError as e:
+        raise HTTPException(503, f"Dépendance manquante : « {getattr(e, 'name', e)} » (scikit-image requis pour les contours).")
+
+    band, meta, _ = _load_job(req.raster_token)
+    tr, crs = meta.get("transform"), meta.get("crs")
+    if not tr or not crs:
+        raise HTTPException(422, "Ce raster a été importé avant l'ajout des contours — réimportez-le.")
+    affine = Affine(*tr)
+    finite = np.isfinite(band)
+    fin = band[finite]
+    if fin.size == 0:
+        raise HTTPException(422, "Raster vide.")
+    vmin, vmax = float(np.min(fin)), float(np.max(fin))
+
+    if req.interval and req.interval > 0:
+        start = np.ceil(vmin / req.interval) * req.interval
+        levels = list(np.arange(start, vmax, req.interval))
+    else:
+        c = max(2, min(int(req.count or 10), 60))
+        levels = list(np.linspace(vmin, vmax, c + 2))[1:-1]
+    if not levels:
+        raise HTTPException(422, "Aucun niveau à tracer (ajustez l'intervalle).")
+    if len(levels) > 200:
+        raise HTTPException(422, f"Trop de niveaux ({len(levels)}) — augmentez l'intervalle.")
+
+    # find_contours n'aime pas les NaN → on remplit sous le minimum (les
+    # contours des niveaux réels ne traversent pas la zone nodata).
+    filled = np.where(finite, band, vmin - 1.0).astype(np.float64)
+
+    feats = []
+    nverts = 0
+    for lv in levels:
+        try:
+            contours = measure.find_contours(filled, float(lv))
+        except Exception:
+            continue
+        for cont in contours:
+            if len(cont) < 2:
+                continue
+            rows = cont[:, 0]; cols = cont[:, 1]
+            # (row,col) index → monde (centre de pixel) via l'affine
+            xs = affine.c + affine.a * (cols + 0.5) + affine.b * (rows + 0.5)
+            ys = affine.f + affine.d * (cols + 0.5) + affine.e * (rows + 0.5)
+            lon, lat = warp_transform(crs, "EPSG:4326", list(xs), list(ys))
+            coords = [[round(lon[i], 6), round(lat[i], 6)] for i in range(len(lon))]
+            feats.append({"type": "Feature",
+                          "geometry": {"type": "LineString", "coordinates": coords},
+                          "properties": {"level": round(float(lv), 4)}})
+            nverts += len(coords)
+            if nverts > _MAX_VERTICES:
+                break
+        if nverts > _MAX_VERTICES:
+            break
+
+    truncated = nverts > _MAX_VERTICES
+    return {
+        "geojson": {"type": "FeatureCollection", "features": feats},
+        "count": len(feats), "levels": [round(float(x), 4) for x in levels], "truncated": truncated,
+        "message": f"{len(feats)} isoligne(s) sur {len(levels)} niveau(x)"
+                   + (" (tronqué)" if truncated else "."),
+    }

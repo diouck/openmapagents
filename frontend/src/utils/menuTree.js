@@ -293,6 +293,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "stac", label: "Navigateur STAC / COG", desc: "Cherche des scènes satellite (Sentinel-2…) sur l'emprise et ajoute leur aperçu COG.", icon: IcSatellite },
     { kind: "tool", id: "sql", label: "SQL Workspace", desc: "Éditeur SQL spatial (DuckDB) sur vos couches → résultat en carte.", icon: IcTable },
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
+    { kind: "tool", id: "rastervec", label: "Vectorisation raster (polygones + contours)", desc: "Transforme un GeoTIFF en polygones (par classes) ou en courbes de niveau.", icon: IcHexagon },
     { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },
     { kind: "tool", id: "join", label: "Jointure attributaire", desc: "Rapatrie les colonnes d'un CSV vers une couche.", icon: IcTable },

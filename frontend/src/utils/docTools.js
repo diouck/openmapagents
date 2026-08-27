@@ -235,6 +235,26 @@ export const DOC_TOOLS = {
     },
     caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
   },
+  rastervec: {
+    date: "2026-08-28",
+    dataLine: "GeoTIFF mono-bande importé · rasterio · scikit-image",
+    abstract: "Transforme un raster importé en couche vecteur, de deux façons. La vectorisation en polygones découpe le raster en classes d'intervalles égaux et trace le contour de chaque zone (une carte d'occupation, des paliers d'altitude ou de pente). Les courbes de niveau tracent des isolignes à valeurs régulières — le rendu classique d'un modèle de terrain. Le résultat est une couche vecteur ordinaire : stylable, interrogeable, exportable.",
+    usage: [
+      "Importez un GeoTIFF mono-bande, puis Menu thématique → Analyse → Vectorisation raster.",
+      "Onglet Polygones : choisissez le nombre de classes, puis « Vectoriser » — chaque polygone porte sa classe et ses bornes (min/max).",
+      "Onglet Contours : fixez un nombre de niveaux ou un intervalle (ex. 10 m), puis « Générer les contours » — chaque ligne porte sa valeur.",
+      "La couche s'ajoute à la carte ; stylez-la ou exportez-la comme toute couche vecteur.",
+    ],
+    example: {
+      title: "Tirer des courbes de niveau et des paliers d'un MNT",
+      body: "Sur un modèle de terrain importé, un intervalle de 10 m produit les courbes de niveau topographiques ; en parallèle, une vectorisation en 6 classes délimite les grands paliers d'altitude en polygones exploitables.",
+      stats: [
+        { v: "Polygones", k: "par classe d'intervalle" },
+        { v: "Isolignes", k: "niveaux ou intervalle fixe" },
+      ],
+    },
+    caveat: "Rasters mono-bande uniquement. Sortie bornée (≈20 000 polygones / 300 000 sommets) : réduisez le nombre de classes ou augmentez l'intervalle si le résultat est tronqué. Les contours remplissent les zones sans donnée par le minimum, ce qui peut créer une isoligne au bord du nodata.",
+  },
   rasteranalysis: {
     date: "2026-08-28",
     dataLine: "GeoTIFF mono-bande importé · DuckDB/numpy · rasterio",
