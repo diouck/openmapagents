@@ -105,7 +105,7 @@ async def raster_import(file: UploadFile = File(...)):
     try:
         import numpy as np
         import rasterio
-        from rasterio.warp import calculate_default_transform, reproject, Resampling
+        from rasterio.warp import calculate_default_transform, reproject, Resampling, transform as warp_transform
         from rasterio.transform import array_bounds
         from PIL import Image
     except ImportError as _e:
@@ -130,7 +130,11 @@ async def raster_import(file: UploadFile = File(...)):
         with src:
             if src.crs is None:
                 raise HTTPException(422, "GeoTIFF sans CRS : impossible de le géoréférencer.")
-            dst_crs = "EPSG:4326"
+            # Web Mercator (3857) et NON 4326 : l'overlay image MapLibre étire le PNG
+            # LINÉAIREMENT dans la projection d'affichage (Mercator). Un PNG en 4326
+            # (grille équirectangulaire) se décale/écrase verticalement. En 3857 la
+            # grille du PNG coïncide avec l'affichage → alignement exact avec le fond.
+            dst_crs = "EPSG:3857"
             transform, W, H = calculate_default_transform(src.crs, dst_crs, src.width, src.height, *src.bounds)
             if max(W, H) > _MAX_SIDE:
                 sc = _MAX_SIDE / float(max(W, H))
@@ -146,8 +150,16 @@ async def raster_import(file: UploadFile = File(...)):
                           src_transform=src.transform, src_crs=src.crs,
                           dst_transform=transform, dst_crs=dst_crs,
                           resampling=Resampling.bilinear, src_nodata=src_nd, dst_nodata=np.nan)
-            w4, s4, e4, n4 = array_bounds(H, W, transform)
-            coords = [[w4, n4], [e4, n4], [e4, s4], [w4, s4]]
+            # Bornes du raster reprojeté (mètres Mercator), puis coins convertis en
+            # lon/lat : MapLibre attend les 4 coins de l'overlay en géographique.
+            xmin, ymin, xmax, ymax = array_bounds(H, W, transform)
+            _lons, _lats = warp_transform(dst_crs, "EPSG:4326",
+                                          [xmin, xmax, xmax, xmin],
+                                          [ymax, ymax, ymin, ymin])
+            coords = [[_lons[0], _lats[0]], [_lons[1], _lats[1]],
+                      [_lons[2], _lats[2]], [_lons[3], _lats[3]]]   # TL,TR,BR,BL
+            w4, e4 = min(_lons), max(_lons)
+            s4, n4 = min(_lats), max(_lats)
 
             multiband = src.count >= 3
             if multiband:
