@@ -143,7 +143,7 @@ export default function RasterAnalysisPanel({ layers = [], onAddLayer, onAddImag
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}` }}>
         {tabBtn("zonal", "Stats zonales")}
         {tabBtn("calc", "Calculatrice")}
