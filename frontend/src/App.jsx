@@ -32,6 +32,7 @@ import ChartLayer from "./components/ChartLayer";
 import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
 import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
+import RasterVectorPanel from "./components/RasterVectorPanel";
 import StacPanel from "./components/StacPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
@@ -131,6 +132,7 @@ const RAIL_GROUPS = [
       { id: "profil",   sub: "Profil",   label: "Profil altimétrique",       Icon: IcMountain, hasPanel: true },
       { id: "classif",  sub: "Classif.", label: "Classification supervisée", Icon: IcClassif,  hasPanel: true },
       { id: "rasteranalysis", sub: "Raster", label: "Analyse raster (zonal + calc)", Icon: IcGrid, hasPanel: true },
+      { id: "rastervec", sub: "Vecto", label: "Vectorisation raster (polygones + contours)", Icon: IcHexagon, hasPanel: true },
     ],
   },
   {
@@ -2236,6 +2238,13 @@ export default function App() {
     if (activeTool === "rasteranalysis") return (
       <Embed>
         <RasterAnalysisPanel layers={layers} onAddLayer={addLayer} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    // ── Vectorisation raster : polygones + contours ───────────
+    if (activeTool === "rastervec") return (
+      <Embed>
+        <RasterVectorPanel layers={layers} onAddLayer={addLayer} />
       </Embed>
     );
 
