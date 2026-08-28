@@ -71,10 +71,19 @@ def _ramp_from_hex(hexlist):
     return _ramp(anchors)
 
 
-def _render(band, mask, cmap, vmin, vmax, classes):
+def _hex_rgb(h):
+    h = (h or "").strip().lstrip("#")
+    if len(h) == 6:
+        return [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)]
+    return [128, 128, 128]
+
+
+def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=None):
     """Rend une bande en PNG base64 (nodata transparent).
 
-    classes=0 → rampe continue ; classes≥2 → N classes discrètes (+ légende).
+    - bounds (bornes explicites, longueur ncl+1) → classes non uniformes (digitize),
+      avec couleurs par classe (class_colors) si fournies. Sinon :
+    - classes=0 → rampe continue ; classes≥2 → N classes égales.
     Renvoie (png_b64, legend).
     """
     import numpy as np
@@ -82,14 +91,30 @@ def _render(band, mask, cmap, vmin, vmax, classes):
     h, w = band.shape
     span = (vmax - vmin) or 1.0
     legend = []
-    if classes and classes >= 2:
+    if bounds is not None and len(bounds) >= 3:
+        bnds = np.asarray(bounds, dtype=float)
+        ncl = len(bnds) - 1
+        safe = np.nan_to_num(band, nan=float(bnds[0]) - 1.0)
+        idx = np.clip(np.digitize(safe, bnds[1:-1]), 0, ncl - 1)
+        if class_colors and len(class_colors) == ncl:
+            pal = np.array([_hex_rgb(c) for c in class_colors], np.uint8)
+        else:
+            pal = np.array([cmap[int((i + 0.5) / ncl * 255)] for i in range(ncl)], np.uint8)
+        rgb = pal[idx]
+        for i in range(ncl):
+            c = pal[i]
+            legend.append({"label": f"{bnds[i]:.2f} – {bnds[i + 1]:.2f}",
+                           "min": round(float(bnds[i]), 4), "max": round(float(bnds[i + 1]), 4),
+                           "color": "#%02x%02x%02x" % (int(c[0]), int(c[1]), int(c[2]))})
+    elif classes and classes >= 2:
         binned = np.clip(np.nan_to_num((band - vmin) / span * classes, nan=0.0).astype(np.int32), 0, classes - 1)
         cidx = ((binned + 0.5) / classes * 255).astype(np.uint8)
         rgb = cmap[cidx]
-        bounds = np.linspace(vmin, vmax, classes + 1)
+        bnds = np.linspace(vmin, vmax, classes + 1)
         for i in range(classes):
             col = cmap[int((i + 0.5) / classes * 255)]
-            legend.append({"label": f"{bounds[i]:.1f} – {bounds[i + 1]:.1f}",
+            legend.append({"label": f"{bnds[i]:.1f} – {bnds[i + 1]:.1f}",
+                           "min": round(float(bnds[i]), 4), "max": round(float(bnds[i + 1]), 4),
                            "color": "#%02x%02x%02x" % (int(col[0]), int(col[1]), int(col[2]))})
     else:
         norm = np.clip((band - vmin) / span, 0, 1)
@@ -220,13 +245,44 @@ async def raster_import(file: UploadFile = File(...)):
                 pass
 
 
+def _class_bounds(fin, method, n, breaks_str, vmin, vmax):
+    """Bornes des classes (longueur n+1) selon la méthode."""
+    import numpy as np
+    if method == "manual" and (breaks_str or "").strip():
+        try:
+            edges = sorted(set(float(x) for x in breaks_str.split(",") if x.strip() != ""))
+        except Exception:
+            edges = []
+        if len(edges) >= 3:
+            return edges
+    if fin.size == 0:
+        return list(np.linspace(vmin, vmax, n + 1))
+    if method == "quantile":
+        b = sorted(set(round(float(x), 6) for x in np.quantile(fin, np.linspace(0, 1, n + 1))))
+        return b if len(b) >= 3 else list(np.linspace(vmin, vmax, n + 1))
+    if method == "jenks":
+        try:
+            from gee_routes import _jenks
+            rng = np.random.default_rng(0)
+            v = fin if fin.size <= 3000 else rng.choice(fin, 3000, replace=False)
+            internal = _jenks([float(x) for x in v], n)
+            b = sorted(set([float(vmin)] + [float(x) for x in internal] + [float(vmax)]))
+            return b if len(b) >= 3 else sorted(set(round(float(x), 6) for x in np.quantile(fin, np.linspace(0, 1, n + 1))))
+        except Exception:
+            return sorted(set(round(float(x), 6) for x in np.quantile(fin, np.linspace(0, 1, n + 1))))
+    return list(np.linspace(vmin, vmax, n + 1))   # equal
+
+
 @router.post("/restyle")
 def raster_restyle(
     raster_token: str = Form(...),
-    palette: str = Form(""),           # "hex1,hex2,…"
+    palette: str = Form(""),           # "hex1,hex2,…" (rampe)
     vmin: float = Form(...),
     vmax: float = Form(...),
-    classes: int = Form(0),            # 0 = rampe continue ; ≥2 = classes discrètes
+    classes: int = Form(0),            # 0 = rampe continue ; ≥2 = classes
+    classify: str = Form("equal"),     # equal | quantile | jenks | manual
+    breaks: str = Form(""),            # bornes complètes (mode manuel) "v0,v1,…,vn"
+    class_colors: str = Form(""),      # "hex1,…,hexN" (une couleur par classe)
 ):
     import numpy as np
     if not str(raster_token).isalnum():
@@ -238,9 +294,19 @@ def raster_restyle(
     band = np.load(bpath)
     mask = np.isfinite(band)
     cmap = _ramp_from_hex(palette.split(",")) if palette.strip() else _CMAP
-    png_b64, legend = _render(band, mask, cmap, float(vmin), float(vmax), int(classes))
-    os.utime(jdir, None)   # rafraîchit le TTL
-    return {"png_b64": png_b64, "legend": legend, "vmin": vmin, "vmax": vmax, "classes": classes}
+    cc = [c for c in class_colors.split(",") if c.strip()] if class_colors.strip() else None
+
+    bounds = None
+    n = int(classes)
+    if n >= 2 or (classify == "manual" and breaks.strip()):
+        if classify == "manual" and breaks.strip():
+            n = max(2, len([b for b in breaks.split(",") if b.strip() != ""]) - 1)
+        bounds = _class_bounds(band[mask], classify, max(2, n), breaks, float(vmin), float(vmax))
+
+    png_b64, legend = _render(band, mask, cmap, float(vmin), float(vmax), int(classes), bounds=bounds, class_colors=cc)
+    os.utime(jdir, None)
+    return {"png_b64": png_b64, "legend": legend, "vmin": vmin, "vmax": vmax,
+            "classes": (len(bounds) - 1) if bounds else int(classes), "classify": classify}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
