@@ -241,8 +241,9 @@ export const DOC_TOOLS = {
     abstract: "Un petit planétarium : chaque corps du système solaire — du Soleil à Neptune, plus la Lune — s'affiche en sphère 3D texturée que l'on fait tourner et zoomer. Saturne porte ses anneaux. Là où la carte ne peut montrer que les corps disposant de tuiles (Mercure, Mars, Lune), ce viewer couvre tout le système grâce à des textures équirectangulaires plaquées sur une sphère.",
     usage: [
       "Menu thématique → Planètes → cliquez un corps (Soleil, planètes, Lune) ou « Système solaire (vue 3D) ».",
-      "Changez de corps dans la liste déroulante du panneau.",
+      "Le corps s'affiche en grand à la place de la carte ; changez de corps dans la liste déroulante.",
       "Glissez pour tourner le globe, la molette pour zoomer ; il tourne seul.",
+      "« Retour à la carte » (ou ouvrir un autre module / ajouter une donnée) revient automatiquement à la carte.",
     ],
     example: {
       title: "Comparer Jupiter et une planète tellurique",
