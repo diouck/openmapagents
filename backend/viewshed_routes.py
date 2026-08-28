@@ -62,7 +62,7 @@ class ViewshedReq(BaseModel):
 def _run_viewshed(dem, obs_row, obs_col, res, radius_m, obs_h, tgt_h, curvature):
     """Viewshed par lancer de rayons. dem = MNT (float, sans NaN), res = m sol/px."""
     import numpy as np
-    from scipy.ndimage import map_coordinates
+    from scipy.ndimage import map_coordinates, binary_closing, median_filter
     H, W = dem.shape
     Rpx = max(2, int(radius_m / res))
     oi, oj = int(round(obs_row)), int(round(obs_col))
@@ -71,7 +71,8 @@ def _run_viewshed(dem, obs_row, obs_col, res, radius_m, obs_h, tgt_h, curvature)
     rr = np.arange(1, Rpx + 1)
     gdist = rr * res
     curv = (gdist ** 2) / (2 * _R_EARTH) if curvature else np.zeros_like(gdist)
-    n_az = int(min(2400, max(720, 2 * math.pi * Rpx)))
+    # densité de rayons ≈ 2 rayons / cellule sur l'anneau extérieur (moins de trous)
+    n_az = int(min(4000, max(1440, 4 * math.pi * Rpx)))
     for k in range(n_az):
         th = 2 * math.pi * k / n_az
         cols = obs_col + rr * math.sin(th)
@@ -86,6 +87,12 @@ def _run_viewshed(dem, obs_row, obs_col, res, radius_m, obs_h, tgt_h, curvature)
         seen = ang >= prevmax
         ci = np.round(cf[seen]).astype(np.int32); ri = np.round(rf[seen]).astype(np.int32)
         vis[ri, ci] = True
+    # Lissage anti-« saccadé » : fermeture (comble les fentes radiales entre rayons)
+    # + filtre médian (retire le moucheté isolé), tout en restant borné au rayon.
+    vis = binary_closing(vis, structure=np.ones((3, 3), bool), iterations=1)
+    vis = median_filter(vis.astype(np.uint8), size=3).astype(bool)
+    yy, xx = np.ogrid[:H, :W]
+    vis &= (xx - obs_col) ** 2 + (yy - obs_row) ** 2 <= (Rpx + 2) ** 2
     return vis, obs_elev, Rpx
 
 
