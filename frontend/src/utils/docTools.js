@@ -294,6 +294,26 @@ export const DOC_TOOLS = {
     },
     caveat: "Rendu natif MapLibre, calculé côté navigateur (sans backend). Pour l'agrégation en hexagones, la densité sur grille ou les flux origine→destination, utilisez l'outil Analyse spatiale (groupes Géométrie, Statistiques et Mobilité/Flux) — non dupliqués ici.",
   },
+  viewshed: {
+    date: "2026-08-28",
+    dataLine: "MNT mondial ~30 m (Terrarium AWS) · numpy",
+    abstract: "Répond à « qu'est-ce qu'on voit d'ici ? ». Depuis un observateur placé sur la carte, l'outil reconstruit le relief autour (modèle numérique de terrain mondial) et calcule, par lancer de rayons, les zones visibles en tenant compte des obstacles du terrain, de la hauteur de l'observateur et — au choix — de la courbure terrestre. Le résultat est une nappe verte de visibilité, prête à croiser avec d'autres couches.",
+    usage: [
+      "Menu thématique → Analyse → Analyse de visibilité.",
+      "« Placer l'observateur », puis cliquez le point de vue sur la carte.",
+      "Réglez la hauteur de l'observateur (piéton, tour, drone…), le rayon et la hauteur de cible.",
+      "« Calculer la visibilité » : la zone visible s'ajoute en overlay + la surface visible.",
+    ],
+    example: {
+      title: "Portée visuelle d'un point de vue",
+      body: "Depuis un belvédère, on visualise d'un coup les versants vus et cachés dans un rayon de 5 km ; en montant la hauteur de l'observateur (une tour), l'emprise visible s'étend nettement.",
+      stats: [
+        { v: "Rayons", k: "angle d'élévation cumulé" },
+        { v: "Sans clé", k: "MNT Terrarium mondial" },
+      ],
+    },
+    caveat: "Le MNT est global (~30 m) : il lisse les sommets pointus, donc sur relief marqué un observateur bas (2 m) peut « buter » sur la brisure de pente proche — augmentez sa hauteur. Ni la végétation ni le bâti ne sont modélisés. Le rayon est borné (zone téléchargée) ; réduisez-le si la zone est trop grande.",
+  },
   spatialstats: {
     date: "2026-08-28",
     dataLine: "Couche vecteur + champ numérique · numpy",

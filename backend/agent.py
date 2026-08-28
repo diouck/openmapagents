@@ -921,6 +921,14 @@ try:
 except Exception as e:
     print(f"✗ Textures planétaires non chargées: {e}")
 
+# Viewshed (analyse de visibilité depuis un point, MNT Terrarium)
+try:
+    from viewshed_routes import router as viewshed_router
+    app.include_router(viewshed_router)
+    print("✓ Viewshed chargé (/api/viewshed/compute)")
+except Exception as e:
+    print(f"✗ Viewshed non chargé: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)

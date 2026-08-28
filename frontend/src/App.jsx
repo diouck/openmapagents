@@ -37,6 +37,7 @@ import SpatialStatsPanel from "./components/SpatialStatsPanel";
 import GeorefPanel from "./components/GeorefPanel";
 import SolarSystemPanel from "./components/SolarSystemPanel";
 import VectorVizPanel from "./components/VectorVizPanel";
+import ViewshedPanel from "./components/ViewshedPanel";
 import StacPanel from "./components/StacPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
@@ -139,6 +140,7 @@ const RAIL_GROUPS = [
       { id: "rastervec", sub: "Vecto", label: "Vectorisation raster (polygones + contours)", Icon: IcHexagon, hasPanel: true },
       { id: "spatialstats", sub: "Autocorr.", label: "Stats spatiales (Moran, hotspots)", Icon: IcCircleDot, hasPanel: true },
       { id: "vectorviz", sub: "Chaleur", label: "Chaleur & clusters (densité de points)", Icon: IcRadar, hasPanel: true },
+      { id: "viewshed", sub: "Visibilité", label: "Analyse de visibilité (viewshed)", Icon: IcMountain, hasPanel: true },
       { id: "georef", sub: "Caler", label: "Géoréférenceur (caler une image)", Icon: IcMap, hasPanel: true },
     ],
   },
@@ -723,6 +725,7 @@ export default function App() {
   const lctr             = useRef(0);
   const classifClickRef  = useRef(null);  // handler de clic pour ClassifSupPanel
   const georefClickRef   = useRef(null);  // handler de clic pour GeorefPanel (point d'appui)
+  const viewshedClickRef = useRef(null);  // handler de clic pour ViewshedPanel (observateur)
 
   // ── Mode globe (projection MapLibre) ──────────────────────
   const [globeOn, setGlobeOn] = useState(false);
@@ -1906,6 +1909,8 @@ export default function App() {
     if (classifClickRef.current) { classifClickRef.current(lng, lat); return; }
     // Géoréférenceur — intercept si on place un point d'appui sur la carte
     if (georefClickRef.current) { georefClickRef.current(lng, lat); return; }
+    // Viewshed — intercept si on place l'observateur sur la carte
+    if (viewshedClickRef.current) { viewshedClickRef.current(lng, lat); return; }
     if (routePickMode) {
       const coord = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       if (routePickMode === "origin") { setRouteOrigin(coord); if (activeTool==="route") { const feats = routeMarkers?.features?.filter(f=>f.properties?.type!=="origin")||[]; feats.unshift({type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"A"}}); setRouteMarkers({type:"FeatureCollection",features:feats}); } else { setRouteMarkers({type:"FeatureCollection",features:[{type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"●"}}]}); setIsoCenter(coord); } }
@@ -2297,10 +2302,17 @@ export default function App() {
       </Embed>
     );
 
-    // ── Densité & flux : chaleur, clusters, hexagones, arcs ───
+    // ── Chaleur & clusters (densité de points) ────────────────
     if (activeTool === "vectorviz") return (
       <Embed>
         <VectorVizPanel layers={layers} onAdd={addLayerSilent} />
+      </Embed>
+    );
+
+    // ── Analyse de visibilité (viewshed) ──────────────────────
+    if (activeTool === "viewshed") return (
+      <Embed>
+        <ViewshedPanel viewshedClickRef={viewshedClickRef} onAddImageLayer={addImageLayer} />
       </Embed>
     );
 
