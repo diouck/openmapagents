@@ -735,6 +735,7 @@ export default function App() {
   const [tlLayerId, setTlLayerId] = useState(null);
   const [projOpen, setProjOpen] = useState(false);  // explorateur de projections (d3)
   const [solarBody, setSolarBody] = useState("earth");  // corps affiché par le viewer Système solaire
+  const [georefGcpGJ, setGeorefGcpGJ] = useState(null); // points d'appui du géoréférenceur affichés sur la carte
   const [planet3D, setPlanet3D] = useState(null);       // corps en plein écran (remplace la carte) ; null = carte
   const planet3DRef = useRef(null);
   useEffect(() => { planet3DRef.current = planet3D; }, [planet3D]);
@@ -2319,7 +2320,7 @@ export default function App() {
     // ── Géoréférenceur : caler une image par points d'appui ───
     if (activeTool === "georef") return (
       <Embed>
-        <GeorefPanel georefClickRef={georefClickRef} onAddImageLayer={addImageLayer} />
+        <GeorefPanel georefClickRef={georefClickRef} onAddImageLayer={addImageLayer} onGcpsChange={setGeorefGcpGJ} />
       </Embed>
     );
 
@@ -2966,6 +2967,7 @@ export default function App() {
             ))}
 
             {/* Overlays mesure/dessin/buffer */}
+            {georefGcpGJ&&<Source id="georef-gcp" type="geojson" data={georefGcpGJ}><Layer id="georef-gcp-circ" type="circle" paint={{"circle-radius":10,"circle-color":C.acc,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id="georef-gcp-lbl" type="symbol" layout={{"text-field":["get","label"],"text-size":12,"text-allow-overlap":true}} paint={{"text-color":"#fff"}}/></Source>}
             {measureGJ&&<Source id="measure" type="geojson" data={measureGJ}><Layer id="mpts" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":"#fff","circle-stroke-width":2,"circle-stroke-color":C.amb}}/><Layer id="mline" type="line" filter={["==",["geometry-type"],"LineString"]} paint={{"line-color":C.amb,"line-width":2,"line-dasharray":[4,2]}}/><Layer id="mpoly" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.amb,"fill-opacity":.15}}/></Source>}
             {bufferLayer&&<Source id="buffer" type="geojson" data={bufferLayer}><Layer id="bfill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.pnk,"fill-opacity":.15}}/><Layer id="bline" type="line" filter={["==",["geometry-type"],"Polygon"]} paint={{"line-color":C.pnk,"line-width":2,"line-dasharray":[4,2]}}/><Layer id="bpt" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":6,"circle-color":C.pnk,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/></Source>}
             {drawGJ&&<Source id="draw" type="geojson" data={drawGJ}><Layer id="dpts" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":"#fff","circle-stroke-width":2,"circle-stroke-color":C.blu}}/><Layer id="dline" type="line" filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":C.blu,"line-width":2}}/><Layer id="dfill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.blu,"fill-opacity":.1}}/></Source>}
