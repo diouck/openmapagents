@@ -201,11 +201,25 @@ async def raster_import(file: UploadFile = File(...)):
                 rgba[..., 3] = np.where(np.isfinite(dst).all(axis=0), 255, 0).astype(np.uint8)
                 buf = io.BytesIO(); Image.fromarray(rgba, "RGBA").save(buf, "PNG")
                 png_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                # Cache multi-bande : chaque bande devient analysable/reclassable/
+                # vectorisable (sélection de bande) — le raster n'est plus « display only ».
+                token = uuid.uuid4().hex[:16]
+                jdir = os.path.join(_JOBS, token); os.makedirs(jdir, exist_ok=True)
+                np.save(os.path.join(jdir, "bands.npy"), dst.astype(np.float32))
+                ranges = []
+                for b in range(nb):
+                    fb = dst[b][np.isfinite(dst[b])]
+                    ranges.append([round(float(np.percentile(fb, 2)), 3), round(float(np.percentile(fb, 98)), 3)] if fb.size else [0.0, 1.0])
+                with open(os.path.join(jdir, "meta.json"), "w") as mf:
+                    json.dump({"coords": coords, "bbox": [w4, s4, e4, n4],
+                               "transform": [float(v) for v in list(transform)[:6]],
+                               "crs": dst_crs, "width": int(W), "height": int(H), "bands": int(nb)}, mf)
                 return {
                     "name": getattr(file, "filename", "raster.tif"), "src_crs": str(src.crs),
-                    "width": int(W), "height": int(H), "bands": int(src.count),
+                    "width": int(W), "height": int(H), "bands": int(nb),
                     "bbox": [float(w4), float(s4), float(e4), float(n4)],
-                    "image_coordinates": coords, "png_b64": png_b64, "raster_token": None,
+                    "image_coordinates": coords, "png_b64": png_b64,
+                    "raster_token": token, "band_ranges": ranges,
                 }
 
             # ── Mono-bande : cache + stats (restyle possible) ──
@@ -283,15 +297,14 @@ def raster_restyle(
     classify: str = Form("equal"),     # equal | quantile | jenks | manual
     breaks: str = Form(""),            # bornes complètes (mode manuel) "v0,v1,…,vn"
     class_colors: str = Form(""),      # "hex1,…,hexN" (une couleur par classe)
+    band: int = Form(1),               # bande (raster multi-bande)
 ):
     import numpy as np
     if not str(raster_token).isalnum():
         raise HTTPException(400, "Jeton invalide.")
+    band_arr, _meta = _load_band(str(raster_token), int(band))
     jdir = os.path.join(_JOBS, str(raster_token))
-    bpath = os.path.join(jdir, "band.npy")
-    if not os.path.isfile(bpath):
-        raise HTTPException(410, "Raster expiré côté serveur — réimportez le GeoTIFF.")
-    band = np.load(bpath)
+    band = band_arr
     mask = np.isfinite(band)
     cmap = _ramp_from_hex(palette.split(",")) if palette.strip() else _CMAP
     cc = [c for c in class_colors.split(",") if c.strip()] if class_colors.strip() else None
@@ -320,19 +333,31 @@ def _job_dir(token):
     return os.path.join(_JOBS, str(token))
 
 
-def _load_job(token):
-    """Charge (band, meta, jdir) d'un raster importé ; 410 si expiré/absent."""
+def _load_band(token, band=1):
+    """Charge (bande sélectionnée, meta) d'un raster importé (mono `band.npy` OU
+    multi-bande `bands.npy` → bande `band`, 1-based) ; 410 si expiré/absent."""
     import numpy as np
     jdir = _job_dir(token)
-    bpath = os.path.join(jdir, "band.npy")
     mpath = os.path.join(jdir, "meta.json")
-    if not os.path.isfile(bpath) or not os.path.isfile(mpath):
+    bp, mp = os.path.join(jdir, "band.npy"), os.path.join(jdir, "bands.npy")
+    if not os.path.isfile(mpath) or not (os.path.isfile(bp) or os.path.isfile(mp)):
         raise HTTPException(410, "Raster expiré côté serveur — réimportez le GeoTIFF.")
-    band = np.load(bpath)
+    if os.path.isfile(bp):
+        arr = np.load(bp)
+    else:
+        allb = np.load(mp)
+        bi = max(0, min(int(band) - 1, allb.shape[0] - 1))
+        arr = allb[bi]
     with open(mpath) as f:
         meta = json.load(f)
-    os.utime(jdir, None)   # rafraîchit le TTL
-    return band, meta, jdir
+    os.utime(jdir, None)
+    return arr, meta
+
+
+def _load_job(token):
+    """Charge (band, meta, jdir) — 1re bande. Compatibilité avec l'existant."""
+    arr, meta = _load_band(token, 1)
+    return arr, meta, _job_dir(token)
 
 
 class ZonalReq(BaseModel):
@@ -547,6 +572,7 @@ def raster_calc(req: CalcReq):
 # ─────────────────────────────────────────────────────────────────────────────
 class PolygonizeReq(BaseModel):
     raster_token: Optional[str] = None
+    band: int = 1                         # bande à vectoriser (raster multi-bande)
     image_b64: Optional[str] = None       # OU une couche image (overlay) : PNG…
     coordinates: Optional[list] = None    #    + ses 4 coins lon/lat
     classes: int = 5
@@ -555,6 +581,7 @@ class PolygonizeReq(BaseModel):
 
 class ContoursReq(BaseModel):
     raster_token: Optional[str] = None
+    band: int = 1
     image_b64: Optional[str] = None
     coordinates: Optional[list] = None
     count: int = 10
@@ -591,10 +618,10 @@ def _band_from_image(image_b64, coordinates):
 
 
 def _source_band(req):
-    """(band, affine, crs) depuis un raster importé (raster_token) OU une image."""
+    """(band, affine, crs) depuis un raster importé (raster_token, bande `band`) OU une image."""
     from rasterio.transform import Affine
     if getattr(req, "raster_token", None):
-        band, meta, _ = _load_job(req.raster_token)
+        band, meta = _load_band(req.raster_token, getattr(req, "band", 1) or 1)
         tr, crs = meta.get("transform"), meta.get("crs")
         if not tr or not crs:
             raise HTTPException(422, "Raster importé sans géoréférencement complet — réimportez-le.")

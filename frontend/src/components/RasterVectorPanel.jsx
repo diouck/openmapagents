@@ -22,13 +22,14 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
   const [classes, setClasses] = useState(5);
   const [count, setCount] = useState(10);
   const [ivStr, setIvStr] = useState("");
+  const [band, setBand] = useState(1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
 
   const call = useCallback(async (path, body, layerName, theme) => {
     if (!raster) return;
-    const src = raster.rasterToken ? { raster_token: raster.rasterToken }
+    const src = raster.rasterToken ? { raster_token: raster.rasterToken, band: Number(band) }
       : { image_b64: raster.imageUrl, coordinates: raster.coordinates };
     setBusy(true); setErr(null); setMsg(null);
     try {
@@ -46,7 +47,7 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
       }
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
-  }, [raster, onAddLayer]);
+  }, [raster, band, onAddLayer]);
 
   const runPoly = () => call("polygonize", { classes: Number(classes) }, "Polygones", "polygonize");
   const runContours = () => {
@@ -82,6 +83,14 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
         <select value={rid} onChange={(e) => setRid(e.target.value)} style={inp}>
           {rasters.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
+      )}
+      {raster?.rasterToken && raster?.bands > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5 }}>
+          <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Bande</span>
+          <select value={band} onChange={(e) => setBand(Number(e.target.value))} style={{ ...inp, width: "auto" }}>
+            {Array.from({ length: raster.bands }, (_, i) => <option key={i} value={i + 1}>Bande {i + 1}</option>)}
+          </select>
+        </div>
       )}
     </div>
   );
