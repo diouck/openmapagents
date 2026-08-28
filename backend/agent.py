@@ -905,6 +905,14 @@ try:
 except Exception as e:
     print(f"✗ Stats spatiales non chargées: {e}")
 
+# Géoréférenceur (caler une image sur la carte par points d'appui)
+try:
+    from georef_routes import router as georef_router
+    app.include_router(georef_router)
+    print("✓ Géoréférenceur chargé (/api/georef/warp)")
+except Exception as e:
+    print(f"✗ Géoréférenceur non chargé: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)

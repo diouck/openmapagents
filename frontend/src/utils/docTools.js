@@ -235,6 +235,26 @@ export const DOC_TOOLS = {
     },
     caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
   },
+  georef: {
+    date: "2026-08-28",
+    dataLine: "Image (plan scanné, photo) + points d'appui · scipy",
+    abstract: "Cale une image sans coordonnées — un plan ancien scanné, une photo aérienne, un croquis — sur la carte. On désigne des points d'appui (GCP) : un repère cliqué sur l'image, puis le même lieu cliqué sur la carte. À partir de ces correspondances, l'outil ajuste une transformation (affine ou projective), reprojette l'image en Web Mercator et la superpose au bon endroit, avec une erreur de calage (RMSE) pour juger la qualité.",
+    usage: [
+      "Menu thématique → Analyse → Géoréférenceur, puis importez l'image.",
+      "Cliquez un repère identifiable sur l'image (un carrefour, un angle).",
+      "« Placer sur la carte » puis cliquez ce même lieu sur la carte : le point d'appui est enregistré.",
+      "Répétez (≥3 pour affine, ≥4 pour projective, bien répartis), puis « Géoréférencer » — l'image calée s'ajoute comme couche.",
+    ],
+    example: {
+      title: "Superposer un plan cadastral ancien",
+      body: "En pointant quatre carrefours reconnaissables sur le plan scanné puis sur la carte actuelle, une transformation projective redresse le plan et le pose sur le fond moderne — un RMSE de quelques mètres confirme un bon calage.",
+      stats: [
+        { v: "Affine / Projective", k: "3 ou 4 points minimum" },
+        { v: "RMSE", k: "erreur de calage en mètres" },
+      ],
+    },
+    caveat: "La précision dépend du nombre de points d'appui et de leur répartition (évitez de les aligner ou de les regrouper). L'affine gère rotation/échelle/cisaillement ; la projective corrige en plus la perspective (photo oblique). Image jusqu'à 5 000 px de côté.",
+  },
   spatialstats: {
     date: "2026-08-28",
     dataLine: "Couche vecteur + champ numérique · numpy",
