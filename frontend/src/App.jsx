@@ -33,6 +33,7 @@ import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
 import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
 import RasterVectorPanel from "./components/RasterVectorPanel";
+import SpatialStatsPanel from "./components/SpatialStatsPanel";
 import StacPanel from "./components/StacPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
@@ -133,6 +134,7 @@ const RAIL_GROUPS = [
       { id: "classif",  sub: "Classif.", label: "Classification supervisée", Icon: IcClassif,  hasPanel: true },
       { id: "rasteranalysis", sub: "Raster", label: "Analyse raster (zonal + calc)", Icon: IcGrid, hasPanel: true },
       { id: "rastervec", sub: "Vecto", label: "Vectorisation raster (polygones + contours)", Icon: IcHexagon, hasPanel: true },
+      { id: "spatialstats", sub: "Autocorr.", label: "Stats spatiales (Moran, hotspots)", Icon: IcCircleDot, hasPanel: true },
     ],
   },
   {
@@ -2245,6 +2247,13 @@ export default function App() {
     if (activeTool === "rastervec") return (
       <Embed>
         <RasterVectorPanel layers={layers} onAddLayer={addLayer} />
+      </Embed>
+    );
+
+    // ── Statistiques spatiales : Moran + hotspots Gi* ─────────
+    if (activeTool === "spatialstats") return (
+      <Embed>
+        <SpatialStatsPanel layers={layers} onAddLayer={addLayer} />
       </Embed>
     );
 
