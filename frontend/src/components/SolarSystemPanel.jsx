@@ -11,7 +11,11 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { useThemeContext } from "../theme";
-import { F, M, API } from "../config";
+import { F, M } from "../config";
+
+// Textures embarquées (frontend/public) → servies EN MÊME ORIGINE, sans backend
+// ni accès Internet du serveur (WebGL refuse le cross-origin). CC-BY Solar System Scope.
+const TEX = import.meta.env.BASE_URL + "textures/planets/";
 
 const BODIES = [
   ["sun", "Soleil", "Étoile — Ø 1 392 000 km"],
@@ -75,7 +79,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
       ring: null, raf: 0, spin: 0.0016, rotX: 0.1, targetX: 0.1, drag: null, mount };
 
     // Fond étoilé texturé (même origine)
-    new THREE.TextureLoader().load(`${API}/planet/texture/stars`, (t) => {
+    new THREE.TextureLoader().load(`${TEX}stars.jpg`, (t) => {
       t.colorSpace = THREE.SRGBColorSpace;
       starMat.map = t; starMat.color.set(0xffffff); starMat.needsUpdate = true;
     }, undefined, () => {});
@@ -146,7 +150,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
     if (st.ring) { st.group.remove(st.ring); st.ring.geometry.dispose(); st.ring.material.map?.dispose?.(); st.ring.material.dispose(); st.ring = null; }
 
     setStatus("loading");
-    new THREE.TextureLoader().load(`${API}/planet/texture/${body}`, (t) => {
+    new THREE.TextureLoader().load(`${TEX}${body}.jpg`, (t) => {
       if (tok !== loadTok.current || !S.current) return;
       t.colorSpace = THREE.SRGBColorSpace;
       const old = st.sphere.material;
@@ -164,7 +168,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
 
     // Anneaux de Saturne
     if (body === "saturn") {
-      new THREE.TextureLoader().load(`${API}/planet/texture/saturn_ring`, (rt) => {
+      new THREE.TextureLoader().load(`${TEX}saturn_ring.png`, (rt) => {
         if (tok !== loadTok.current || !S.current) return;
         rt.colorSpace = THREE.SRGBColorSpace;
         const inner = 1.25, outer = 2.3;
@@ -200,7 +204,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
             ) : (
               <span style={{ fontFamily: F, fontSize: 11.5, color: "#f0a0a0", lineHeight: 1.5, maxWidth: 300 }}>
                 ⚠ Texture indisponible.<br />
-                <span style={{ color: "#8a90a0" }}>Le service <span style={{ fontFamily: M }}>/api/planet/texture</span> répond-il ? (backend à redéployer, ou accès Internet du serveur bloqué)</span>
+                <span style={{ color: "#8a90a0" }}>Fichier <span style={{ fontFamily: M }}>{TEX}{body}.jpg</span> introuvable (rebuild du frontend nécessaire).</span>
               </span>
             )}
           </div>
