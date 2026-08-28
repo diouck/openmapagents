@@ -730,6 +730,9 @@ export default function App() {
   const [tlLayerId, setTlLayerId] = useState(null);
   const [projOpen, setProjOpen] = useState(false);  // explorateur de projections (d3)
   const [solarBody, setSolarBody] = useState("earth");  // corps affiché par le viewer Système solaire
+  const [planet3D, setPlanet3D] = useState(null);       // corps en plein écran (remplace la carte) ; null = carte
+  const planet3DRef = useRef(null);
+  useEffect(() => { planet3DRef.current = planet3D; }, [planet3D]);
   // ── Ciel ────────────────────────────────────────────────────
   // Un seul point de décision : le ciel dépend du MODE, et les réglages des
   // différents modes se contredisent (l'espace du globe doit être transparent
@@ -989,12 +992,14 @@ export default function App() {
   const activateItem = useCallback((id) => {
     if (id === "bivariate") { openModal({ type: "bivariate" }); return; }  // fenêtre bivariée (pas un panneau du rail)
     if (id === "projections") { setProjOpen(true); return; }               // explorateur de projections (modal d3)
-    if (id.startsWith("planet_")) {                                        // raccourci planète → ouvre le viewer sur ce corps
-      setSolarBody(id.slice(7));
-      setOpenPanels(prev => { const n = new Set(prev); n.add("solarsystem"); return n; });
-      setActiveTool("solarsystem");
+    // Planètes → prise en main plein écran (remplace la carte temporairement).
+    if (id === "solarsystem" || id.startsWith("planet_")) {
+      setPlanet3D(id === "solarsystem" ? (planet3DRef.current || solarBody) : id.slice(7));
+      setOpenPanels(new Set());   // vue planète en grand, sans panneaux flottants
       return;
     }
+    // Toute autre activation de module → on revient à la carte.
+    if (planet3DRef.current) setPlanet3D(null);
     if (PANEL_IDS.has(id)) {
       setOpenPanels(prev => {
         const next = new Set(prev);
@@ -1051,6 +1056,7 @@ export default function App() {
   }, [layers]);
 
   const addRasterLayer = useCallback((info) => {
+    setPlanet3D(null);
     const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
     setLayers(p => [...p, {
       id:info.id, name:info.name, theme:info.type||"wms", isRaster:true,
@@ -1070,6 +1076,7 @@ export default function App() {
   // Rendue en <Source type="image"> déclaratif → survit au changement de fond,
   // apparaît dans le menu Couches (toggle/opacité/suppression standard).
   const addImageLayer = useCallback((info) => {
+    setPlanet3D(null);
     const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
     const id = info.id || `img_${Date.now()}_${lctr.current}`;
     setLayers(p => [...p, {
@@ -1097,6 +1104,7 @@ export default function App() {
   // Rendu par deck.gl (overlay, survit au fond) ; ici on l'expose juste pour le
   // toggle/suppression via le gestionnaire de couches (pas de <Source> natif).
   const addPointcloudLayer = useCallback((info) => {
+    setPlanet3D(null);
     const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
     setLayers(p => [
       ...p.filter(l => l.id !== info.id),   // remplace si même id (re-import)
@@ -1236,6 +1244,7 @@ export default function App() {
   }, []);
 
   const addLayer = useCallback((geojson, name, theme = "data") => {
+    setPlanet3D(null);   // ajouter une donnée → retour à la carte
     const ci  = lctr.current % LAYER_COLORS.length;
     const lid = `layer_${Date.now()}_${lctr.current++}`;
     const _THEME_COLORS = { isochrone:"#4A90E2", route:"#E74C3C", analysis:"#27AE60", world_data:"#8E44AD" };
@@ -1266,6 +1275,7 @@ export default function App() {
 
   // addLayerSilent — comme addLayer mais sans fitFeatures (pour restauration)
   const addLayerSilent = useCallback((geojson, name, theme = "data", overrides = {}) => {
+    setPlanet3D(null);
     const ci = lctr.current % LAYER_COLORS.length;
     const lid = `layer_${Date.now()}_${lctr.current++}`;
     setLayers(p => [...p, {
@@ -2997,6 +3007,18 @@ export default function App() {
               <div style={{fontSize:28,marginBottom:8,opacity:.3}}>🗺</div>
               <div style={{color:C.mut,fontWeight:500}}>Carte vide</div>
               <div style={{fontSize:11,marginTop:4}}>Ouvrez le Chat ou sélectionnez un outil à gauche</div>
+            </div>
+          )}
+
+          {/* ── Vue planète plein écran (remplace la carte) — revient à la carte
+              dès qu'on ouvre un autre module ou qu'on ajoute une donnée ── */}
+          {planet3D && (
+            <div style={{position:"absolute",inset:0,zIndex:40,background:"#05060a",display:"flex",flexDirection:"column"}}>
+              <button onClick={()=>setPlanet3D(null)}
+                style={{position:"absolute",top:10,right:10,zIndex:2,fontFamily:F,fontSize:12,fontWeight:500,padding:"6px 12px",borderRadius:8,border:`0.5px solid ${C.bdr}`,background:C.card,color:C.txt,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:5}}>
+                <IcMap size={13}/> Retour à la carte
+              </button>
+              <SolarSystemPanel body={planet3D} onBody={setPlanet3D} />
             </div>
           )}
         </div>
