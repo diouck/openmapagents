@@ -275,6 +275,26 @@ export const DOC_TOOLS = {
     },
     caveat: "La précision dépend du nombre de points d'appui et de leur répartition (évitez de les aligner ou de les regrouper). L'affine gère rotation/échelle/cisaillement ; la projective corrige en plus la perspective (photo oblique). Image jusqu'à 5 000 px de côté.",
   },
+  vectorviz: {
+    date: "2026-08-28",
+    dataLine: "Vos couches points / lignes · turf.js · MapLibre",
+    abstract: "Une boîte à outils de symbologie pour faire parler un semis de points ou un réseau de flux. La carte de chaleur révèle les zones de concentration (densité KDE), le regroupement condense les points proches en pastilles chiffrées, l'agrégation hexagonale compte les points par cellule d'une grille, et les cartes de flux relient des origines à des destinations par des arcs dont la largeur traduit un volume.",
+    usage: [
+      "Menu thématique → Analyse → Densité & flux.",
+      "Chaleur & clusters : choisissez une couche de points, le mode et le rayon, puis créez la couche.",
+      "Hexagones : réglez la taille de cellule ; chaque hexagone est coloré selon le nombre de points.",
+      "Flux : sur une couche de lignes, tracez des arcs origine→destination, largeur proportionnelle à un champ.",
+    ],
+    example: {
+      title: "Voir les foyers d'un semis d'observations",
+      body: "À partir de milliers de points d'observation, la carte de chaleur fait ressortir d'un coup les foyers de concentration ; en hexagones, on quantifie ces foyers cellule par cellule pour une lecture chiffrée.",
+      stats: [
+        { v: "KDE + clusters", k: "densité et regroupement" },
+        { v: "Hexbin + flux", k: "agrégation et arcs O→D" },
+      ],
+    },
+    caveat: "Tout est calculé côté navigateur (sans backend) et ajouté comme des couches ordinaires. Chaleur/clusters attendent des points ; les flux, des lignes (arc entre le premier et le dernier sommet). L'agrégation hexagonale est bornée (~4 000 cellules) : augmentez la taille de cellule si besoin.",
+  },
   spatialstats: {
     date: "2026-08-28",
     dataLine: "Couche vecteur + champ numérique · numpy",
