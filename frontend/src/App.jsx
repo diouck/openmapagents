@@ -34,6 +34,7 @@ import SqlPanel from "./components/SqlPanel";
 import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
 import RasterVectorPanel from "./components/RasterVectorPanel";
 import SpatialStatsPanel from "./components/SpatialStatsPanel";
+import GeorefPanel from "./components/GeorefPanel";
 import StacPanel from "./components/StacPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
@@ -135,6 +136,7 @@ const RAIL_GROUPS = [
       { id: "rasteranalysis", sub: "Raster", label: "Analyse raster (zonal + calc)", Icon: IcGrid, hasPanel: true },
       { id: "rastervec", sub: "Vecto", label: "Vectorisation raster (polygones + contours)", Icon: IcHexagon, hasPanel: true },
       { id: "spatialstats", sub: "Autocorr.", label: "Stats spatiales (Moran, hotspots)", Icon: IcCircleDot, hasPanel: true },
+      { id: "georef", sub: "Caler", label: "Géoréférenceur (caler une image)", Icon: IcMap, hasPanel: true },
     ],
   },
   {
@@ -715,6 +717,7 @@ export default function App() {
   const fileRef          = useRef(null);
   const lctr             = useRef(0);
   const classifClickRef  = useRef(null);  // handler de clic pour ClassifSupPanel
+  const georefClickRef   = useRef(null);  // handler de clic pour GeorefPanel (point d'appui)
 
   // ── Mode globe (projection MapLibre) ──────────────────────
   const [globeOn, setGlobeOn] = useState(false);
@@ -1866,6 +1869,8 @@ export default function App() {
     const lng = e.lngLat.lng, lat = e.lngLat.lat;
     // Classification supervisée — intercept si le panel est en mode dessin
     if (classifClickRef.current) { classifClickRef.current(lng, lat); return; }
+    // Géoréférenceur — intercept si on place un point d'appui sur la carte
+    if (georefClickRef.current) { georefClickRef.current(lng, lat); return; }
     if (routePickMode) {
       const coord = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       if (routePickMode === "origin") { setRouteOrigin(coord); if (activeTool==="route") { const feats = routeMarkers?.features?.filter(f=>f.properties?.type!=="origin")||[]; feats.unshift({type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"A"}}); setRouteMarkers({type:"FeatureCollection",features:feats}); } else { setRouteMarkers({type:"FeatureCollection",features:[{type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties:{type:"origin",label:"●"}}]}); setIsoCenter(coord); } }
@@ -2254,6 +2259,13 @@ export default function App() {
     if (activeTool === "spatialstats") return (
       <Embed>
         <SpatialStatsPanel layers={layers} onAddLayer={addLayer} />
+      </Embed>
+    );
+
+    // ── Géoréférenceur : caler une image par points d'appui ───
+    if (activeTool === "georef") return (
+      <Embed>
+        <GeorefPanel georefClickRef={georefClickRef} onAddImageLayer={addImageLayer} />
       </Embed>
     );
 
