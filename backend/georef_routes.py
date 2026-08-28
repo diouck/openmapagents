@@ -35,6 +35,7 @@ class WarpReq(BaseModel):
     gcps: List[GCP]
     transform_type: Optional[str] = "affine"   # "affine" | "projective"
     name: Optional[str] = None
+    with_geotiff: bool = False                  # renvoyer aussi un GeoTIFF géoréférencé
 
 
 def _fit_affine(uv, XY):
@@ -177,12 +178,34 @@ def georef_warp(req: WarpReq):
 
     buf = io.BytesIO(); Image.fromarray(out, "RGBA").save(buf, "PNG")
     png_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    # GeoTIFF géoréférencé (EPSG:3857) à la demande — pour export/téléchargement.
+    geotiff_b64 = None
+    if req.with_geotiff:
+        try:
+            import rasterio
+            from rasterio.io import MemoryFile
+            from rasterio.transform import from_bounds
+            from rasterio.enums import ColorInterp
+            gt = from_bounds(Xmin, Ymin, Xmax, Ymax, outW, outH)
+            with MemoryFile() as mf:
+                with mf.open(driver="GTiff", height=outH, width=outW, count=4, dtype="uint8",
+                             crs="EPSG:3857", transform=gt, compress="deflate",
+                             photometric="RGB", tiled=True) as ds:
+                    for ch in range(4):
+                        ds.write(out[:, :, ch], ch + 1)
+                    ds.colorinterp = [ColorInterp.red, ColorInterp.green, ColorInterp.blue, ColorInterp.alpha]
+                geotiff_b64 = base64.b64encode(mf.read()).decode("ascii")
+        except Exception as e:
+            raise HTTPException(500, f"Export GeoTIFF impossible : {e}")
+
     return {
         "name": req.name or "Image géoréférencée",
         "bands": 3,
         "bbox": [float(w4), float(s4), float(e4), float(n4)],
         "image_coordinates": image_coordinates,
         "png_b64": png_b64,
+        "geotiff_b64": geotiff_b64,
         "raster_token": None,
         "rmse_m": round(rmse, 2),
         "transform_type": ttype,

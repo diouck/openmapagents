@@ -260,10 +260,11 @@ export const DOC_TOOLS = {
     dataLine: "Image (plan scanné, photo) + points d'appui · scipy",
     abstract: "Cale une image sans coordonnées — un plan ancien scanné, une photo aérienne, un croquis — sur la carte. On désigne des points d'appui (GCP) : un repère cliqué sur l'image, puis le même lieu cliqué sur la carte. À partir de ces correspondances, l'outil ajuste une transformation (affine ou projective), reprojette l'image en Web Mercator et la superpose au bon endroit, avec une erreur de calage (RMSE) pour juger la qualité.",
     usage: [
-      "Menu thématique → Analyse → Géoréférenceur, puis importez l'image.",
-      "Cliquez un repère identifiable sur l'image (un carrefour, un angle).",
-      "« Placer sur la carte » puis cliquez ce même lieu sur la carte : le point d'appui est enregistré.",
-      "Répétez (≥3 pour affine, ≥4 pour projective, bien répartis), puis « Géoréférencer » — l'image calée s'ajoute comme couche.",
+      "Menu thématique → Analyse → Géoréférenceur, puis importez l'image (visionneuse zoomable : molette, glisser, « Ajuster »).",
+      "Cliquez un repère identifiable sur l'image (un carrefour, un angle) — il s'affiche en croix.",
+      "« Placer sur la carte » puis cliquez ce même lieu sur la carte : le point d'appui apparaît aussi sur la carte.",
+      "Répétez (≥3 affine, ≥4 projective, bien répartis) ; corrigez un point en le glissant ou via « aller à ».",
+      "« Géoréférencer » ajoute l'overlay calé ; « Exporter GeoTIFF » télécharge la couche géoréférencée (EPSG:3857).",
     ],
     example: {
       title: "Superposer un plan cadastral ancien",
