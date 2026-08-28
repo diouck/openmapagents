@@ -235,6 +235,25 @@ export const DOC_TOOLS = {
     },
     caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
   },
+  solarsystem: {
+    date: "2026-08-28",
+    dataLine: "Textures Solar System Scope (CC-BY) · Three.js",
+    abstract: "Un petit planétarium : chaque corps du système solaire — du Soleil à Neptune, plus la Lune — s'affiche en sphère 3D texturée que l'on fait tourner et zoomer. Saturne porte ses anneaux. Là où la carte ne peut montrer que les corps disposant de tuiles (Mercure, Mars, Lune), ce viewer couvre tout le système grâce à des textures équirectangulaires plaquées sur une sphère.",
+    usage: [
+      "Menu thématique → Relief & 3D → Système solaire.",
+      "Choisissez un corps dans la liste (Soleil, planètes, Lune).",
+      "Glissez pour tourner le globe, la molette pour zoomer ; il tourne seul.",
+    ],
+    example: {
+      title: "Comparer Jupiter et une planète tellurique",
+      body: "On passe de la Terre à Jupiter d'un clic : les bandes nuageuses de la géante gazeuse, impossibles à afficher via un fond de carte classique (pas de tuiles), s'affichent ici en relief texturé.",
+      stats: [
+        { v: "Soleil→Neptune", k: "+ Lune, anneaux de Saturne" },
+        { v: "3D", k: "sphère texturée Three.js" },
+      ],
+    },
+    caveat: "Complément au sélecteur de planète de la carte (qui, lui, n'a que Mercure/Mars/Lune faute de tuiles). Les textures (Solar System Scope, CC-BY 4.0) sont servies par le serveur pour contourner CORS ; leur premier chargement peut prendre un instant, puis elles sont mises en cache.",
+  },
   georef: {
     date: "2026-08-28",
     dataLine: "Image (plan scanné, photo) + points d'appui · scipy",

@@ -271,6 +271,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "isochrone", label: "Isochrone d'accès", desc: "Zones atteignables en un temps donné.", icon: IcRadar },
     { kind: "tool", id: "route", label: "Itinéraire", desc: "Trajet et distance entre deux points.", icon: IcNavigation },
     { kind: "tool", id: "scene3d", label: "Bâtiments 3D / Globe", desc: "Bâtiments, nuages de points, globe 3D.", icon: IcCube },
+    { kind: "tool", id: "solarsystem", label: "Système solaire (globes 3D)", desc: "Explore le Soleil, les planètes et la Lune en sphères 3D texturées.", icon: IcCube },
   ]},
   { id: "risques", label: "Risques & changements", icon: IcFlame, items: [
     { kind: "tool", id: "burnsev", label: "Severite d'incendie (dNBR)", desc: "Degats d'un feu par comparaison NBR avant/apres.", icon: IcFlame },
