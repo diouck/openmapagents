@@ -44,8 +44,44 @@ export const MAP_STYLES = {
         source: "esri"
       }
     ]
+  },
+
+  // ── Autres planètes (fonds raster Web-Mercator OpenPlanetaryMap) ──
+  // Se visualisent en mode Globe comme la Terre. Tuiles Mercator → les pôles
+  // ne sont pas couverts (petit trou au sommet du globe), limite connue.
+  mars: {
+    version: 8,
+    sources: {
+      mars: {
+        type: "raster",
+        tiles: ["https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-mars-basemap-v0-2/all/{z}/{x}/{y}.png"],
+        tileSize: 256, maxzoom: 8,
+        attribution: "Mars © NASA / USGS / OpenPlanetaryMap"
+      }
+    },
+    layers: [{ id: "mars", type: "raster", source: "mars" }]
+  },
+  moon: {
+    version: 8,
+    sources: {
+      moon: {
+        type: "raster",
+        tiles: ["https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-moon-basemap-v0-1/all/{z}/{x}/{y}.png"],
+        tileSize: 256, maxzoom: 7,
+        attribution: "Moon © NASA / USGS / OpenPlanetaryMap"
+      }
+    },
+    layers: [{ id: "moon", type: "raster", source: "moon" }]
   }
 };
+
+// Fonds « planète » (à séparer des fonds Terre dans le sélecteur).
+export const PLANETS = [
+  { key: "earth", label: "Terre", icon: "🌍" },
+  { key: "mars",  label: "Mars",  icon: "🔴" },
+  { key: "moon",  label: "Lune",  icon: "🌕" },
+];
+export const PLANET_KEYS = ["mars", "moon"];
 
 export const LAYER_COLORS = [
   "#EF9F27", "#378ADD", "#D4537E", "#1D9E75",

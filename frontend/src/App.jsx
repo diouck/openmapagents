@@ -5,7 +5,7 @@ import * as turf from "@turf/turf";
 import { Link } from "react-router-dom";
 
 import { useTheme, ThemeContext, useThemeContext } from "./theme";
-import { F, M, API, MAP_STYLES, LAYER_COLORS, EXPORT_FORMATS } from "./config";
+import { F, M, API, MAP_STYLES, LAYER_COLORS, EXPORT_FORMATS, PLANETS, PLANET_KEYS } from "./config";
 import { buildClassification } from "./utils/classification";
 import { encodePermalink, decodePermalink, importFile, computeBounds, getPopupFields } from "./utils/helpers";
 import { executeSpatialOp } from "./utils/spatial";
@@ -853,6 +853,18 @@ export default function App() {
       refreshSky(map);
     } catch (_) { /* setSky/easeTo non critiques */ }
   }, [refreshSky]);
+
+  // ── Sélecteur de planète (Terre / Mars / Lune) ────────────
+  // Une planète = un fond raster ; on la regarde en Globe. « Terre » restaure
+  // le dernier fond terrestre utilisé.
+  const lastEarthRef = useRef("positron");
+  useEffect(() => { if (!PLANET_KEYS.includes(mapSt)) lastEarthRef.current = mapSt; }, [mapSt]);
+  const selectPlanet = useCallback((key) => {
+    if (key === "earth") { setMapSt(lastEarthRef.current || "positron"); return; }
+    setMapSt(key);
+    setProjectionMode(true);   // une planète se regarde en globe
+  }, [setProjectionMode]);
+  const currentPlanet = PLANET_KEYS.includes(mapSt) ? mapSt : "earth";
 
   // ── Changement de style carte via API MapLibre ────────────
   useEffect(() => {
@@ -2454,12 +2466,22 @@ export default function App() {
             écartée des autres au lieu de rester collée à « Projections ». */}
         <div style={{display:"flex",gap:3,alignItems:"center"}}>
           {!isMobile&&<>
-          {Object.keys(MAP_STYLES).map(k=>(
+          {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>(
             <button key={k} onClick={()=>setMapSt(k)} className="rib"
               style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${mapSt===k?C.acc+"55":C.bdr}`,background:mapSt===k?C.acc+"15":"transparent",color:mapSt===k?C.acc:C.dim,cursor:"pointer"}}>
               {k.charAt(0).toUpperCase() + k.slice(1)}
             </button>
           ))}
+          <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
+          {/* Sélecteur de planète : Terre / Mars / Lune (fonds planétaires en globe) */}
+          <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
+            {PLANETS.map(p=>(
+              <button key={p.key} onClick={()=>selectPlanet(p.key)} className="rib" title={p.key==="earth"?"Revenir à la Terre":`${p.label} (fond ${p.key}, vue globe)`}
+                style={{fontFamily:F,fontSize:10,padding:"3px 8px",border:"none",borderLeft:p.key!=="earth"?`0.5px solid ${C.bdr}`:"none",background:currentPlanet===p.key?C.acc+"18":"transparent",color:currentPlanet===p.key?C.acc:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+                <span style={{fontSize:11}}>{p.icon}</span>{p.label}
+              </button>
+            ))}
+          </div>
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
           {/* Sélecteur de projection de la carte live : seuls Plan (Mercator) et Globe sont possibles sous MapLibre */}
           <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
