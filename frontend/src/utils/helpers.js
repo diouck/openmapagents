@@ -69,6 +69,48 @@ export async function exportPDF(mapRef, vs, layers, format = "A4") {
   pdf.save(`carte_${format}_${Date.now()}.pdf`);
 }
 
+// ─── GPX / KML → GeoJSON (sans dépendance, via DOMParser) ────
+function _coords(text) {
+  // "lon,lat[,alt] lon,lat[,alt] …" → [[lon,lat], …]
+  return (text || "").trim().split(/\s+/).map((t) => {
+    const p = t.split(",").map(Number);
+    return [p[0], p[1]];
+  }).filter((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]));
+}
+function _parseXML(text, kind) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error(`${kind} illisible (XML invalide)`);
+  return doc;
+}
+function gpxToGeoJSON(text) {
+  const doc = _parseXML(text, "GPX");
+  const tags = (el, sel) => Array.from(el.getElementsByTagName(sel));
+  const nameOf = (el) => el.getElementsByTagName("name")[0]?.textContent?.trim() || null;
+  const feats = [];
+  tags(doc, "wpt").forEach((w) => {
+    const lat = parseFloat(w.getAttribute("lat")), lon = parseFloat(w.getAttribute("lon"));
+    if (Number.isFinite(lat) && Number.isFinite(lon)) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: { name: nameOf(w) } });
+  });
+  const seg = (parent, tag) => tags(parent, tag).map((p) => [parseFloat(p.getAttribute("lon")), parseFloat(p.getAttribute("lat"))]).filter((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]));
+  tags(doc, "trk").forEach((trk) => { const nm = nameOf(trk); tags(trk, "trkseg").forEach((s) => { const c = seg(s, "trkpt"); if (c.length >= 2) feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { name: nm } }); }); });
+  tags(doc, "rte").forEach((rte) => { const c = seg(rte, "rtept"); if (c.length >= 2) feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { name: nameOf(rte) } }); });
+  if (!feats.length) throw new Error("GPX sans points, traces ni routes lisibles");
+  return { type: "FeatureCollection", features: feats };
+}
+function kmlToGeoJSON(text) {
+  const doc = _parseXML(text, "KML");
+  const feats = [];
+  Array.from(doc.getElementsByTagName("Placemark")).forEach((p) => {
+    const nm = p.getElementsByTagName("name")[0]?.textContent?.trim() || null;
+    const add = (geometry) => feats.push({ type: "Feature", geometry, properties: { name: nm } });
+    Array.from(p.getElementsByTagName("Point")).forEach((g) => { const c = _coords(g.getElementsByTagName("coordinates")[0]?.textContent); if (c[0]) add({ type: "Point", coordinates: c[0] }); });
+    Array.from(p.getElementsByTagName("LineString")).forEach((g) => { const c = _coords(g.getElementsByTagName("coordinates")[0]?.textContent); if (c.length >= 2) add({ type: "LineString", coordinates: c }); });
+    Array.from(p.getElementsByTagName("Polygon")).forEach((g) => { const o = _coords(g.getElementsByTagName("coordinates")[0]?.textContent); if (o.length >= 3) { if (o[0].join() !== o[o.length - 1].join()) o.push(o[0]); add({ type: "Polygon", coordinates: [o] }); } });
+  });
+  if (!feats.length) throw new Error("KML sans géométries lisibles");
+  return { type: "FeatureCollection", features: feats };
+}
+
 // ─── FILE IMPORT ─────────────────────────────────────────────
 export async function importFile(file) {
   const name = file.name.toLowerCase();
@@ -102,6 +144,18 @@ export async function importFile(file) {
     return { type: "FeatureCollection", features };
   }
 
+  if (name.endsWith(".gpx")) {
+    return gpxToGeoJSON(await file.text());
+  }
+
+  if (name.endsWith(".kml")) {
+    return kmlToGeoJSON(await file.text());
+  }
+
+  if (name.endsWith(".kmz")) {
+    throw new Error("KMZ (KML compressé) non supporté — dézippez-le et importez le fichier .kml qu'il contient.");
+  }
+
   if (name.endsWith(".zip") || name.endsWith(".shp")) {
     const shp = await import("shpjs");
     const buffer = await file.arrayBuffer();
@@ -113,7 +167,7 @@ export async function importFile(file) {
   if (/\.(las|laz|glb|gltf|ply|splat|ksplat)$/.test(name) || name.endsWith("tileset.json")) {
     throw new Error("Donnée 3D détectée → ouvrez le panneau « Vue 3D / Globe » (🌐) et utilisez « Choisir un fichier » pour les LiDAR (.las/.laz), modèles (.glb/.gltf) et splats.");
   }
-  throw new Error("Format non supporté (GeoJSON, CSV, Shapefile ZIP)");
+  throw new Error("Format non supporté (GeoJSON, CSV, GPX, KML, Shapefile ZIP)");
 }
 
 // ─── BOUNDS HELPER ───────────────────────────────────────────

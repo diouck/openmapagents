@@ -308,7 +308,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "rastervec", label: "Vectorisation raster (polygones + contours)", desc: "Transforme un GeoTIFF en polygones (par classes) ou en courbes de niveau.", icon: IcHexagon },
     { kind: "tool", id: "spatialstats", label: "Stats spatiales (Moran, hotspots)", desc: "Autocorrélation spatiale (Moran) et points chauds/froids (Getis-Ord Gi*) d'un champ.", icon: IcCircleDot },
-    { kind: "tool", id: "vectorviz", label: "Densité & flux (chaleur, hexagones, flux)", desc: "Carte de chaleur, clusters, agrégation hexagonale et arcs origine→destination.", icon: IcHexagon },
+    { kind: "tool", id: "vectorviz", label: "Chaleur & clusters", desc: "Carte de chaleur (densité) et regroupement de points. Hexagones/flux : voir Analyse spatiale.", icon: IcRadar },
     { kind: "tool", id: "georef", label: "Géoréférenceur (caler une image)", desc: "Cale un plan scanné ou une photo sur la carte via des points d'appui (affine/projective).", icon: IcMap },
     { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },

@@ -277,23 +277,22 @@ export const DOC_TOOLS = {
   },
   vectorviz: {
     date: "2026-08-28",
-    dataLine: "Vos couches points / lignes · turf.js · MapLibre",
-    abstract: "Une boîte à outils de symbologie pour faire parler un semis de points ou un réseau de flux. La carte de chaleur révèle les zones de concentration (densité KDE), le regroupement condense les points proches en pastilles chiffrées, l'agrégation hexagonale compte les points par cellule d'une grille, et les cartes de flux relient des origines à des destinations par des arcs dont la largeur traduit un volume.",
+    dataLine: "Vos couches de points · MapLibre",
+    abstract: "Deux façons de révéler la structure d'un semis de points. La carte de chaleur (densité KDE) dessine un dégradé continu qui fait ressortir les zones de concentration ; le regroupement (clusters) condense les points proches en pastilles chiffrées qui se scindent au zoom, pour afficher des milliers de points sans surcharge.",
     usage: [
-      "Menu thématique → Analyse → Densité & flux.",
-      "Chaleur & clusters : choisissez une couche de points, le mode et le rayon, puis créez la couche.",
-      "Hexagones : réglez la taille de cellule ; chaque hexagone est coloré selon le nombre de points.",
-      "Flux : sur une couche de lignes, tracez des arcs origine→destination, largeur proportionnelle à un champ.",
+      "Menu thématique → Analyse → Chaleur & clusters.",
+      "Choisissez une couche de points et le mode (chaleur ou clusters).",
+      "Réglez le rayon (et l'intensité pour la chaleur), puis créez la couche.",
     ],
     example: {
       title: "Voir les foyers d'un semis d'observations",
-      body: "À partir de milliers de points d'observation, la carte de chaleur fait ressortir d'un coup les foyers de concentration ; en hexagones, on quantifie ces foyers cellule par cellule pour une lecture chiffrée.",
+      body: "À partir de milliers de points d'observation, la carte de chaleur fait ressortir d'un coup les foyers de concentration ; en clusters, on garde chaque point tout en gardant la carte lisible au dézoom.",
       stats: [
-        { v: "KDE + clusters", k: "densité et regroupement" },
-        { v: "Hexbin + flux", k: "agrégation et arcs O→D" },
+        { v: "KDE", k: "densité continue" },
+        { v: "Clusters", k: "regroupement au zoom" },
       ],
     },
-    caveat: "Tout est calculé côté navigateur (sans backend) et ajouté comme des couches ordinaires. Chaleur/clusters attendent des points ; les flux, des lignes (arc entre le premier et le dernier sommet). L'agrégation hexagonale est bornée (~4 000 cellules) : augmentez la taille de cellule si besoin.",
+    caveat: "Rendu natif MapLibre, calculé côté navigateur (sans backend). Pour l'agrégation en hexagones, la densité sur grille ou les flux origine→destination, utilisez l'outil Analyse spatiale (groupes Géométrie, Statistiques et Mobilité/Flux) — non dupliqués ici.",
   },
   spatialstats: {
     date: "2026-08-28",
