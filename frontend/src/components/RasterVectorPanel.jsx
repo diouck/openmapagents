@@ -12,7 +12,9 @@ import { F, M, API } from "../config";
 
 export default function RasterVectorPanel({ layers = [], onAddLayer }) {
   const C = useThemeContext();
-  const rasters = useMemo(() => layers.filter((l) => l.kind === "image" && l.rasterToken), [layers]);
+  // Rasters mono-bande importés (jeton) ET toute couche image géoréférencée
+  // (viewshed, scène, image calée…) → vectorisation par luminance.
+  const rasters = useMemo(() => layers.filter((l) => l.kind === "image" && (l.rasterToken || (l.imageUrl && l.coordinates))), [layers]);
   const [rid, setRid] = useState(rasters[0]?.id || "");
   const raster = rasters.find((l) => l.id === rid) || rasters[0] || null;
 
@@ -25,12 +27,14 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
   const [msg, setMsg] = useState(null);
 
   const call = useCallback(async (path, body, layerName, theme) => {
-    if (!raster?.rasterToken) return;
+    if (!raster) return;
+    const src = raster.rasterToken ? { raster_token: raster.rasterToken }
+      : { image_b64: raster.imageUrl, coordinates: raster.coordinates };
     setBusy(true); setErr(null); setMsg(null);
     try {
       const r = await fetch(`${API}/raster/${path}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raster_token: raster.rasterToken, ...body }),
+        body: JSON.stringify({ ...src, ...body }),
       });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const d = await r.json();
@@ -71,9 +75,9 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
 
   const rasterSelect = (
     <div>
-      <div style={lbl}>Raster (mono-bande importé)</div>
+      <div style={lbl}>Raster ou couche image</div>
       {rasters.length === 0 ? (
-        <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim }}>Aucun — importez un GeoTIFF mono-bande.</div>
+        <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim }}>Aucune — importez un GeoTIFF ou ajoutez une couche image (viewshed, scène…).</div>
       ) : (
         <select value={rid} onChange={(e) => setRid(e.target.value)} style={inp}>
           {rasters.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -92,7 +96,7 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
 
       {tab === "def" ? (
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 12, fontFamily: F, fontSize: 12.5, lineHeight: 1.55, color: C.txt, paddingRight: 4 }}>
-          <p style={{ margin: 0 }}>Convertit un <b>GeoTIFF mono-bande importé</b> en couche vecteur.</p>
+          <p style={{ margin: 0 }}>Convertit un <b>raster</b> en couche vecteur : GeoTIFF mono-bande importé, ou <b>toute couche image géoréférencée</b> (viewshed, scène satellite, image calée) — vectorisée par sa luminance (les zones transparentes = sans donnée).</p>
           <div>
             <div style={{ fontWeight: 600, marginBottom: 3 }}>Polygones</div>
             <p style={{ margin: 0, color: C.mut }}>Découpe le raster en <b>N classes</b> d'intervalles égaux et vectorise chaque classe en polygones (propriétés <Code>class</Code>, <Code>min</Code>, <Code>max</Code>). Idéal pour une carte d'occupation issue d'un indice, ou pour délimiter des zones (pente forte, altitude…).</p>
@@ -102,7 +106,7 @@ export default function RasterVectorPanel({ layers = [], onAddLayer }) {
             <p style={{ margin: 0, color: C.mut }}>Trace des <b>isolignes</b> à des valeurs régulières — soit un <b>nombre de niveaux</b>, soit un <b>intervalle</b> fixe (ex. tous les 10 m sur un MNT). Chaque ligne porte sa valeur (<Code>level</Code>).</p>
           </div>
           <div style={{ background: C.bg2 || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", color: C.mut, fontSize: 11.5 }}>
-            Rasters mono-bande uniquement. Sortie bornée (≈20 000 polygones / 300 000 sommets) : réduisez le nombre de classes ou augmentez l'intervalle si c'est tronqué. La géométrie est renvoyée en WGS84, stylable et exportable comme toute couche vecteur.
+Fonctionne sur un GeoTIFF mono-bande importé ou toute couche image géoréférencée (vectorisée par luminance). Sortie bornée (≈20 000 polygones / 300 000 sommets) : réduisez le nombre de classes ou augmentez l'intervalle si c'est tronqué. La géométrie est renvoyée en WGS84, stylable et exportable comme toute couche vecteur.
           </div>
         </div>
       ) : tab === "poly" ? (
