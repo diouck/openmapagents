@@ -897,6 +897,14 @@ try:
 except Exception as e:
     print(f"✗ STAC routes non chargées: {e}")
 
+# Statistiques spatiales (Moran + hotspots Getis-Ord) sur couche vecteur
+try:
+    from spatialstats_routes import router as spatialstats_router
+    app.include_router(spatialstats_router)
+    print("✓ Stats spatiales chargées (/api/spatialstats/run)")
+except Exception as e:
+    print(f"✗ Stats spatiales non chargées: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)

@@ -235,6 +235,26 @@ export const DOC_TOOLS = {
     },
     caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
   },
+  spatialstats: {
+    date: "2026-08-28",
+    dataLine: "Couche vecteur + champ numérique · numpy",
+    abstract: "Mesure si un phénomène est spatialement structuré. L'indice de Moran répond à la question globale — les valeurs voisines se ressemblent-elles (agrégation), s'opposent-elles (dispersion) ou sont-elles aléatoires ? — avec un test par permutations. Les hotspots de Getis-Ord (Gi*) descendent au local : chaque entité reçoit un z-score qui la classe en point chaud (amas de fortes valeurs) ou froid, à 90/95/99 % de confiance.",
+    usage: [
+      "Menu thématique → Analyse → Stats spatiales.",
+      "Choisissez une couche (points ou polygones) et un champ numérique.",
+      "Réglez le nombre de voisins (k) ; « Analyser » calcule Moran et les Gi*.",
+      "Lisez l'indice de Moran et son verdict ; « Ajouter la couche » ajoute les entités enrichies (gi_class), à colorer dans le gestionnaire de couches.",
+    ],
+    example: {
+      title: "Repérer les amas de forte valeur foncière",
+      body: "Sur des parcelles portant un prix au m², Moran confirme d'abord une agrégation significative ; les Gi* localisent ensuite les quartiers « points chauds » (prix élevés entourés de prix élevés) et « points froids », prêts à cartographier en rouge/bleu.",
+      stats: [
+        { v: "Moran I", k: "autocorrélation globale + p" },
+        { v: "Gi*", k: "points chauds/froids locaux" },
+      ],
+    },
+    caveat: "Voisinage = k plus proches voisins sur les centroïdes (marche pour points et polygones) ; un k différent change les résultats. Le champ doit être numérique et non constant. Limité à 3 000 entités (test par permutations). Sans dépendance PySAL : calcul maison numpy.",
+  },
   rastervec: {
     date: "2026-08-28",
     dataLine: "GeoTIFF mono-bande importé · rasterio · scikit-image",
