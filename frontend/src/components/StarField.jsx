@@ -19,6 +19,14 @@ export default function StarField() {
     const ctx = canvas.getContext("2d");
     let raf = 0, W = 0, H = 0, stars = [], shooters = [], running = true;
 
+    // Fond Voie lactée (même texture que le viewer 3D) : dérive lentement en
+    // arrière-plan, sous les étoiles scintillantes procédurales. Se charge en
+    // même origine (frontend/public) → pas de backend.
+    let milky = null;
+    const mw = new Image();
+    mw.onload = () => { milky = mw; };
+    mw.src = import.meta.env.BASE_URL + "textures/planets/stars.jpg";
+
     const resize = () => {
       const p = canvas.parentElement;
       W = canvas.width = p ? p.clientWidth : window.innerWidth;
@@ -53,11 +61,28 @@ export default function StarField() {
     const draw = () => {
       if (!running) return;
       t++;
-      // Fond spatial (dégradé radial sombre)
+      // Base sombre
+      ctx.fillStyle = "#010206";
+      ctx.fillRect(0, 0, W, H);
+
+      // Voie lactée (texture) : couvre le cadre, dérive lentement, wrap horizontal
+      // sans couture (image équirectangulaire → tuilable en X).
+      if (milky) {
+        const scale = Math.max(W / milky.width, H / milky.height);
+        const dw = milky.width * scale, dh = milky.height * scale;
+        const y0 = H / 2 - dh / 2;
+        const ox = (t * 0.05) % dw;
+        ctx.globalAlpha = 0.8;
+        ctx.drawImage(milky, -ox, y0, dw, dh);
+        ctx.drawImage(milky, dw - ox, y0, dw, dh);
+        ctx.globalAlpha = 1;
+      }
+
+      // Vignette radiale douce (profondeur + les bords un peu plus sombres)
       const g = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.45, Math.max(W, H) * 0.75);
-      g.addColorStop(0, "#0a0f1e");
-      g.addColorStop(0.6, "#060812");
-      g.addColorStop(1, "#010206");
+      g.addColorStop(0, "rgba(6,8,18,0.03)");
+      g.addColorStop(0.65, "rgba(4,6,14,0.12)");
+      g.addColorStop(1, "rgba(1,2,6,0.42)");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
 
