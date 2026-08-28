@@ -353,7 +353,7 @@ export const DOC_TOOLS = {
         { v: "Isolignes", k: "niveaux ou intervalle fixe" },
       ],
     },
-    caveat: "Rasters mono-bande uniquement. Sortie bornée (≈20 000 polygones / 300 000 sommets) : réduisez le nombre de classes ou augmentez l'intervalle si le résultat est tronqué. Les contours remplissent les zones sans donnée par le minimum, ce qui peut créer une isoligne au bord du nodata.",
+    caveat: "Fonctionne sur un GeoTIFF mono-bande importé ou sur toute couche image géoréférencée (viewshed, scène, image calée), vectorisée par sa luminance (transparent = sans donnée) — utile p.ex. pour extraire la zone visible d'un viewshed en polygone. Sortie bornée (≈20 000 polygones / 300 000 sommets). Les contours remplissent les zones sans donnée par le minimum.",
   },
   rasteranalysis: {
     date: "2026-08-28",

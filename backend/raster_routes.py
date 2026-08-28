@@ -546,19 +546,62 @@ def raster_calc(req: CalcReq):
 #  Sortie GeoJSON en WGS84 (couche vecteur ajoutable à la carte).
 # ─────────────────────────────────────────────────────────────────────────────
 class PolygonizeReq(BaseModel):
-    raster_token: str
+    raster_token: Optional[str] = None
+    image_b64: Optional[str] = None       # OU une couche image (overlay) : PNG…
+    coordinates: Optional[list] = None    #    + ses 4 coins lon/lat
     classes: int = 5
-    simplify: float = 0.0        # tolérance de simplification (degrés), 0 = aucune
+    simplify: float = 0.0
 
 
 class ContoursReq(BaseModel):
-    raster_token: str
-    count: int = 10              # nombre de niveaux (si interval absent)
+    raster_token: Optional[str] = None
+    image_b64: Optional[str] = None
+    coordinates: Optional[list] = None
+    count: int = 10
     interval: Optional[float] = None
 
 
 _MAX_FEATURES = 20000
 _MAX_VERTICES = 300000
+
+
+def _band_from_image(image_b64, coordinates):
+    """Couche image (overlay, grille 3857 axis-aligned) → (band luminance nan-masquée
+    par la transparence, affine 3857, crs). Permet de vectoriser TOUT overlay
+    (viewshed, scène, image géoréférencée…), pas seulement un GeoTIFF mono-bande."""
+    import numpy as np
+    from PIL import Image
+    from rasterio.transform import from_bounds
+    from rasterio.warp import transform as warp_transform
+    try:
+        raw = base64.b64decode((image_b64 or "").split(",")[-1])
+        img = Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception as e:
+        raise HTTPException(422, f"Image illisible : {e}")
+    arr = np.asarray(img).astype(np.float32)
+    H, W = arr.shape[:2]
+    if not coordinates or len(coordinates) < 4:
+        raise HTTPException(422, "Emprise (4 coins lon/lat) manquante.")
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    band = np.where(arr[:, :, 3] > 0, lum, np.nan).astype(np.float32)   # transparent = nodata
+    lons = [float(c[0]) for c in coordinates]; lats = [float(c[1]) for c in coordinates]
+    xs, ys = warp_transform("EPSG:4326", "EPSG:3857", lons, lats)
+    xmin, xmax = min(xs), max(xs); ymin, ymax = min(ys), max(ys)
+    return band, from_bounds(xmin, ymin, xmax, ymax, W, H), "EPSG:3857"
+
+
+def _source_band(req):
+    """(band, affine, crs) depuis un raster importé (raster_token) OU une image."""
+    from rasterio.transform import Affine
+    if getattr(req, "raster_token", None):
+        band, meta, _ = _load_job(req.raster_token)
+        tr, crs = meta.get("transform"), meta.get("crs")
+        if not tr or not crs:
+            raise HTTPException(422, "Raster importé sans géoréférencement complet — réimportez-le.")
+        return band, Affine(*tr), crs
+    if getattr(req, "image_b64", None) and getattr(req, "coordinates", None):
+        return _band_from_image(req.image_b64, req.coordinates)
+    raise HTTPException(422, "Aucune source raster (jeton importé ou couche image) fournie.")
 
 
 @router.post("/polygonize")
@@ -567,17 +610,12 @@ def raster_polygonize(req: PolygonizeReq):
     classe en polygones (rasterio.features.shapes) → FeatureCollection WGS84."""
     import numpy as np
     try:
-        from rasterio.transform import Affine
         from rasterio.features import shapes
         from rasterio.warp import transform_geom
     except ImportError as e:
         raise HTTPException(503, f"Dépendance raster manquante : « {getattr(e, 'name', e)} ».")
 
-    band, meta, _ = _load_job(req.raster_token)
-    tr, crs = meta.get("transform"), meta.get("crs")
-    if not tr or not crs:
-        raise HTTPException(422, "Ce raster a été importé avant l'ajout de la vectorisation — réimportez-le.")
-    affine = Affine(*tr)
+    band, affine, crs = _source_band(req)
     n = max(2, min(int(req.classes or 5), 30))
     finite = np.isfinite(band)
     fin = band[finite]
@@ -620,17 +658,12 @@ def raster_contours(req: ContoursReq):
     """Courbes de niveau (skimage.measure.find_contours) → LineStrings WGS84."""
     import numpy as np
     try:
-        from rasterio.transform import Affine
         from rasterio.warp import transform as warp_transform
         from skimage import measure
     except ImportError as e:
         raise HTTPException(503, f"Dépendance manquante : « {getattr(e, 'name', e)} » (scikit-image requis pour les contours).")
 
-    band, meta, _ = _load_job(req.raster_token)
-    tr, crs = meta.get("transform"), meta.get("crs")
-    if not tr or not crs:
-        raise HTTPException(422, "Ce raster a été importé avant l'ajout des contours — réimportez-le.")
-    affine = Affine(*tr)
+    band, affine, crs = _source_band(req)
     finite = np.isfinite(band)
     fin = band[finite]
     if fin.size == 0:
