@@ -18,7 +18,7 @@ import {
   IcFilm, IcRadar, IcNavigation, IcCube, IcDiff, IcCompare, IcTrendingUp,
   IcStack, IcBarChart, IcVenn, IcClassif, IcEdit, IcDatabase, IcServer,
   IcOSM, IcRulerTool, IcHexagon, IcCircleDot, IcPencil, IcSatellite, IcMap, IcUser, IcSun, IcImage, IcTable,
-  IcFish, IcBoxes,
+  IcFish, IcBoxes, IcGlobe, IcMoon,
 } from "../icons";
 
 // dataset + index EXACTS attendus par /api/gee/tiles (voir gee_routes.py)
@@ -271,7 +271,6 @@ export const MENU_TREE = [
     { kind: "tool", id: "isochrone", label: "Isochrone d'accès", desc: "Zones atteignables en un temps donné.", icon: IcRadar },
     { kind: "tool", id: "route", label: "Itinéraire", desc: "Trajet et distance entre deux points.", icon: IcNavigation },
     { kind: "tool", id: "scene3d", label: "Bâtiments 3D / Globe", desc: "Bâtiments, nuages de points, globe 3D.", icon: IcCube },
-    { kind: "tool", id: "solarsystem", label: "Système solaire (globes 3D)", desc: "Explore le Soleil, les planètes et la Lune en sphères 3D texturées.", icon: IcCube },
   ]},
   { id: "risques", label: "Risques & changements", icon: IcFlame, items: [
     { kind: "tool", id: "burnsev", label: "Severite d'incendie (dNBR)", desc: "Degats d'un feu par comparaison NBR avant/apres.", icon: IcFlame },
@@ -287,6 +286,19 @@ export const MENU_TREE = [
     { kind: "indicator", id: "ELEV" }, { kind: "indicator", id: "SLOPE" }, { kind: "indicator", id: "HILLSHADE" },
     { kind: "tool", id: "profil", label: "Profil altimétrique", desc: "Coupe altimétrique le long d'un tracé.", icon: IcTrendingUp },
     { kind: "tool", id: "lidar", label: "LiDAR — foresterie", desc: "MNT/MNS/MNH, arbres et houppiers depuis un LAS.", icon: IcTreePine },
+  ]},
+  { id: "planetes", label: "Planètes", icon: IcGlobe, items: [
+    { kind: "tool", id: "solarsystem", label: "Système solaire (vue 3D)", desc: "Explore le Soleil, les planètes et la Lune en sphères 3D texturées.", icon: IcGlobe },
+    { kind: "tool", id: "planet_sun", label: "Soleil", desc: "Notre étoile en 3D.", icon: IcSun },
+    { kind: "tool", id: "planet_mercury", label: "Mercure", desc: "Planète tellurique en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_venus", label: "Vénus", desc: "Planète tellurique en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_earth", label: "Terre", desc: "Notre planète en 3D.", icon: IcGlobe },
+    { kind: "tool", id: "planet_moon", label: "Lune", desc: "Satellite de la Terre en 3D.", icon: IcMoon },
+    { kind: "tool", id: "planet_mars", label: "Mars", desc: "Planète rouge en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_jupiter", label: "Jupiter", desc: "Géante gazeuse en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_saturn", label: "Saturne", desc: "Géante gazeuse et ses anneaux en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_uranus", label: "Uranus", desc: "Géante de glaces en 3D.", icon: IcCircleDot },
+    { kind: "tool", id: "planet_neptune", label: "Neptune", desc: "Géante de glaces en 3D.", icon: IcCircleDot },
   ]},
   { id: "outils", label: "Outils & données", icon: IcWrench, items: [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },

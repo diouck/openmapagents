@@ -27,6 +27,7 @@ for (const theme of MENU_TREE) {
     if (item.kind === "indicator") {
       if (!CAT_BY_IND[item.id]) CAT_BY_IND[item.id] = { id: theme.id, label: theme.label };
     } else if (item.kind === "tool") {
+      if (item.id.startsWith("planet_")) continue;   // raccourcis planète → ouvrent le viewer, pas de page /doc
       if (!CAT_BY_TOOL[item.id]) {
         CAT_BY_TOOL[item.id] = { id: theme.id, label: theme.label };
         seenTool.add(item.id);

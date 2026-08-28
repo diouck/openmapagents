@@ -8,7 +8,7 @@
  *
  * Interaction : glisser = tourner, molette = zoom, rotation automatique.
  */
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import * as THREE from "three";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
@@ -27,9 +27,9 @@ const BODIES = [
 ];
 const TILT = { earth: 23.4, mars: 25.2, saturn: 26.7, neptune: 28.3, jupiter: 3.1, uranus: 97.8, mercury: 0.03, venus: 2.6, moon: 6.7, sun: 7.25 };
 
-export default function SolarSystemPanel() {
+export default function SolarSystemPanel({ body: bodyProp, onBody }) {
   const C = useThemeContext();
-  const [body, setBody] = useState("earth");
+  const body = bodyProp || "earth";
   const mountRef = useRef(null);
   const S = useRef(null);        // état Three.js persistant
   const loadTok = useRef(0);
@@ -180,7 +180,7 @@ export default function SolarSystemPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <select value={body} onChange={(e) => setBody(e.target.value)}
+        <select value={body} onChange={(e) => onBody?.(e.target.value)}
           style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "6px 10px", borderRadius: 7, cursor: "pointer",
             border: `0.5px solid ${C.bdr}`, background: C.input || C.bg2 || C.bg, color: C.txt, outline: "none" }}>
           {BODIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
