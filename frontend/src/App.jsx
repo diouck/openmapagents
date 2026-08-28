@@ -729,6 +729,7 @@ export default function App() {
   // pilote deux couches raster en ping-pong à la place.
   const [tlLayerId, setTlLayerId] = useState(null);
   const [projOpen, setProjOpen] = useState(false);  // explorateur de projections (d3)
+  const [solarBody, setSolarBody] = useState("earth");  // corps affiché par le viewer Système solaire
   // ── Ciel ────────────────────────────────────────────────────
   // Un seul point de décision : le ciel dépend du MODE, et les réglages des
   // différents modes se contredisent (l'espace du globe doit être transparent
@@ -988,6 +989,12 @@ export default function App() {
   const activateItem = useCallback((id) => {
     if (id === "bivariate") { openModal({ type: "bivariate" }); return; }  // fenêtre bivariée (pas un panneau du rail)
     if (id === "projections") { setProjOpen(true); return; }               // explorateur de projections (modal d3)
+    if (id.startsWith("planet_")) {                                        // raccourci planète → ouvre le viewer sur ce corps
+      setSolarBody(id.slice(7));
+      setOpenPanels(prev => { const n = new Set(prev); n.add("solarsystem"); return n; });
+      setActiveTool("solarsystem");
+      return;
+    }
     if (PANEL_IDS.has(id)) {
       setOpenPanels(prev => {
         const next = new Set(prev);
@@ -2287,7 +2294,7 @@ export default function App() {
     // ── Système solaire : globes 3D texturés (Three.js) ───────
     if (activeTool === "solarsystem") return (
       <Embed>
-        <SolarSystemPanel />
+        <SolarSystemPanel body={solarBody} onBody={setSolarBody} />
       </Embed>
     );
 

@@ -240,8 +240,8 @@ export const DOC_TOOLS = {
     dataLine: "Textures Solar System Scope (CC-BY) · Three.js",
     abstract: "Un petit planétarium : chaque corps du système solaire — du Soleil à Neptune, plus la Lune — s'affiche en sphère 3D texturée que l'on fait tourner et zoomer. Saturne porte ses anneaux. Là où la carte ne peut montrer que les corps disposant de tuiles (Mercure, Mars, Lune), ce viewer couvre tout le système grâce à des textures équirectangulaires plaquées sur une sphère.",
     usage: [
-      "Menu thématique → Relief & 3D → Système solaire.",
-      "Choisissez un corps dans la liste (Soleil, planètes, Lune).",
+      "Menu thématique → Planètes → cliquez un corps (Soleil, planètes, Lune) ou « Système solaire (vue 3D) ».",
+      "Changez de corps dans la liste déroulante du panneau.",
       "Glissez pour tourner le globe, la molette pour zoomer ; il tourne seul.",
     ],
     example: {
