@@ -296,12 +296,12 @@ export const DOC_TOOLS = {
   },
   viewshed: {
     date: "2026-08-28",
-    dataLine: "MNT mondial ~30 m (Terrarium AWS) · numpy",
+    dataLine: "MNT au choix : Terrarium ~30 m / IGN RGE ALTI / GeoTIFF importé",
     abstract: "Répond à « qu'est-ce qu'on voit d'ici ? ». Depuis un observateur placé sur la carte, l'outil reconstruit le relief autour (modèle numérique de terrain mondial) et calcule, par lancer de rayons, les zones visibles en tenant compte des obstacles du terrain, de la hauteur de l'observateur et — au choix — de la courbure terrestre. Le résultat est une nappe verte de visibilité, prête à croiser avec d'autres couches.",
     usage: [
       "Menu thématique → Analyse → Analyse de visibilité.",
-      "« Placer l'observateur », puis cliquez le point de vue sur la carte.",
-      "Réglez la hauteur de l'observateur (piéton, tour, drone…), le rayon et la hauteur de cible.",
+      "« Placer l'observateur », puis cliquez le point de vue sur la carte (un marqueur s'y affiche).",
+      "Choisissez la source du relief (mondial, IGN RGE ALTI en France, ou votre GeoTIFF importé), la hauteur de l'observateur, le rayon et la hauteur de cible.",
       "« Calculer la visibilité » : la zone visible s'ajoute en overlay + la surface visible.",
     ],
     example: {
@@ -312,7 +312,7 @@ export const DOC_TOOLS = {
         { v: "Sans clé", k: "MNT Terrarium mondial" },
       ],
     },
-    caveat: "Le MNT est global (~30 m) : il lisse les sommets pointus, donc sur relief marqué un observateur bas (2 m) peut « buter » sur la brisure de pente proche — augmentez sa hauteur. Ni la végétation ni le bâti ne sont modélisés. Le rayon est borné (zone téléchargée) ; réduisez-le si la zone est trop grande.",
+    caveat: "Trois sources de MNT : mondial (~30 m, partout, sans clé), IGN RGE ALTI (fin, France métropolitaine), ou votre GeoTIFF importé (BD ALTI, RGE ALTI, SRTM… sous-échantillonné à l'import s'il est lourd). La résolution lisse les sommets pointus : sur relief marqué, un observateur bas (2 m) peut « buter » sur la brisure de pente proche — augmentez sa hauteur. Ni la végétation ni le bâti ne sont modélisés.",
   },
   spatialstats: {
     date: "2026-08-28",
