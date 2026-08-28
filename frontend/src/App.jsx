@@ -35,6 +35,7 @@ import RasterAnalysisPanel from "./components/RasterAnalysisPanel";
 import RasterVectorPanel from "./components/RasterVectorPanel";
 import SpatialStatsPanel from "./components/SpatialStatsPanel";
 import GeorefPanel from "./components/GeorefPanel";
+import SolarSystemPanel from "./components/SolarSystemPanel";
 import StacPanel from "./components/StacPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
@@ -160,6 +161,7 @@ const RAIL_GROUPS = [
     label: "3D",
     items: [
       { id: "scene3d", sub: "3D", label: "Vue 3D / Globe (nuages, 3D Tiles, glTF, splats)", Icon: IcCube, hasPanel: true },
+      { id: "solarsystem", sub: "Planètes", label: "Système solaire (globes 3D texturés)", Icon: IcGlobe, hasPanel: true },
     ],
   },
   {
@@ -449,6 +451,7 @@ const PANEL_SIZES = {
   isochrone: { w: 300, h: "auto" },
   layers:    { w: 310, h: 500 },
   stats:     { w: 420, h: 460 },
+  solarsystem: { w: 460, h: 520 },
   export:    { w: 280, h: "auto" },
   spatial:   { w: 520, h: 480 },
   database:  { w: 380, h: 480 },
@@ -2278,6 +2281,13 @@ export default function App() {
     if (activeTool === "georef") return (
       <Embed>
         <GeorefPanel georefClickRef={georefClickRef} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    // ── Système solaire : globes 3D texturés (Three.js) ───────
+    if (activeTool === "solarsystem") return (
+      <Embed>
+        <SolarSystemPanel />
       </Embed>
     );
 

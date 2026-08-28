@@ -913,6 +913,14 @@ try:
 except Exception as e:
     print(f"✗ Géoréférenceur non chargé: {e}")
 
+# Textures planétaires (viewer Système solaire 3D)
+try:
+    from planet_routes import router as planet_router
+    app.include_router(planet_router)
+    print("✓ Textures planétaires chargées (/api/planet/texture)")
+except Exception as e:
+    print(f"✗ Textures planétaires non chargées: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)
