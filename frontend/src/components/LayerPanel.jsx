@@ -202,79 +202,137 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
   );
 }
 
-// ── Style raster IMAGE importé (GeoTIFF mono-bande) — palette + valeurs ──
+// ── Reclassification raster importé (GeoTIFF mono-bande) — façon QGIS ──
+// Méthode (continu / égaux / quantiles / Jenks / manuel) puis TABLE DE CLASSES
+// éditable (borne max, couleur, libellé, ajout/suppression).
 function RasterImageStylePanel({ layer, onUpdate }) {
   const C = useThemeContext();
   const [palKey, setPalKey] = useState("terrain");
   const [minVal, setMinVal] = useState(layer.vmin ?? 0);
   const [maxVal, setMaxVal] = useState(layer.vmax ?? 1);
-  const [classes, setClasses] = useState(0);
+  const [method, setMethod] = useState("continu");   // continu|equal|quantile|jenks|manual
+  const [nClasses, setNClasses] = useState(5);
   const [inverted, setInverted] = useState(false);
+  const [table, setTable] = useState(null);          // { edges:[], colors:[], labels:[] }
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
 
   const palette = PALETTES[palKey] || PALETTES.terrain;
-  const colors = inverted ? [...palette.colors].reverse() : palette.colors;
+  const rampColors = inverted ? [...palette.colors].reverse() : palette.colors;
 
-  const apply = async () => {
+  const legendToTable = (legend) => ({
+    edges: [legend[0].min, ...legend.map(l => l.max)],
+    colors: legend.map(l => l.color),
+    labels: legend.map(l => l.label),
+  });
+
+  const restyle = async (body, patch) => {
     setLoading(true); setStatus(null);
     try {
       const fd = new FormData();
       fd.append("raster_token", layer.rasterToken);
-      fd.append("palette", colors.map(c => c.replace("#", "")).join(","));
-      fd.append("vmin", String(minVal));
-      fd.append("vmax", String(maxVal));
-      fd.append("classes", String(classes || 0));
+      fd.append("palette", rampColors.map(c => c.replace("#", "")).join(","));
+      fd.append("vmin", String(minVal)); fd.append("vmax", String(maxVal));
+      Object.entries(body).forEach(([k, v]) => fd.append(k, String(v)));
       const res = await fetch(`${API}/api/raster/restyle`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
-      onUpdate(layer.id, {
-        imageUrl: `data:image/png;base64,${data.png_b64}`,
-        vmin: minVal, vmax: maxVal,
-        legend: data.legend?.length ? data.legend : null,
-        styleV: (layer.styleV || 0) + 1,   // force le re-montage de la source image
-      });
-      setStatus({ type: "ok", msg: "✓ Style appliqué" });
+      onUpdate(layer.id, { imageUrl: `data:image/png;base64,${data.png_b64}`, vmin: minVal, vmax: maxVal, legend: data.legend?.length ? data.legend : null, styleV: (layer.styleV || 0) + 1 });
+      if (patch) patch(data);
+      setStatus({ type: "ok", msg: "✓ Appliqué" });
     } catch (e) { setStatus({ type: "error", msg: e.message }); }
     setLoading(false);
   };
 
+  const classify = () => {
+    if (method === "continu") { setTable(null); return restyle({ classes: 0 }); }
+    return restyle({ classes: nClasses, classify: method },
+      (data) => { if (data.legend?.length) setTable(legendToTable(data.legend)); });
+  };
+  const applyManual = () => {
+    if (!table) return;
+    return restyle({ classify: "manual", breaks: table.edges.join(","), class_colors: table.colors.map(c => c.replace("#", "")).join(",") });
+  };
+
+  // ── édition de la table ──
+  const setEdge = (i, v) => setTable(t => { const e = [...t.edges]; const val = parseFloat(v); if (!isNaN(val) && val > e[i] && val < e[i + 2]) e[i + 1] = val; return { ...t, edges: e }; });
+  const setColor = (i, c) => setTable(t => { const cc = [...t.colors]; cc[i] = c; return { ...t, colors: cc }; });
+  const setLabel = (i, l) => setTable(t => { const ll = [...t.labels]; ll[i] = l; return { ...t, labels: ll }; });
+  const delRow = (i) => setTable(t => {
+    if (t.colors.length <= 2) return t;
+    const edges = [...t.edges], colors = [...t.colors], labels = [...t.labels];
+    edges.splice(i < colors.length - 1 ? i + 1 : i, 1); colors.splice(i, 1); labels.splice(i, 1);
+    return { edges, colors, labels };
+  });
+  const addRow = () => setTable(t => {
+    const n = t.colors.length; const mid = (t.edges[n - 1] + t.edges[n]) / 2;
+    return { edges: [...t.edges.slice(0, n), mid, t.edges[n]], colors: [...t.colors, t.colors[n - 1]], labels: [...t.labels, ""] };
+  });
+
   const iSt = { fontFamily: M, fontSize: 10, width: 54, padding: "3px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" };
+  const METHODS = [["continu", "Continu"], ["equal", "Égaux"], ["quantile", "Quantiles"], ["jenks", "Jenks"], ["manual", "Manuel"]];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "8px 0 4px" }}>
-      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Style raster (importé)</div>
+      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Reclassification raster</div>
+
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9, color: C.dim }}>Min</span>
-        <input type="number" value={minVal} onChange={e => setMinVal(parseFloat(e.target.value))} style={iSt} />
-        <span style={{ fontSize: 9, color: C.dim }}>Max</span>
-        <input type="number" value={maxVal} onChange={e => setMaxVal(parseFloat(e.target.value))} style={iSt} />
+        <span style={{ fontSize: 9, color: C.dim }}>Min</span><input type="number" value={minVal} onChange={e => setMinVal(parseFloat(e.target.value))} style={iSt} />
+        <span style={{ fontSize: 9, color: C.dim }}>Max</span><input type="number" value={maxVal} onChange={e => setMaxVal(parseFloat(e.target.value))} style={iSt} />
         <button onClick={() => setInverted(v => !v)} title="Inverser palette" style={{ fontFamily: M, fontSize: 10, padding: "3px 7px", borderRadius: 4, cursor: "pointer", background: inverted ? C.acc + "22" : "transparent", border: `0.5px solid ${inverted ? C.acc : C.bdr}`, color: inverted ? C.acc : C.dim }}>⇄</button>
       </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span style={{ fontSize: 9, color: C.dim }}>Classes</span>
-        <input type="number" min="0" max="12" value={classes} onChange={e => setClasses(Math.max(0, parseInt(e.target.value) || 0))} style={iSt} />
-        <span style={{ fontSize: 8, color: C.dim }}>0 = rampe continue{layer.dataMin != null ? ` · données ${layer.dataMin}–${layer.dataMax}` : ""}</span>
+
+      <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+        <select value={method} onChange={e => setMethod(e.target.value)} style={{ ...iSt, width: "auto", fontFamily: F }}>
+          {METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        {method !== "continu" && method !== "manual" && (<><span style={{ fontSize: 9, color: C.dim }}>Classes</span><input type="number" min="2" max="12" value={nClasses} onChange={e => setNClasses(Math.max(2, Math.min(12, parseInt(e.target.value) || 2)))} style={iSt} /></>)}
+        <button onClick={classify} disabled={loading} style={{ fontFamily: F, fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, cursor: loading ? "default" : "pointer", background: C.acc, color: "#fff", border: "none", opacity: loading ? 0.6 : 1, marginLeft: "auto" }}>{loading ? "…" : (method === "continu" ? "Appliquer" : "Classer")}</button>
       </div>
-      <div style={{ height: 10, borderRadius: 4, background: `linear-gradient(to right, ${colors.join(", ")})` }} />
-      {Object.entries(PALETTE_GROUPS).map(([group, keys]) => (
-        <div key={group}>
-          <div style={{ fontSize: 8, color: C.dim, marginBottom: 3, textTransform: "uppercase", letterSpacing: ".05em" }}>{group}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 }}>
-            {keys.map(k => (
-              <div key={k} style={{ display: "flex", flexDirection: "column", gap: 2, cursor: "pointer" }} onClick={() => setPalKey(k)}>
-                <PalettePreview colors={PALETTES[k].colors} selected={palKey === k} label={PALETTES[k].label} />
-                <span style={{ fontSize: 8, color: palKey === k ? C.acc : C.dim, textAlign: "center" }}>{PALETTES[k].label}</span>
+
+      {layer.dataMin != null && <div style={{ fontSize: 8, color: C.dim }}>données {layer.dataMin}–{layer.dataMax}</div>}
+
+      {method === "continu" ? (
+        <>
+          <div style={{ height: 10, borderRadius: 4, background: `linear-gradient(to right, ${rampColors.join(", ")})` }} />
+          {Object.entries(PALETTE_GROUPS).map(([group, keys]) => (
+            <div key={group}>
+              <div style={{ fontSize: 8, color: C.dim, marginBottom: 3, textTransform: "uppercase", letterSpacing: ".05em" }}>{group}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 }}>
+                {keys.map(k => (
+                  <div key={k} style={{ display: "flex", flexDirection: "column", gap: 2, cursor: "pointer" }} onClick={() => setPalKey(k)}>
+                    <PalettePreview colors={PALETTES[k].colors} selected={palKey === k} label={PALETTES[k].label} />
+                    <span style={{ fontSize: 8, color: palKey === k ? C.acc : C.dim, textAlign: "center" }}>{PALETTES[k].label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      ) : table ? (
+        <>
+          <div style={{ fontSize: 8, color: C.dim }}>Modifiez borne, couleur, libellé — puis « Appliquer les classes ».</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 190, overflowY: "auto" }}>
+            {table.colors.map((col, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: M, fontSize: 9.5 }}>
+                <input type="color" value={col} onChange={e => setColor(i, e.target.value)} style={{ width: 22, height: 18, padding: 0, border: `0.5px solid ${C.bdr}`, borderRadius: 3, background: "none", cursor: "pointer", flexShrink: 0 }} />
+                <span style={{ color: C.dim }}>{table.edges[i].toFixed(1)} –</span>
+                <input type="number" value={table.edges[i + 1]} onChange={e => setEdge(i, e.target.value)} style={{ ...iSt, width: 56 }} />
+                <input value={table.labels[i]} onChange={e => setLabel(i, e.target.value)} placeholder="libellé" style={{ ...iSt, width: "auto", flex: 1, fontFamily: F, fontSize: 9.5 }} />
+                <button onClick={() => delRow(i)} title="Supprimer" style={{ background: "none", border: "none", color: "#e11d1d", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>×</button>
               </div>
             ))}
           </div>
-        </div>
-      ))}
-      {status && (
-        <div style={{ fontSize: 9, padding: "3px 6px", borderRadius: 4, background: (status.type === "ok" ? C.acc : C.red) + "15", color: status.type === "ok" ? C.acc : C.red, border: `0.5px solid ${(status.type === "ok" ? C.acc : C.red)}44` }}>{status.msg}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={addRow} style={{ fontFamily: F, fontSize: 10, padding: "5px 10px", borderRadius: 5, cursor: "pointer", background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.mut }}>+ Classe</button>
+            <button onClick={applyManual} disabled={loading} style={{ fontFamily: F, fontSize: 10, fontWeight: 600, padding: "5px 0", borderRadius: 5, flex: 1, cursor: loading ? "default" : "pointer", background: C.acc, color: "#fff", border: "none", opacity: loading ? 0.6 : 1 }}>{loading ? "Rendu…" : "Appliquer les classes"}</button>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 9, color: C.dim }}>Choisissez une méthode et « Classer » pour éditer les classes.</div>
       )}
-      <button onClick={apply} disabled={loading} style={{ fontFamily: F, fontSize: 10, fontWeight: 600, padding: "6px 0", borderRadius: 5, width: "100%", cursor: loading ? "default" : "pointer", background: loading ? C.hover : C.acc, color: loading ? C.dim : "#fff", border: "none", opacity: loading ? 0.6 : 1 }}>
-        {loading ? "Rendu…" : "Appliquer le style"}
-      </button>
+
+      {status && (<div style={{ fontSize: 9, padding: "3px 6px", borderRadius: 4, background: (status.type === "ok" ? C.acc : C.red) + "15", color: status.type === "ok" ? C.acc : C.red, border: `0.5px solid ${(status.type === "ok" ? C.acc : C.red)}44` }}>{status.msg}</div>)}
     </div>
   );
 }
