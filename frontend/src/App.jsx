@@ -1097,6 +1097,7 @@ export default function App() {
       // restyle (rasters mono-bande importés) — comme les rasters GEE
       rasterToken: info.rasterToken || null,
       bands: info.bands || null,
+      bandRanges: info.bandRanges || null,
       vmin: info.vmin, vmax: info.vmax, dataMin: info.dataMin, dataMax: info.dataMax,
       legend: info.legend || null,
     }]);
@@ -1878,7 +1879,7 @@ export default function App() {
           name: file.name.replace(/\.[^.]+$/, ""),
           imageUrl: `data:image/png;base64,${d.png_b64}`,
           coordinates: d.image_coordinates, bbox: d.bbox, opacity: 0.9,
-          rasterToken: d.raster_token, bands: d.bands,
+          rasterToken: d.raster_token, bands: d.bands, bandRanges: d.band_ranges,
           vmin: d.vmin, vmax: d.vmax, dataMin: d.data_min, dataMax: d.data_max,
         });
       } catch (e) { alert("Import GeoTIFF : " + (e.message || e)); }

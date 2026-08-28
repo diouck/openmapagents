@@ -208,8 +208,9 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
 function RasterImageStylePanel({ layer, onUpdate }) {
   const C = useThemeContext();
   const [palKey, setPalKey] = useState("terrain");
-  const [minVal, setMinVal] = useState(layer.vmin ?? 0);
-  const [maxVal, setMaxVal] = useState(layer.vmax ?? 1);
+  const [band, setBand] = useState(1);
+  const [minVal, setMinVal] = useState(layer.vmin ?? (layer.bandRanges?.[0]?.[0] ?? 0));
+  const [maxVal, setMaxVal] = useState(layer.vmax ?? (layer.bandRanges?.[0]?.[1] ?? 1));
   const [method, setMethod] = useState("continu");   // continu|equal|quantile|jenks|manual
   const [nClasses, setNClasses] = useState(5);
   const [inverted, setInverted] = useState(false);
@@ -233,6 +234,7 @@ function RasterImageStylePanel({ layer, onUpdate }) {
       fd.append("raster_token", layer.rasterToken);
       fd.append("palette", rampColors.map(c => c.replace("#", "")).join(","));
       fd.append("vmin", String(minVal)); fd.append("vmax", String(maxVal));
+      fd.append("band", String(band));
       Object.entries(body).forEach(([k, v]) => fd.append(k, String(v)));
       const res = await fetch(`${API}/api/raster/restyle`, { method: "POST", body: fd });
       const data = await res.json();
@@ -274,7 +276,16 @@ function RasterImageStylePanel({ layer, onUpdate }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "8px 0 4px" }}>
-      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Reclassification raster</div>
+      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em" }}>Reclassification raster{layer.bands > 1 ? ` (${layer.bands} bandes)` : ""}</div>
+
+      {layer.bands > 1 && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ fontSize: 9, color: C.dim }}>Bande</span>
+          <select value={band} onChange={e => { const b = parseInt(e.target.value); setBand(b); const r = layer.bandRanges?.[b - 1]; if (r) { setMinVal(r[0]); setMaxVal(r[1]); } }} style={{ ...iSt, width: "auto", fontFamily: F }}>
+            {Array.from({ length: layer.bands }, (_, i) => <option key={i} value={i + 1}>Bande {i + 1}</option>)}
+          </select>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 9, color: C.dim }}>Min</span><input type="number" value={minVal} onChange={e => setMinVal(parseFloat(e.target.value))} style={iSt} />
@@ -800,8 +811,8 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <PointcloudStylePanel layer={l} mapRef={mapRef} />
                 )}
 
-                {/* ── Style d'un GeoTIFF importé mono-bande (palette + valeurs) ── */}
-                {l.kind === "image" && l.rasterToken && l.bands === 1 && (
+                {/* ── Reclassification d'un GeoTIFF importé (mono OU multi-bande) ── */}
+                {l.kind === "image" && l.rasterToken && (
                   <RasterImageStylePanel layer={l} onUpdate={(id, updates) => onUpdateRasterLayer?.(id, updates)} />
                 )}
 
