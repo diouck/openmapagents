@@ -138,7 +138,7 @@ const RAIL_GROUPS = [
       { id: "rasteranalysis", sub: "Raster", label: "Analyse raster (zonal + calc)", Icon: IcGrid, hasPanel: true },
       { id: "rastervec", sub: "Vecto", label: "Vectorisation raster (polygones + contours)", Icon: IcHexagon, hasPanel: true },
       { id: "spatialstats", sub: "Autocorr.", label: "Stats spatiales (Moran, hotspots)", Icon: IcCircleDot, hasPanel: true },
-      { id: "vectorviz", sub: "Densité", label: "Densité & flux (chaleur, hexagones, flux)", Icon: IcHexagon, hasPanel: true },
+      { id: "vectorviz", sub: "Chaleur", label: "Chaleur & clusters (densité de points)", Icon: IcRadar, hasPanel: true },
       { id: "georef", sub: "Caler", label: "Géoréférenceur (caler une image)", Icon: IcMap, hasPanel: true },
     ],
   },
@@ -2458,7 +2458,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb:hover{background:${C.mut}}
       `}</style>
 
-      <input ref={fileRef} type="file" accept=".geojson,.json,.csv,.tsv,.zip,.shp,.tif,.tiff" style={{display:"none"}}
+      <input ref={fileRef} type="file" accept=".geojson,.json,.csv,.tsv,.gpx,.kml,.zip,.shp,.tif,.tiff" style={{display:"none"}}
         onChange={e=>{if(e.target.files?.[0])doImport(e.target.files[0]);e.target.value="";}} />
 
       {dragOver && (
