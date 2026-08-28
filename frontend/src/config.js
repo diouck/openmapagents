@@ -72,16 +72,32 @@ export const MAP_STYLES = {
       }
     },
     layers: [{ id: "moon", type: "raster", source: "moon" }]
+  },
+  mercury: {
+    version: 8,
+    sources: {
+      mercury: {
+        type: "raster",
+        tiles: ["https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-mercury-basemap-v0-1/all/{z}/{x}/{y}.png"],
+        tileSize: 256, maxzoom: 6,
+        attribution: "Mercury © NASA / USGS / OpenPlanetaryMap"
+      }
+    },
+    layers: [{ id: "mercury", type: "raster", source: "mercury" }]
   }
 };
 
 // Fonds « planète » (à séparer des fonds Terre dans le sélecteur).
+// Limités aux corps disposant de tuiles Web-Mercator publiques (OpenPlanetaryMap :
+// Terre, Mercure, Mars, Lune). Vénus et les géantes gazeuses n'ont pas de tuiles
+// slippy-map compatibles MapLibre (seulement des textures équirectangulaires).
 export const PLANETS = [
-  { key: "earth", label: "Terre", icon: "🌍" },
-  { key: "mars",  label: "Mars",  icon: "🔴" },
-  { key: "moon",  label: "Lune",  icon: "🌕" },
+  { key: "earth",   label: "Terre",   icon: "🌍" },
+  { key: "mercury", label: "Mercure", icon: "☿" },
+  { key: "mars",    label: "Mars",    icon: "🔴" },
+  { key: "moon",    label: "Lune",    icon: "🌕" },
 ];
-export const PLANET_KEYS = ["mars", "moon"];
+export const PLANET_KEYS = ["mercury", "mars", "moon"];
 
 export const LAYER_COLORS = [
   "#EF9F27", "#378ADD", "#D4537E", "#1D9E75",

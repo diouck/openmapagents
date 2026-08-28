@@ -2473,15 +2473,15 @@ export default function App() {
             </button>
           ))}
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
-          {/* Sélecteur de planète : Terre / Mars / Lune (fonds planétaires en globe) */}
-          <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
-            {PLANETS.map(p=>(
-              <button key={p.key} onClick={()=>selectPlanet(p.key)} className="rib" title={p.key==="earth"?"Revenir à la Terre":`${p.label} (fond ${p.key}, vue globe)`}
-                style={{fontFamily:F,fontSize:10,padding:"3px 8px",border:"none",borderLeft:p.key!=="earth"?`0.5px solid ${C.bdr}`:"none",background:currentPlanet===p.key?C.acc+"18":"transparent",color:currentPlanet===p.key?C.acc:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
-                <span style={{fontSize:11}}>{p.icon}</span>{p.label}
-              </button>
-            ))}
-          </div>
+          {/* Sélecteur de planète (liste déroulante) : une planète se voit en globe */}
+          <select value={currentPlanet} onChange={e=>selectPlanet(e.target.value)} className="rib"
+            title="Choisir un corps céleste (vue globe)"
+            style={{fontFamily:F,fontSize:10,padding:"3px 6px",borderRadius:5,cursor:"pointer",
+              border:`0.5px solid ${currentPlanet!=="earth"?C.acc+"55":C.bdr}`,
+              background:currentPlanet!=="earth"?C.acc+"12":"transparent",
+              color:currentPlanet!=="earth"?C.acc:C.dim,outline:"none"}}>
+            {PLANETS.map(p=>(<option key={p.key} value={p.key}>{p.icon} {p.label}</option>))}
+          </select>
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
           {/* Sélecteur de projection de la carte live : seuls Plan (Mercator) et Globe sont possibles sous MapLibre */}
           <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
