@@ -499,6 +499,27 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
   const C = useThemeContext();
   const [exp,      setExp]      = useState(null);
   const [editName, setEditName] = useState(null);
+  const [tiffBusy, setTiffBusy] = useState(null);
+
+  // Export d'une couche image (overlay géoréférencé) → GeoTIFF téléchargé.
+  const exportImageTiff = async (l) => {
+    if (!l.imageUrl || !l.coordinates) return;
+    setTiffBusy(l.id);
+    try {
+      const r = await fetch(`${API}/api/raster/to_geotiff`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_b64: l.imageUrl, coordinates: l.coordinates, name: l.name }),
+      });
+      if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
+      const d = await r.json();
+      const bin = atob(d.geotiff_b64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "image/tiff" }));
+      const a = document.createElement("a"); a.href = url; a.download = `${(l.name || "couche").replace(/[^\w.-]+/g, "_")}.tif`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { alert("Export GeoTIFF : " + (e.message || e)); }
+    finally { setTiffBusy(null); }
+  };
 
   // ── État modale statistiques (générique, tous rasters GEE) ───
   const [statsModal, setStatsModal] = useState(null);
@@ -741,6 +762,16 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   }}>
                     <IcBarChart size={13}/> Statistiques de la zone
                   </button>
+                )}
+
+                {/* ── Export GeoTIFF d'une couche image géoréférencée ── */}
+                {l.kind === "image" && l.imageUrl && l.coordinates && (
+                  <button onClick={() => exportImageTiff(l)} disabled={tiffBusy === l.id} style={{
+                    fontFamily: F, fontSize: 10, fontWeight: 500, padding: "6px 0", borderRadius: 5, width: "100%",
+                    background: "transparent", border: `0.5px solid ${C.acc}`, color: C.acc,
+                    cursor: tiffBusy === l.id ? "wait" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}>{tiffBusy === l.id ? "Export…" : "⬇ Exporter en GeoTIFF"}</button>
                 )}
 
                 {l.isRaster && (

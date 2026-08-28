@@ -618,3 +618,59 @@ def raster_contours(req: ContoursReq):
         "message": f"{len(feats)} isoligne(s) sur {len(levels)} niveau(x)"
                    + (" (tronqué)" if truncated else "."),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Export : couche image (overlay georéférencé, grille EPSG:3857 axis-aligned)
+#  → GeoTIFF téléchargeable. Marche pour tout overlay (géoréférenceur, scène STAC,
+#  raster importé…) : image PNG + 4 coins lon/lat.
+# ─────────────────────────────────────────────────────────────────────────────
+class ToGeotiffReq(BaseModel):
+    image_b64: str                 # data URL ou base64 PNG
+    coordinates: list              # [[lonTL,latTL],[lonTR,latTR],[lonBR,latBR],[lonBL,latBL]]
+    name: Optional[str] = None
+
+
+@router.post("/to_geotiff")
+def raster_to_geotiff(req: ToGeotiffReq):
+    import numpy as np
+    from PIL import Image
+    try:
+        from rasterio.io import MemoryFile
+        from rasterio.transform import from_bounds
+        from rasterio.enums import ColorInterp
+        from rasterio.warp import transform as warp_transform
+    except ImportError as e:
+        raise HTTPException(503, f"Dépendance raster manquante : « {getattr(e, 'name', e)} ».")
+
+    try:
+        raw = base64.b64decode((req.image_b64 or "").split(",")[-1])
+        img = Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception as e:
+        raise HTTPException(422, f"Image illisible : {e}")
+    arr = np.asarray(img)
+    H, W = arr.shape[:2]
+
+    coords = req.coordinates or []
+    if len(coords) < 4:
+        raise HTTPException(422, "Emprise (4 coins lon/lat) manquante.")
+    lons = [float(c[0]) for c in coords]; lats = [float(c[1]) for c in coords]
+    xs, ys = warp_transform("EPSG:4326", "EPSG:3857", lons, lats)
+    xmin, xmax = min(xs), max(xs); ymin, ymax = min(ys), max(ys)
+    if xmax <= xmin or ymax <= ymin:
+        raise HTTPException(422, "Emprise géographique invalide.")
+
+    gt = from_bounds(xmin, ymin, xmax, ymax, W, H)
+    try:
+        with MemoryFile() as mf:
+            with mf.open(driver="GTiff", height=H, width=W, count=4, dtype="uint8",
+                         crs="EPSG:3857", transform=gt, compress="deflate",
+                         photometric="RGB", tiled=True) as ds:
+                for ch in range(4):
+                    ds.write(arr[:, :, ch], ch + 1)
+                ds.colorinterp = [ColorInterp.red, ColorInterp.green, ColorInterp.blue, ColorInterp.alpha]
+            geotiff_b64 = base64.b64encode(mf.read()).decode("ascii")
+    except Exception as e:
+        raise HTTPException(500, f"Écriture GeoTIFF impossible : {e}")
+
+    return {"geotiff_b64": geotiff_b64, "name": req.name or "couche", "width": W, "height": H}
