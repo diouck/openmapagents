@@ -8,7 +8,7 @@
  *
  * Interaction : glisser = tourner, molette = zoom, rotation automatique.
  */
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
@@ -31,6 +31,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
   const C = useThemeContext();
   const body = bodyProp || "earth";
   const mountRef = useRef(null);
+  const [status, setStatus] = useState("loading");   // loading | ok | error
   const S = useRef(null);        // état Three.js persistant
   const loadTok = useRef(0);
   const meta = BODIES.find((b) => b[0] === body);
@@ -144,6 +145,7 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
     // anneaux : retirer l'ancien
     if (st.ring) { st.group.remove(st.ring); st.ring.geometry.dispose(); st.ring.material.map?.dispose?.(); st.ring.material.dispose(); st.ring = null; }
 
+    setStatus("loading");
     new THREE.TextureLoader().load(`${API}/planet/texture/${body}`, (t) => {
       if (tok !== loadTok.current || !S.current) return;
       t.colorSpace = THREE.SRGBColorSpace;
@@ -157,7 +159,8 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
       st.group.rotation.set(0, st.group.rotation.y, 0);
       st.group.rotation.z = THREE.MathUtils.degToRad(TILT[body] || 0);
       st.spin = isSun ? 0.0008 : 0.0016;
-    }, undefined, () => {});
+      setStatus("ok");
+    }, undefined, () => { if (tok === loadTok.current) setStatus("error"); });
 
     // Anneaux de Saturne
     if (body === "saturn") {
@@ -188,7 +191,21 @@ export default function SolarSystemPanel({ body: bodyProp, onBody }) {
         <span style={{ fontFamily: F, fontSize: 11, color: C.mut }}>{meta?.[2]}</span>
       </div>
 
-      <div ref={mountRef} style={{ flex: 1, minHeight: 220, borderRadius: 10, overflow: "hidden", background: "#05060a", cursor: "grab", border: `0.5px solid ${C.bdr}` }} />
+      <div style={{ position: "relative", flex: 1, minHeight: 220 }}>
+        <div ref={mountRef} style={{ position: "absolute", inset: 0, borderRadius: 10, overflow: "hidden", background: "#05060a", cursor: "grab", border: `0.5px solid ${C.bdr}` }} />
+        {status !== "ok" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", textAlign: "center", padding: 16 }}>
+            {status === "loading" ? (
+              <span style={{ fontFamily: F, fontSize: 12, color: "#9aa0b0" }}>Chargement de la texture…</span>
+            ) : (
+              <span style={{ fontFamily: F, fontSize: 11.5, color: "#f0a0a0", lineHeight: 1.5, maxWidth: 300 }}>
+                ⚠ Texture indisponible.<br />
+                <span style={{ color: "#8a90a0" }}>Le service <span style={{ fontFamily: M }}>/api/planet/texture</span> répond-il ? (backend à redéployer, ou accès Internet du serveur bloqué)</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       <div style={{ fontFamily: F, fontSize: 10, color: C.dim, textAlign: "center" }}>
         Glisser pour tourner · molette pour zoomer · Textures © <span style={{ fontFamily: M }}>Solar System Scope</span> (CC-BY 4.0)
