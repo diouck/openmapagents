@@ -252,7 +252,7 @@ export const DOC_TOOLS = {
         { v: "3D", k: "sphère texturée Three.js" },
       ],
     },
-    caveat: "Complément au sélecteur de planète de la carte (qui, lui, n'a que Mercure/Mars/Lune faute de tuiles). Les textures (Solar System Scope, CC-BY 4.0) sont servies par le serveur pour contourner CORS ; leur premier chargement peut prendre un instant, puis elles sont mises en cache.",
+    caveat: "Complément au sélecteur de planète de la carte (qui, lui, n'a que Mercure/Mars/Lune faute de tuiles). Les textures (Solar System Scope, CC-BY 4.0) sont embarquées dans l'application (frontend) : elles s'affichent sans backend ni accès Internet du serveur.",
   },
   georef: {
     date: "2026-08-28",
