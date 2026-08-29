@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
-import { IcBarChart } from "../icons";
+import { IcBarChart, IcEye, IcEyeOff } from "../icons";
 import ClassPanel from "./ClassPanel";
 import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
@@ -225,6 +225,7 @@ function RasterImageStylePanel({ layer, onUpdate }) {
     edges: [legend[0].min, ...legend.map(l => l.max)],
     colors: legend.map(l => l.color),
     labels: legend.map(l => l.label),
+    alphas: legend.map(l => (l.hidden ? 0 : 255)),
   });
 
   const restyle = async (body, patch) => {
@@ -253,22 +254,23 @@ function RasterImageStylePanel({ layer, onUpdate }) {
   };
   const applyManual = () => {
     if (!table) return;
-    return restyle({ classify: "manual", breaks: table.edges.join(","), class_colors: table.colors.map(c => c.replace("#", "")).join(",") });
+    return restyle({ classify: "manual", breaks: table.edges.join(","), class_colors: table.colors.map(c => c.replace("#", "")).join(","), class_alpha: (table.alphas || table.colors.map(() => 255)).join(",") });
   };
 
   // ── édition de la table ──
   const setEdge = (i, v) => setTable(t => { const e = [...t.edges]; const val = parseFloat(v); if (!isNaN(val) && val > e[i] && val < e[i + 2]) e[i + 1] = val; return { ...t, edges: e }; });
   const setColor = (i, c) => setTable(t => { const cc = [...t.colors]; cc[i] = c; return { ...t, colors: cc }; });
   const setLabel = (i, l) => setTable(t => { const ll = [...t.labels]; ll[i] = l; return { ...t, labels: ll }; });
+  const toggleVis = (i) => setTable(t => { const a = [...(t.alphas || t.colors.map(() => 255))]; a[i] = a[i] === 0 ? 255 : 0; return { ...t, alphas: a }; });
   const delRow = (i) => setTable(t => {
     if (t.colors.length <= 2) return t;
-    const edges = [...t.edges], colors = [...t.colors], labels = [...t.labels];
-    edges.splice(i < colors.length - 1 ? i + 1 : i, 1); colors.splice(i, 1); labels.splice(i, 1);
-    return { edges, colors, labels };
+    const edges = [...t.edges], colors = [...t.colors], labels = [...t.labels], alphas = [...(t.alphas || t.colors.map(() => 255))];
+    edges.splice(i < colors.length - 1 ? i + 1 : i, 1); colors.splice(i, 1); labels.splice(i, 1); alphas.splice(i, 1);
+    return { edges, colors, labels, alphas };
   });
   const addRow = () => setTable(t => {
     const n = t.colors.length; const mid = (t.edges[n - 1] + t.edges[n]) / 2;
-    return { edges: [...t.edges.slice(0, n), mid, t.edges[n]], colors: [...t.colors, t.colors[n - 1]], labels: [...t.labels, ""] };
+    return { edges: [...t.edges.slice(0, n), mid, t.edges[n]], colors: [...t.colors, t.colors[n - 1]], labels: [...t.labels, ""], alphas: [...(t.alphas || t.colors.map(() => 255)), 255] };
   });
 
   const iSt = { fontFamily: M, fontSize: 10, width: 54, padding: "3px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" };
@@ -322,17 +324,18 @@ function RasterImageStylePanel({ layer, onUpdate }) {
         </>
       ) : table ? (
         <>
-          <div style={{ fontSize: 8, color: C.dim }}>Modifiez borne, couleur, libellé — puis « Appliquer les classes ».</div>
+          <div style={{ fontSize: 8, color: C.dim }}>👁 masquer (transparent) · borne · couleur · libellé — puis « Appliquer les classes ».</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 190, overflowY: "auto" }}>
-            {table.colors.map((col, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: M, fontSize: 9.5 }}>
-                <input type="color" value={col} onChange={e => setColor(i, e.target.value)} style={{ width: 22, height: 18, padding: 0, border: `0.5px solid ${C.bdr}`, borderRadius: 3, background: "none", cursor: "pointer", flexShrink: 0 }} />
+            {table.colors.map((col, i) => { const hidden = (table.alphas || [])[i] === 0; return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: M, fontSize: 9.5, opacity: hidden ? 0.45 : 1 }}>
+                <button onClick={() => toggleVis(i)} title={hidden ? "Afficher cette classe" : "Masquer (transparent)"} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexShrink: 0, color: hidden ? C.dim : C.acc }}>{hidden ? <IcEyeOff size={13} /> : <IcEye size={13} />}</button>
+                <input type="color" value={col} onChange={e => setColor(i, e.target.value)} style={{ width: 20, height: 18, padding: 0, border: `0.5px solid ${C.bdr}`, borderRadius: 3, background: "none", cursor: "pointer", flexShrink: 0 }} />
                 <span style={{ color: C.dim }}>{table.edges[i].toFixed(1)} –</span>
-                <input type="number" value={table.edges[i + 1]} onChange={e => setEdge(i, e.target.value)} style={{ ...iSt, width: 56 }} />
+                <input type="number" value={table.edges[i + 1]} onChange={e => setEdge(i, e.target.value)} style={{ ...iSt, width: 54 }} />
                 <input value={table.labels[i]} onChange={e => setLabel(i, e.target.value)} placeholder="libellé" style={{ ...iSt, width: "auto", flex: 1, fontFamily: F, fontSize: 9.5 }} />
                 <button onClick={() => delRow(i)} title="Supprimer" style={{ background: "none", border: "none", color: "#e11d1d", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>×</button>
               </div>
-            ))}
+            ); })}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={addRow} style={{ fontFamily: F, fontSize: 10, padding: "5px 10px", borderRadius: 5, cursor: "pointer", background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.mut }}>+ Classe</button>

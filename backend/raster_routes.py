@@ -78,7 +78,7 @@ def _hex_rgb(h):
     return [128, 128, 128]
 
 
-def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=None):
+def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=None, class_alpha=None):
     """Rend une bande en PNG base64 (nodata transparent).
 
     - bounds (bornes explicites, longueur ncl+1) → classes non uniformes (digitize),
@@ -91,6 +91,7 @@ def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=Non
     h, w = band.shape
     span = (vmax - vmin) or 1.0
     legend = []
+    amap = None                         # alpha par pixel (transparence par classe)
     if bounds is not None and len(bounds) >= 3:
         bnds = np.asarray(bounds, dtype=float)
         ncl = len(bnds) - 1
@@ -101,10 +102,15 @@ def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=Non
         else:
             pal = np.array([cmap[int((i + 0.5) / ncl * 255)] for i in range(ncl)], np.uint8)
         rgb = pal[idx]
+        alphas = None
+        if class_alpha and len(class_alpha) == ncl:
+            alphas = np.array([max(0, min(255, int(a))) for a in class_alpha], np.uint8)
+            amap = alphas[idx]
         for i in range(ncl):
             c = pal[i]
             legend.append({"label": f"{bnds[i]:.2f} – {bnds[i + 1]:.2f}",
                            "min": round(float(bnds[i]), 4), "max": round(float(bnds[i + 1]), 4),
+                           "hidden": bool(alphas is not None and alphas[i] == 0),
                            "color": "#%02x%02x%02x" % (int(c[0]), int(c[1]), int(c[2]))})
     elif classes and classes >= 2:
         binned = np.clip(np.nan_to_num((band - vmin) / span * classes, nan=0.0).astype(np.int32), 0, classes - 1)
@@ -122,7 +128,8 @@ def _render(band, mask, cmap, vmin, vmax, classes, bounds=None, class_colors=Non
         rgb = cmap[idx]
     rgba = np.zeros((h, w, 4), np.uint8)
     rgba[..., :3] = rgb
-    rgba[..., 3] = np.where(mask, 255, 0).astype(np.uint8)
+    base_a = amap if amap is not None else 255
+    rgba[..., 3] = np.where(mask, base_a, 0).astype(np.uint8)
     buf = io.BytesIO()
     Image.fromarray(rgba, "RGBA").save(buf, "PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii"), legend
@@ -297,6 +304,7 @@ def raster_restyle(
     classify: str = Form("equal"),     # equal | quantile | jenks | manual
     breaks: str = Form(""),            # bornes complètes (mode manuel) "v0,v1,…,vn"
     class_colors: str = Form(""),      # "hex1,…,hexN" (une couleur par classe)
+    class_alpha: str = Form(""),       # "a1,…,aN" (0-255 par classe ; 0 = masquée)
     band: int = Form(1),               # bande (raster multi-bande)
 ):
     import numpy as np
@@ -308,6 +316,7 @@ def raster_restyle(
     mask = np.isfinite(band)
     cmap = _ramp_from_hex(palette.split(",")) if palette.strip() else _CMAP
     cc = [c for c in class_colors.split(",") if c.strip()] if class_colors.strip() else None
+    ca = [a for a in class_alpha.split(",") if a.strip()] if class_alpha.strip() else None
 
     bounds = None
     n = int(classes)
@@ -316,7 +325,7 @@ def raster_restyle(
             n = max(2, len([b for b in breaks.split(",") if b.strip() != ""]) - 1)
         bounds = _class_bounds(band[mask], classify, max(2, n), breaks, float(vmin), float(vmax))
 
-    png_b64, legend = _render(band, mask, cmap, float(vmin), float(vmax), int(classes), bounds=bounds, class_colors=cc)
+    png_b64, legend = _render(band, mask, cmap, float(vmin), float(vmax), int(classes), bounds=bounds, class_colors=cc, class_alpha=ca)
     os.utime(jdir, None)
     return {"png_b64": png_b64, "legend": legend, "vmin": vmin, "vmax": vmax,
             "classes": (len(bounds) - 1) if bounds else int(classes), "classify": classify}
