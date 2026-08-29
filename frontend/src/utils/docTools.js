@@ -235,6 +235,28 @@ export const DOC_TOOLS = {
     },
     caveat: "Source : Earth Search (Element84), publique et sans clé. L'ajout à la carte n'est disponible que pour les collections avec un COG RVB « visual » (Sentinel-2) ; les aperçus sont downsamplés (~1024 px) pour rester légers. Par sécurité, seuls les hôtes d'assets whitelistés (bucket public sentinel-cogs) sont lus côté serveur.",
   },
+  maxar: {
+    date: "2026-08-29",
+    dataLine: "Maxar Open Data Program · bucket AWS public maxar-opendata · STAC + COG · CC BY-NC 4.0",
+    abstract: "Un accès direct au Maxar Open Data Program : de l'imagerie satellite très haute résolution (30–50 cm) publiée gratuitement sur les zones frappées par des catastrophes — inondations, incendies, cyclones, séismes, éruptions — avec, le plus souvent, des prises avant et après l'événement. On choisit un événement, puis une acquisition datée ; l'outil lit et mosaïque à la volée ses tuiles Cloud-Optimized GeoTIFF (RVB) depuis le bucket AWS public et les pose comme couche image géoréférencée, sans télécharger ni compte AWS.",
+    usage: [
+      "Menu thématique → Outils & données → Maxar Open Data (catastrophes).",
+      "Choisissez un événement dans la liste (55 catastrophes) ; la carte se recadre sur la zone.",
+      "Les acquisitions s'affichent triées par date : anciennes = avant, récentes = après.",
+      "« Ajouter » mosaïque les tuiles visibles (ou toute l'acquisition si « Limiter à la vue » est décoché).",
+      "Ajoutez une prise avant et une après, puis comparez (Comparateur A/B, opacité, empilement).",
+    ],
+    example: {
+      title: "Avant / après une inondation",
+      body: "Sur l'événement « Brazil Flooding May24 », une acquisition de 2018 montre la ville intacte et une acquisition de mai 2024 la même zone inondée. Chaque mosaïque est lue en aperçu COG (overviews, plages HTTP) et reprojetée en Web Mercator pour coller au fond.",
+      stats: [
+        { v: "30–50 cm", k: "résolution native" },
+        { v: "avant/après", k: "acquisitions datées" },
+        { v: "CC BY-NC 4.0", k: "usage non commercial" },
+      ],
+    },
+    caveat: "Licence CC BY-NC 4.0 — usage non commercial, attribution « © Maxar Open Data ». Données lues en direct depuis le bucket AWS public maxar-opendata (lecture anonyme, aucune clé). Une acquisition peut couvrir une large bande à tuiles éparses : « Limiter à la vue » ne mosaïque que les tuiles à l'écran (plus rapide) et la sortie est bornée à 40 tuiles ; les zones sans tuile restent transparentes. Par sécurité, seul le bucket Maxar (URLs construites à partir d'une base fixe + identifiant validé) est lu côté serveur.",
+  },
   solarsystem: {
     date: "2026-08-28",
     dataLine: "Textures Solar System Scope (CC-BY) · Three.js",

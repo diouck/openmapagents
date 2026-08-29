@@ -18,7 +18,7 @@ import {
   IcFilm, IcRadar, IcNavigation, IcCube, IcDiff, IcCompare, IcTrendingUp,
   IcStack, IcBarChart, IcVenn, IcClassif, IcEdit, IcDatabase, IcServer,
   IcOSM, IcRulerTool, IcHexagon, IcCircleDot, IcPencil, IcSatellite, IcMap, IcUser, IcSun, IcImage, IcTable,
-  IcFish, IcBoxes, IcGlobe, IcMoon,
+  IcFish, IcBoxes, IcGlobe, IcMoon, IcAlert,
 } from "../icons";
 
 // dataset + index EXACTS attendus par /api/gee/tiles (voir gee_routes.py)
@@ -304,6 +304,7 @@ export const MENU_TREE = [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "vectorcat", label: "Catalogue vectoriel", desc: "Cherche et ajoute des données vectorielles (limites, routes, rivières, séismes…).", icon: IcBoxes },
     { kind: "tool", id: "stac", label: "Navigateur STAC / COG", desc: "Cherche des scènes satellite (Sentinel-2…) sur l'emprise et ajoute leur aperçu COG.", icon: IcSatellite },
+    { kind: "tool", id: "maxar", label: "Maxar Open Data (catastrophes)", desc: "Imagerie HR avant/après catastrophe (Maxar Open Data) importée depuis le catalogue AWS public.", icon: IcAlert },
     { kind: "tool", id: "sql", label: "SQL Workspace", desc: "Éditeur SQL spatial (DuckDB) sur vos couches → résultat en carte.", icon: IcTable },
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "rastervec", label: "Vectorisation raster (polygones + contours)", desc: "Transforme un GeoTIFF en polygones (par classes) ou en courbes de niveau.", icon: IcHexagon },
