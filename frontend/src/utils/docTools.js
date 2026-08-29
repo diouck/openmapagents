@@ -255,7 +255,7 @@ export const DOC_TOOLS = {
         { v: "CC BY-NC 4.0", k: "usage non commercial" },
       ],
     },
-    caveat: "Licence CC BY-NC 4.0 — usage non commercial, attribution « © Maxar Open Data ». Données lues en direct depuis le bucket AWS public maxar-opendata (lecture anonyme, aucune clé). Une acquisition peut couvrir une large bande à tuiles éparses : « Limiter à la vue » ne mosaïque que les tuiles à l'écran (plus rapide) et la sortie est bornée à 40 tuiles ; les zones sans tuile restent transparentes. Par sécurité, seul le bucket Maxar (URLs construites à partir d'une base fixe + identifiant validé) est lu côté serveur.",
+    caveat: "Licence CC BY-NC 4.0 — usage non commercial, attribution « © Maxar Open Data ». Données lues en direct depuis le bucket AWS public maxar-opendata (lecture anonyme, aucune clé). Une acquisition peut couvrir une large bande à tuiles éparses : « Limiter à la vue » ne mosaïque que les tuiles à l'écran (plus rapide, plus net) et la sortie est bornée à 40 tuiles ; les zones sans tuile restent transparentes. Résolution : l'aperçu est une IMAGE FIGÉE (pas des tuiles), rendue jusqu'à 4096 px (« Détail : Haute déf. ») sans jamais suréchantillonner au-delà du natif (~0,5 m) — donc plus on zoome sur la zone avant d'« Ajouter », plus c'est net ; le message d'ajout indique la résolution au sol obtenue. Par sécurité, seul le bucket Maxar (URLs construites à partir d'une base fixe + identifiant validé) est lu côté serveur.",
   },
   solarsystem: {
     date: "2026-08-28",

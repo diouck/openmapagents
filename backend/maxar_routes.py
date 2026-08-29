@@ -59,7 +59,8 @@ _ROOT = _BASE + "/events/catalog.json"
 _ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")     # identifiants d'événement / catalog_id sûrs
 _MAX_TILES = 40                               # tuiles mosaïquées au plus (perf)
 _MAX_ITEMS = 600                              # items STAC listés au plus par acquisition
-_MAX_SIDE = 1600                              # côté max du PNG de sortie
+_MAX_SIDE = 2048                              # côté max du PNG de sortie (défaut)
+_MAX_SIDE_CEIL = 4096                         # plafond « haute déf » (limite texture WebGL)
 _UA = {"User-Agent": "OpenMapAgents/1.0"}
 
 # Caches en processus (le catalogue S3 est statique).
@@ -268,10 +269,10 @@ def maxar_mosaic(req: MosaicReq):
     x3857, y3857 = warp_transform("EPSG:4326", "EPSG:3857", [uw, ue], [us, un])
     tw3857, te3857 = min(x3857), max(x3857)
     ts3857, tn3857 = min(y3857), max(y3857)
-    max_side = max(256, min(int(req.max_side or _MAX_SIDE), 2400))
-    res = max(te3857 - tw3857, tn3857 - ts3857) / float(max_side)
-    if res <= 0:
-        raise HTTPException(422, "Résolution cible invalide.")
+    span = max(te3857 - tw3857, tn3857 - ts3857)
+    if span <= 0:
+        raise HTTPException(422, "Emprise cible invalide.")
+    max_side = max(256, min(int(req.max_side or _MAX_SIDE), _MAX_SIDE_CEIL))
 
     # Ouvre les COG, reprojette chacun en 3857 (WarpedVRT), mosaïque (merge).
     srcs, vrts = [], []
@@ -285,11 +286,20 @@ def maxar_mosaic(req: MosaicReq):
             vrts.append(WarpedVRT(s, crs="EPSG:3857", resampling=Resampling.bilinear))
         if not vrts:
             raise HTTPException(502, "Aucune tuile lisible (COG).")
+        # Résolution cible = la plus FINE possible sans (a) dépasser max_side px
+        # sur le grand côté, ni (b) suréchantillonner au-delà du natif des COG
+        # (inutile + lourd). `vrts[0].res` = résolution native reprojetée en
+        # mètres 3857 → sur une petite emprise on atteint le natif (~0.5 m).
+        native = min(abs(vrts[0].res[0]), abs(vrts[0].res[1]))
+        res = max(span / float(max_side), native)
+        if res <= 0:
+            raise HTTPException(422, "Résolution cible invalide.")
         mosaic, transform = merge(
             vrts, bounds=(tw3857, ts3857, te3857, tn3857), res=res,
             nodata=0, resampling=Resampling.bilinear,
             indexes=[1, 2, 3] if vrts[0].count >= 3 else None,
         )
+        native_res = native
     except HTTPException:
         raise
     except Exception as e:
@@ -326,6 +336,12 @@ def maxar_mosaic(req: MosaicReq):
     buf = io.BytesIO(); Image.fromarray(rgba, "RGBA").save(buf, "PNG")
     png_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
+    # Résolution au sol approx. : `res` est en mètres 3857 (étirés de 1/cos(lat)).
+    import math
+    lat_c = math.radians((s4 + n4) / 2.0)
+    ground_res = float(res) * math.cos(lat_c)
+    at_native = res <= native_res * 1.001   # a-t-on atteint le natif ?
+
     start = (((acq.get("extent") or {}).get("temporal") or {}).get("interval") or [[None]])[0][0]
     date = (start or "")[:10]
     return {
@@ -335,6 +351,9 @@ def maxar_mosaic(req: MosaicReq):
         "bbox": [float(w4), float(s4), float(e4), float(n4)],
         "image_coordinates": coords,
         "png_b64": png_b64,
+        "width": int(ow), "height": int(oh),
+        "ground_res_m": round(ground_res, 2),
+        "at_native": bool(at_native),
         "n_tiles": len(tiles),
         "n_available": n_available,
         "truncated": truncated,

@@ -20,6 +20,7 @@ export default function MaxarPanel({ mapRef, onAddImageLayer }) {
   const [eid, setEid] = useState("");
   const [acq, setAcq] = useState(null);             // {title, bbox, acquisitions:[...]}
   const [inView, setInView] = useState(true);       // limiter à la vue courante
+  const [quality, setQuality] = useState(4096);     // côté max du PNG (détail)
   const [busy, setBusy] = useState(false);          // chargement acquisitions
   const [adding, setAdding] = useState(null);       // catalog_id en cours de mosaïque
   const [err, setErr] = useState(null);
@@ -72,7 +73,7 @@ export default function MaxarPanel({ mapRef, onAddImageLayer }) {
       }
       const r = await fetch(`${API}/maxar/mosaic`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: eid, catalog_id: a.catalog_id, bbox, max_side: 1600 }),
+        body: JSON.stringify({ event: eid, catalog_id: a.catalog_id, bbox, max_side: Number(quality) }),
       });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const d = await r.json();
@@ -82,7 +83,10 @@ export default function MaxarPanel({ mapRef, onAddImageLayer }) {
         coordinates: d.image_coordinates, bbox: d.bbox, opacity: 1,
         rasterToken: null, bands: 3, fit: true,
       });
-      setMsg(`Ajouté : ${d.n_tiles} tuile(s)${d.truncated ? ` (tronqué à ${d.n_tiles} — zoomez pour affiner)` : ""}.`);
+      const rez = d.ground_res_m != null
+        ? ` · ~${d.ground_res_m} m/px${d.at_native ? " (résolution native)" : ""}`
+        : "";
+      setMsg(`Ajouté : ${d.n_tiles} tuile(s)${rez}.${d.truncated ? " Tronqué — zoomez pour affiner." : ""}${!d.at_native && !inView ? " Zoomez sur la zone avant d'ajouter pour plus de détail." : ""}`);
     } catch (e) { setErr(e.message || String(e)); }
     finally { setAdding(null); }
   }, [eid, inView, mapRef, onAddImageLayer]);
@@ -146,8 +150,20 @@ export default function MaxarPanel({ mapRef, onAddImageLayer }) {
 
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
             <input type="checkbox" checked={inView} onChange={(e) => setInView(e.target.checked)} />
-            Limiter à la vue courante <span style={{ color: C.dim }}>(plus rapide)</span>
+            Limiter à la vue courante <span style={{ color: C.dim }}>(plus net)</span>
           </label>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ ...lbl, marginBottom: 0 }}>Détail</span>
+            <select value={quality} onChange={(e) => setQuality(Number(e.target.value))} style={{ ...inp, width: "auto", flex: 1 }}>
+              <option value={4096}>Haute déf. (4096 px)</option>
+              <option value={2048}>Standard (2048 px)</option>
+              <option value={1024}>Léger (1024 px)</option>
+            </select>
+          </div>
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: -3 }}>
+            L'aperçu est une image figée (pas des tuiles) : plus vous <b>zoomez sur la zone avant d'ajouter</b>, plus c'est net — jusqu'à la résolution native (~0,5 m).
+          </div>
 
           {err && <div style={{ fontFamily: M, fontSize: 11.5, color: "#e11d1d", background: "#e11d1d14", border: "0.5px solid #e11d1d55", borderRadius: 6, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{err}</div>}
           {msg && <div style={{ fontFamily: F, fontSize: 11.5, color: C.acc, background: C.acc + "12", border: `0.5px solid ${C.acc}44`, borderRadius: 6, padding: "6px 10px" }}>{msg}</div>}
