@@ -39,6 +39,7 @@ import SolarSystemPanel from "./components/SolarSystemPanel";
 import VectorVizPanel from "./components/VectorVizPanel";
 import ViewshedPanel from "./components/ViewshedPanel";
 import StacPanel from "./components/StacPanel";
+import MaxarPanel from "./components/MaxarPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
@@ -85,7 +86,7 @@ import {
   IcMountain, IcCube, IcEdit, IcFilm, IcDiff, IcCompare, IcOSM, IcLeaf, IcClassif,
   IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap,
   IcCloudRain, IcSnowflake, IcChevronDown, IcTable, IcFlame, IcDroplets, IcBoxes, IcInfo,
-  IcGrid,
+  IcGrid, IcAlert,
 } from "./icons";
 
 // ─── Configuration du rail — groupes logiques, icônes uniques ─
@@ -150,6 +151,7 @@ const RAIL_GROUPS = [
     items: [
       { id: "vectorcat", sub: "Catalogue", label: "Catalogue vectoriel",  Icon: IcBoxes,     hasPanel: true },
       { id: "stac",      sub: "STAC",      label: "Navigateur STAC / COG", Icon: IcSatellite, hasPanel: true },
+      { id: "maxar",     sub: "Maxar",     label: "Maxar Open Data (catastrophes avant/après)", Icon: IcAlert, hasPanel: true },
       { id: "sql",       sub: "SQL",       label: "SQL Workspace",        Icon: IcTable,     hasPanel: true },
       { id: "database",  sub: "BDD",       label: "Base de données",      Icon: IcDatabase,  hasPanel: true },
       { id: "ogc",       sub: "OGC",       label: "Services OGC/WMS",     Icon: IcServer,    hasPanel: true },
@@ -2267,6 +2269,13 @@ export default function App() {
     if (activeTool === "stac") return (
       <Embed>
         <StacPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    // ── Maxar Open Data (imagerie catastrophe avant/après) ────
+    if (activeTool === "maxar") return (
+      <Embed>
+        <MaxarPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
       </Embed>
     );
 

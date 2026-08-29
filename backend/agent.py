@@ -929,6 +929,14 @@ try:
 except Exception as e:
     print(f"✗ Viewshed non chargé: {e}")
 
+# Maxar Open Data (imagerie catastrophe avant/après, COG bucket public AWS)
+try:
+    from maxar_routes import router as maxar_router
+    app.include_router(maxar_router)
+    print("✓ Maxar Open Data chargé (/api/maxar/events)")
+except Exception as e:
+    print(f"✗ Maxar Open Data non chargé: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)
