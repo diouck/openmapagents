@@ -13,6 +13,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
+import ShadowDashboard from "./ShadowDashboard";
+import { importFile } from "../utils/helpers";
 
 /* ── Position du soleil (port SunCalc, validé) → {alt, az} rad ; az depuis le
    SUD, positif vers l'ouest. */
@@ -73,34 +75,26 @@ function layerBbox(l) {
   return isFinite(w) ? [w, s, e, n] : null;
 }
 
-/* Fraction d'un bbox couverte par des polygones (overlaps gérés) via canvas. */
-function coverFraction(features, bbox) {
-  if (!features.length) return 0;
-  const [w, s, e, n] = bbox;
-  const W = 480, Hn = Math.max(1, Math.min(1200, Math.round(W * (n - s) / (e - w))));
-  const cv = document.createElement("canvas"); cv.width = W; cv.height = Hn;
-  const ctx = cv.getContext("2d"); if (!ctx) return 0;
-  ctx.fillStyle = "#fff";
-  const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hn;
-  for (const f of features) {
-    const g = f.geometry; if (!g) continue;
-    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-    ctx.beginPath();
-    for (const rings of polys) for (const ring of rings) ring.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.closePath(); ctx.fill();
-  }
-  const data = ctx.getImageData(0, 0, W, Hn).data;
-  let cnt = 0; for (let i = 3; i < data.length; i += 4) if (data[i] > 0) cnt++;
-  return cnt / (W * Hn);
-}
-const fmtArea = (m2) => m2 >= 1e6 ? `${(m2 / 1e6).toFixed(2)} km²` : m2 >= 1e4 ? `${(m2 / 1e4).toFixed(1)} ha` : `${Math.round(m2)} m²`;
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const IMG_DISP = "oma-canopy-img";
 const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
 const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
+const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
 const MAX_BLD = 4000, BLD_ZOOM = 16;
+
+/* Polygones [ [ [lng,lat]… ] …] extraits d'un GeoJSON (anneaux extérieurs). */
+function extractPolys(gj) {
+  const out = [];
+  for (const f of gj.features || []) {
+    const g = f.geometry; if (!g) continue;
+    if (g.type === "Polygon") out.push(g.coordinates[0]);
+    else if (g.type === "MultiPolygon") for (const p of g.coordinates) out.push(p[0]);
+  }
+  return out;
+}
+const loadImage = (url) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
 
 export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }) {
   const C = useThemeContext();
@@ -117,12 +111,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [roiDrawing, setRoiDrawing] = useState(false);
   const [info, setInfo] = useState(null);
   const [canopyMsg, setCanopyMsg] = useState(null);
-  const [stats, setStats] = useState(null);
-  const [statsBusy, setStatsBusy] = useState(false);
+  const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
+  const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
+  const [dashBusy, setDashBusy] = useState(false);
 
   const bldRef = useRef([]);
-  const featsRef = useRef([]);          // dernières ombres bâtiments (pour stats)
+  const featsRef = useRef([]);
   const canopyRef = useRef(null);       // { url, corners, meanH, areaM2 }
+  const zoneRef = useRef(null);         // { geojson, bbox, name } (GeoJSON importé)
+  const fileRef = useRef(null);
   const treesRef = useRef(true);
   const canopyTimer = useRef(null);
   const scopeBboxRef = useRef(null);
@@ -330,7 +327,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, []);
 
   const changeScope = useCallback((val) => {
-    setScope(val); setStats(null);
+    setScope(val);
     const map = mapRef?.current?.getMap?.();
     if (val === "view") {
       scopeBboxRef.current = null; if (map) clearRoi(map);
@@ -339,13 +336,117 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     if (val === "roi") {
       scopeBboxRef.current = roiBboxRef.current;
-      if (map && roiBboxRef.current) { const [w, s, e, n] = roiBboxRef.current; map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 700 }); }
+      if (map && roiBboxRef.current) { const [w, s, e, n] = roiBboxRef.current; map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 700 }); if (treesRef.current) scheduleCanopy(); }
+      return;
+    }
+    if (val === "import") {
+      scopeBboxRef.current = zoneRef.current?.bbox || null;
+      if (map && zoneRef.current?.bbox) { const [w, s, e, n] = zoneRef.current.bbox; map.fitBounds([[w, s], [e, n]], { padding: 50, duration: 700 }); if (treesRef.current) scheduleCanopy(); }
       return;
     }
     const opt = layerOptions.find((o) => o.id === val);
     scopeBboxRef.current = opt?.bbox || null; if (map) clearRoi(map);
-    if (map && opt?.bbox) { const [w, s, e, n] = opt.bbox; map.fitBounds([[w, s], [e, n]], { padding: 40, duration: 800 }); }
+    if (map && opt?.bbox) { const [w, s, e, n] = opt.bbox; map.fitBounds([[w, s], [e, n]], { padding: 40, duration: 800 }); if (treesRef.current) scheduleCanopy(); }
   }, [mapRef, layerOptions, refreshBuildings, compute, scheduleCanopy, clearRoi]);
+
+  // dessine la zone GeoJSON importée (contour + léger remplissage)
+  const drawZone = useCallback((map, gj) => {
+    if (!map.getSource(ZONE_SRC)) map.addSource(ZONE_SRC, { type: "geojson", data: gj });
+    else map.getSource(ZONE_SRC).setData(gj);
+    const before = beforeId(map);
+    if (!map.getLayer(ZONE_FILL)) map.addLayer({ id: ZONE_FILL, type: "fill", source: ZONE_SRC, paint: { "fill-color": "#e8590c", "fill-opacity": 0.06 } }, before);
+    if (!map.getLayer(ZONE_LINE)) map.addLayer({ id: ZONE_LINE, type: "line", source: ZONE_SRC, paint: { "line-color": "#e8590c", "line-width": 2 } }, before);
+  }, []);
+
+  const onImportZone = useCallback(async (file) => {
+    if (!file) return;
+    try {
+      const gj = await importFile(file);
+      const bbox = layerBbox({ geojson: gj });
+      if (!bbox) throw new Error("aucune géométrie exploitable");
+      zoneRef.current = { geojson: gj, bbox, name: file.name };
+      setZoneName(file.name);
+      const map = mapRef?.current?.getMap?.();
+      scopeBboxRef.current = bbox; setScope("import");
+      if (map) {
+        drawZone(map, gj); clearRoi(map);
+        const [w, s, e, n] = bbox; map.fitBounds([[w, s], [e, n]], { padding: 50, duration: 700 });
+        refreshBuildings(map, bbox); compute(); if (treesRef.current) scheduleCanopy();
+      }
+    } catch (e) { setCanopyMsg({ err: `Import zone : ${e.message || e}` }); }
+  }, [mapRef, drawZone, clearRoi, refreshBuildings, compute, scheduleCanopy]);
+
+  // ── Tableau de bord : ombrage de la zone sur toute la journée ─────────────
+  const computeDaily = useCallback(async () => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    let bbox = scopeBboxRef.current;
+    if (!bbox) { const b = map.getBounds(); bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+    setDashBusy(true);
+    try {
+      const blds = refreshBuildings(map, bbox);
+      const [w, s, e, n] = bbox;
+      const midlat = ((s + n) / 2) * RAD;
+      const bboxArea = Math.abs((e - w) * 111320 * Math.cos(midlat) * (n - s) * 111320);
+      const W = 440, Hh = Math.max(1, Math.min(1000, Math.round(W * (n - s) / (e - w))));
+      const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hh;
+      // masque de zone
+      const cvZ = document.createElement("canvas"); cvZ.width = W; cvZ.height = Hh;
+      const zx = cvZ.getContext("2d"); zx.fillStyle = "#fff";
+      const zonePolys = (scope === "import" && zoneRef.current?.geojson) ? extractPolys(zoneRef.current.geojson) : [[[w, s], [e, s], [e, n], [w, n], [w, s]]];
+      for (const ring of zonePolys) { zx.beginPath(); ring.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? zx.lineTo(x, y) : zx.moveTo(x, y); }); zx.closePath(); zx.fill(); }
+      const zoneA = zx.getImageData(0, 0, W, Hh).data;
+      let zonePix = 0; for (let i = 3; i < zoneA.length; i += 4) if (zoneA[i] > 0) zonePix++;
+      const zoneArea = (zonePix / (W * Hh)) * bboxArea;
+
+      let canImg = null, meanH = 0, canPctStatic = 0;
+      if (trees && canopyRef.current) {
+        try { canImg = await loadImage(canopyRef.current.url); } catch (_) { canImg = null; }
+        meanH = canopyRef.current.meanH || 0;
+        canPctStatic = zoneArea ? (canopyRef.current.areaM2 || 0) / zoneArea * 100 : 0;
+      }
+      const cvB = document.createElement("canvas"); cvB.width = W; cvB.height = Hh;
+      const cvC = document.createElement("canvas"); cvC.width = W; cvC.height = Hh;
+      const bx = cvB.getContext("2d"), cx = cvC.getContext("2d");
+      const cLng = (w + e) / 2, cLat = (s + n) / 2;
+
+      const out = [];
+      for (let hr = 6; hr <= 20; hr++) {
+        const { alt, az } = sunPosition(utcMs(date, hr, cLng), cLat, cLng);
+        if (alt <= 0.02) { out.push({ hour: hr, alt: alt / RAD, night: true, bldPct: 0, canPct: 0, totalPct: 0 }); continue; }
+        const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
+        const cosN = Math.cos(th), sinE = Math.sin(th);
+        // bâtiments
+        bx.clearRect(0, 0, W, Hh); bx.fillStyle = "#fff";
+        for (const b of blds) {
+          const H = isFinite(b.h) ? b.h : Number(defH); if (!(H > 0)) continue;
+          const d = H * factor, dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
+          const nn = b.ring.length, pts = new Array(nn * 2);
+          for (let i = 0; i < nn; i++) { const q = b.ring[i]; pts[i] = q; pts[nn + i] = [q[0] + dLng, q[1] + dLat]; }
+          const hull = convexHull(pts); if (hull.length < 3) continue;
+          bx.beginPath(); hull.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? bx.lineTo(x, y) : bx.moveTo(x, y); }); bx.closePath(); bx.fill();
+        }
+        const bldA = bx.getImageData(0, 0, W, Hh).data;
+        // canopée
+        let canA = null;
+        if (canImg) {
+          cx.clearRect(0, 0, W, Hh);
+          const full = meanH * factor;
+          for (let k = 0; k < SHAD_K; k++) {
+            const frac = SHAD_K > 1 ? k / (SHAD_K - 1) : 1, d = full * frac;
+            const px = ((d * sinE) / (111320 * Math.cos(cLat * RAD))) / (e - w) * W;
+            const py = -((d * cosN) / 111320) / (n - s) * Hh;
+            cx.drawImage(canImg, px, py, W, Hh);
+          }
+          canA = cx.getImageData(0, 0, W, Hh).data;
+        }
+        let bP = 0, cP = 0, tP = 0;
+        for (let i = 3; i < zoneA.length; i += 4) { if (zoneA[i] <= 0) continue; const bb = bldA[i] > 0, cc = canA ? canA[i] > 0 : false; if (bb) bP++; if (cc) cP++; if (bb || cc) tP++; }
+        out.push({ hour: hr, alt: alt / RAD, night: false, bldPct: zonePix ? 100 * bP / zonePix : 0, canPct: zonePix ? 100 * cP / zonePix : 0, totalPct: zonePix ? 100 * tP / zonePix : 0 });
+      }
+      const zn = scope === "import" ? (zoneRef.current?.name || "Zone importée") : scope === "roi" ? "ROI dessiné" : scope === "view" ? "Vue courante" : "Couche";
+      setDashData({ data: out, meta: { zoneName: zn, date, zoneArea, dataset: canopyRef.current ? (canopyMsg?.dataset || "") : "", canopy: !!canopyRef.current, canPctStatic } });
+    } finally { setDashBusy(false); }
+  }, [mapRef, date, defH, trees, scope, refreshBuildings, canopyMsg]);
 
   const drawRoi = useCallback((map, bbox) => {
     const [w, s, e, n] = bbox;
@@ -370,7 +471,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (roiPtsRef.current.length >= 2) {
         const [a, b] = roiPtsRef.current;
         const bbox = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
-        roiBboxRef.current = bbox; scopeBboxRef.current = bbox; setScope("roi"); setRoiReady(true); setStats(null);
+        roiBboxRef.current = bbox; scopeBboxRef.current = bbox; setScope("roi"); setRoiReady(true);
         drawRoi(map, bbox);
         map.off("click", h); roiHandlerRef.current = null; map.getCanvas().style.cursor = ""; setRoiDrawing(false);
         refreshBuildings(map, bbox); compute(); if (treesRef.current) scheduleCanopy();
@@ -378,33 +479,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     };
     roiHandlerRef.current = h; map.on("click", h);
   }, [mapRef, roiDrawing, drawRoi, refreshBuildings, compute, scheduleCanopy]);
-
-  // ── Statistiques des surfaces ombragées ───────────────────────────────────
-  const computeStats = useCallback(() => {
-    const map = mapRef?.current?.getMap?.(); if (!map) return;
-    let bbox = scopeBboxRef.current;
-    if (!bbox) { const b = map.getBounds(); bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
-    setStatsBusy(true);
-    try {
-      const [w, s, e, n] = bbox;
-      const midlat = ((s + n) / 2) * RAD;
-      const wm = (e - w) * 111320 * Math.cos(midlat), hm = (n - s) * 111320;
-      const zoneArea = Math.abs(wm * hm);
-      // ombre bâtiments : fraction couverte (overlaps gérés) → aire
-      const feats = featsRef.current.filter((f) => {
-        const p = f.geometry.coordinates[0][0]; return p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;
-      });
-      const bldFrac = coverFraction(featsRef.current, bbox);
-      const bldArea = bldFrac * zoneArea;
-      const canArea = canopyRef.current?.areaM2 || 0;
-      setStats({
-        zoneArea, bldArea, bldPct: zoneArea ? bldArea / zoneArea * 100 : 0,
-        canArea, canPct: zoneArea ? canArea / zoneArea * 100 : 0,
-        nBld: feats.length, time: `${String(Math.floor(hour)).padStart(2, "0")}:${String(Math.round((hour - Math.floor(hour)) * 60)).padStart(2, "0")}`, date,
-        canopy: !!canopyRef.current,
-      });
-    } finally { setStatsBusy(false); }
-  }, [mapRef, hour, date]);
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
@@ -429,9 +503,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, IMG_DISP, ROI_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
@@ -486,6 +560,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <div style={{ display: "flex", gap: 6 }}>
               <select value={scope} onChange={(e) => changeScope(e.target.value)} style={{ ...inp, flex: 1 }}>
                 <option value="view">Vue courante de la carte</option>
+                {zoneName && <option value="import">Zone importée : {zoneName}</option>}
                 {roiReady && <option value="roi">ROI dessiné</option>}
                 {layerOptions.map((o) => <option key={o.id} value={o.id}>Couche : {o.name}</option>)}
               </select>
@@ -495,6 +570,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                 {roiDrawing ? "Annuler" : "ROI"}
               </button>
             </div>
+            <input ref={fileRef} type="file" accept=".geojson,.json" style={{ display: "none" }}
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onImportZone(f); }} />
+            <button onClick={() => fileRef.current?.click()}
+              style={{ fontFamily: F, fontSize: 11, fontWeight: 500, padding: "6px 10px", marginTop: 6, width: "100%", cursor: "pointer",
+                background: "transparent", color: C.acc, border: `1px dashed ${C.acc}66`, borderRadius: 7 }}>
+              ⭱ Importer une zone (GeoJSON)
+            </button>
             {roiDrawing && <div style={{ fontFamily: F, fontSize: 10.5, color: C.acc, marginTop: 3 }}>Cliquez 2 coins sur la carte pour définir le ROI.</div>}
           </div>
 
@@ -559,25 +641,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           </div>
 
           <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
-            <button onClick={computeStats} disabled={statsLocked || statsBusy}
-              style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "8px 14px", width: "100%",
-                cursor: (statsLocked || statsBusy) ? "not-allowed" : "pointer",
-                background: (statsLocked || statsBusy) ? C.bg2 || C.bg : C.acc, color: (statsLocked || statsBusy) ? C.dim : "#fff",
+            <button onClick={computeDaily} disabled={statsLocked || dashBusy}
+              style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "9px 14px", width: "100%",
+                cursor: (statsLocked || dashBusy) ? "not-allowed" : "pointer",
+                background: (statsLocked || dashBusy) ? C.bg2 || C.bg : C.acc, color: (statsLocked || dashBusy) ? C.dim : "#fff",
                 border: `1px solid ${statsLocked ? C.bdr : C.acc}`, borderRadius: 8 }}>
-              {statsBusy ? "Calcul…" : statsLocked ? "Statistiques (attente canopée…)" : "Statistiques des surfaces ombragées"}
+              {dashBusy ? "Calcul de la journée…" : statsLocked ? "Tableau de bord (attente canopée…)" : "📊 Tableau de bord — ombrage sur la journée"}
             </button>
-            {stats && (
-              <div style={{ marginTop: 8, background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "9px 11px", fontFamily: F, fontSize: 11.5, color: C.txt, display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: "0.05em" }}>Zone · {stats.date} {stats.time}</div>
-                <div>Surface de la zone : <b>{fmtArea(stats.zoneArea)}</b></div>
-                <div>Ombre des bâtiments : <b>{fmtArea(stats.bldArea)}</b> · <b>{stats.bldPct.toFixed(1)}%</b> du sol</div>
-                {stats.canopy && <div>Canopée (couvert) : <b style={{ color: "#2e7d4f" }}>{fmtArea(stats.canArea)}</b> · <b>{stats.canPct.toFixed(1)}%</b> du sol</div>}
-                <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>% ombre bâti = fraction du sol dans l'ombre des bâtiments à cette heure. Canopée = surface couverte par les arbres (≥ 3 m).</div>
-              </div>
-            )}
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 4 }}>
+              Ouvre un tableau de bord (graphiques + tableau) : % de la zone à l'ombre heure par heure, sur l'emprise choisie.
+            </div>
           </div>
         </div>
       )}
+
+      {dashData && <ShadowDashboard data={dashData.data} meta={dashData.meta} onClose={() => setDashData(null)} />}
     </div>
   );
 }
