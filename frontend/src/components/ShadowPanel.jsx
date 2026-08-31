@@ -37,10 +37,38 @@ function sunPosition(ms, lat, lng) {
   const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
   return { alt, az };
 }
-function utcMs(dateStr, hour, lng) {
+/* Heure CIVILE locale (fuseau du navigateur, DST géré) → epoch ms. Le curseur
+   « hour » est donc l'heure de la montre, pas l'heure solaire. */
+function localMs(dateStr, hour) {
   const [y, mo, d] = dateStr.split("-").map(Number);
-  return Date.UTC(y, mo - 1, d, 0, 0, 0, 0) + (hour - lng / 15) * 3600 * 1000;
+  const h = Math.floor(hour), m = Math.round((hour - h) * 60);
+  return new Date(y, mo - 1, d, h, m, 0, 0).getTime();
 }
+
+/* Lever / coucher du soleil (port SunCalc getTimes) pour un lieu + un jour.
+   Renvoie {rise, set} en epoch ms, ou null (jour/nuit polaire). */
+const J0 = 0.0009;
+const julianCycle = (d, lw) => Math.round(d - J0 - lw / (2 * Math.PI));
+const approxTransit = (Ht, lw, n) => J0 + (Ht + lw) / (2 * Math.PI) + n;
+const solarTransitJ = (ds, M, L) => J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
+const hourAngleH = (h, phi, d) => Math.acos((Math.sin(h) - Math.sin(phi) * Math.sin(d)) / (Math.cos(phi) * Math.cos(d)));
+const fromJulianMs = (j) => (j + 0.5 - J1970) * dayMs;
+function sunTimesMs(dateMs, lat, lng) {
+  const lw = RAD * -lng, phi = RAD * lat, d = toDays(dateMs);
+  const n = julianCycle(d, lw);
+  const ds = approxTransit(0, lw, n);
+  const M = solarMeanAnomaly(ds);
+  const L = eclipticLongitude(M);
+  const dec = declination(L);
+  const Jnoon = solarTransitJ(ds, M, L);
+  const w = hourAngleH(-0.833 * RAD, phi, dec);
+  if (isNaN(w)) return { rise: null, set: null };          // soleil de minuit / nuit polaire
+  const Jset = solarTransitJ(approxTransit(w, lw, n), M, L);
+  const Jrise = Jnoon - (Jset - Jnoon);
+  return { rise: fromJulianMs(Jrise), set: fromJulianMs(Jset) };
+}
+const pad2 = (x) => String(x).padStart(2, "0");
+const fmtHM = (dt) => `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
 
 function convexHull(pts) {
   if (pts.length < 3) return pts;
@@ -130,6 +158,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [roiDrawing, setRoiDrawing] = useState(false);
   const [info, setInfo] = useState(null);
   const [canopyMsg, setCanopyMsg] = useState(null);
+  const [sunTimes, setSunTimes] = useState(null);   // {riseH, setH, riseStr, setStr, polar}
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
   const [dashBusy, setDashBusy] = useState(false);
@@ -149,6 +178,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const prevBaseRef = useRef(null);
   const prevPitchRef = useRef(null);
   const playRef = useRef(null);
+  const sunRef = useRef({ riseH: 6, setH: 21 });   // lever/coucher (heures locales) pour la lecture
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -238,7 +268,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!blds.length) blds = refreshBuildings(map, scopeBboxRef.current);
 
     const c = map.getCenter();
-    const { alt, az } = sunPosition(utcMs(date, Number(hour), c.lng), c.lat, c.lng);
+    const { alt, az } = sunPosition(localMs(date, Number(hour)), c.lat, c.lng);
     const altDeg = alt / RAD;
     const src = map.getSource(SRC);
     const can = canopyRef.current;
@@ -292,6 +322,22 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [mapRef, date, hour, defH, trees, ensureShadowLayer, refreshBuildings]);
 
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
+
+  // ── lever/coucher du soleil pour le lieu (centre carte) + le jour ─────────
+  const refreshSun = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    const c = map.getCenter();
+    const [y, mo, dd] = date.split("-").map(Number);
+    const noon = new Date(y, mo - 1, dd, 12, 0, 0).getTime();
+    const t = sunTimesMs(noon, c.lat, c.lng);
+    if (!t.rise || !t.set) { setSunTimes({ polar: true }); sunRef.current = { riseH: 0, setH: 24 }; return; }
+    const rise = new Date(t.rise), set = new Date(t.set);
+    const riseH = rise.getHours() + rise.getMinutes() / 60;
+    const setH = set.getHours() + set.getMinutes() / 60;
+    sunRef.current = { riseH, setH };
+    setSunTimes({ riseH, setH, riseStr: fmtHM(rise), setStr: fmtHM(set) });
+  }, [mapRef, date]);
+  useEffect(() => { refreshSun(); }, [refreshSun]);
 
   // ── Canopée Meta (raster lissé) ───────────────────────────────────────────
   const fetchCanopy = useCallback(async () => {
@@ -436,9 +482,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const bx = cvB.getContext("2d"), cx = cvC.getContext("2d");
       const cLng = (w + e) / 2, cLat = (s + n) / 2;
 
+      const lo = Math.max(0, Math.floor(sunRef.current?.riseH ?? 6));
+      const hi = Math.min(24, Math.ceil(sunRef.current?.setH ?? 20));
       const out = [];
-      for (let hr = 6; hr <= 20; hr++) {
-        const { alt, az } = sunPosition(utcMs(date, hr, cLng), cLat, cLng);
+      for (let hr = lo; hr <= hi; hr++) {
+        const { alt, az } = sunPosition(localMs(date, hr), cLat, cLng);
         if (alt <= 0.02) { out.push({ hour: hr, alt: alt / RAD, night: true, bldPct: 0, canPct: 0, totalPct: 0 }); continue; }
         const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
         const cosN = Math.cos(th), sinE = Math.sin(th);
@@ -510,17 +558,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
-    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); };
+    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); refreshSun(); if (treesRef.current) scheduleCanopy(); };
     const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); }, 300); };
     map.on("moveend", onMove); map.on("styledata", onStyle);
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
-  }, [mapRef, refreshBuildings, compute, scheduleCanopy]);
+  }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun]);
 
   useEffect(() => {
     if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } return; }
-    // pas fin + cadence élevée → défilement fluide (l'enveloppe convexe précalculée
-    // et le filtre d'emprise gardent chaque image légère).
-    playRef.current = setInterval(() => { setHour((h) => { const nx = h + 0.12; return nx > 21 ? 6 : nx; }); }, 80);
+    // balaie du LEVER au COUCHER du soleil (lieu + jour). Pas fin + cadence élevée
+    // → fluide (enveloppe convexe précalculée + filtre d'emprise = images légères).
+    const lo0 = sunRef.current?.riseH ?? 6, hi0 = sunRef.current?.setH ?? 21;
+    setHour((h) => (h < lo0 || h > hi0 ? lo0 : h));
+    playRef.current = setInterval(() => {
+      setHour((h) => { const lo = sunRef.current?.riseH ?? 6, hi = sunRef.current?.setH ?? 21; const nx = h + 0.12; return nx > hi ? lo : nx; });
+    }, 80);
     return () => { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } };
   }, [playing]);
 
@@ -641,6 +693,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             ) : (
               <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s).</span>
             )}
+            {sunTimes && (sunTimes.polar
+              ? <div style={{ marginTop: 4, color: C.dim }}>☀️ Jour/nuit polaire ce jour-là (pas de lever/coucher).</div>
+              : <div style={{ marginTop: 4, color: C.mut }}>🌅 Lever <b>{sunTimes.riseStr}</b> · 🌇 Coucher <b>{sunTimes.setStr}</b> <span style={{ color: C.dim }}>(heure locale)</span></div>)}
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
