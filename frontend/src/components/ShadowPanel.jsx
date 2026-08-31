@@ -119,7 +119,8 @@ class MinHeap {
   push(k, p) { const a = this.a; a.push([k, p]); let i = a.length - 1; while (i > 0) { const par = (i - 1) >> 1; if (a[par][1] <= a[i][1]) break; [a[par], a[i]] = [a[i], a[par]]; i = par; } }
   pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; const n = a.length; for (;;) { let l = 2 * i + 1, r = 2 * i + 2, s = i; if (l < n && a[l][1] < a[s][1]) s = l; if (r < n && a[r][1] < a[s][1]) s = r; if (s === i) break;[a[s], a[i]] = [a[i], a[s]]; i = s; } } return top; }
 }
-const nodeKey = (p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;   // ~1 m : soude les nœuds coupés aux bords de tuile
+const NODE_GRID = 2.5e-5;   // ~2,5 m : soude les endpoints proches (connectivité du réseau)
+const nodeKey = (p) => `${Math.round(p[0] / NODE_GRID)}_${Math.round(p[1] / NODE_GRID)}`;
 /* segments = [[ [lng,lat]… ]…] ; sampler.shaded(lng,lat) → ombre 0/1 par arête. */
 function buildGraph(segments, sampler) {
   const nodes = new Map(), adj = new Map();
@@ -156,7 +157,23 @@ const SHAD_K = 6;                              // copies d'ombre canopée (base�
 const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
 const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
-const C3D_SRC = "oma-c3d-src", C3D_TRUNK = "oma-c3d-trunk", C3D_CROWN = "oma-c3d-crown"; // canopée 3D (fill-extrusion)
+const C3D_SRC = "oma-c3d-src", C3D_TSRC = "oma-c3d-tsrc", C3D_TRUNK = "oma-c3d-trunk", C3D_CROWN = "oma-c3d-crown"; // canopée 3D
+/* Aire d'un anneau [lng,lat] en m² (planaire local). */
+function polyAreaM2(ring) {
+  if (!ring || ring.length < 3) return 0;
+  const mx = 111320 * Math.cos(ring[0][1] * RAD), my = 111320;
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] * mx) * (ring[i][1] * my) - (ring[i][0] * mx) * (ring[j][1] * my);
+  return Math.abs(a) / 2;
+}
+const centroidOf = (ring) => { let x = 0, y = 0; for (const p of ring) { x += p[0]; y += p[1]; } return ring.length ? [x / ring.length, y / ring.length] : ring[0]; };
+/* Petit hexagone (tronc) de rayon rM autour de c. */
+function hexAround(c, rM) {
+  const dLat = rM / 111320, dLng = rM / (111320 * Math.cos(c[1] * RAD)), pts = [];
+  for (let k = 0; k < 6; k++) { const a = Math.PI / 3 * k; pts.push([c[0] + Math.cos(a) * dLng, c[1] + Math.sin(a) * dLat]); }
+  pts.push(pts[0]);
+  return pts;
+}
 const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 4000, BLD_ZOOM = 16;
 
@@ -516,12 +533,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   // ── Canopée 3D (fill-extrusion natif : tronc 0–2 m + houppier, contour exact) ──
   const ensureC3DLayers = useCallback((map) => {
+    // troncs = tubes fins (petites taches) sur leur propre source
+    if (!map.getSource(C3D_TSRC)) map.addSource(C3D_TSRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(C3D_TRUNK)) map.addLayer({ id: C3D_TRUNK, type: "fill-extrusion", source: C3D_TSRC,
+      paint: { "fill-extrusion-color": "#6b4a2f", "fill-extrusion-base": 0, "fill-extrusion-height": 2, "fill-extrusion-opacity": 1 } });
+    // houppiers = les taches (base 2 m pour un arbre isolé, 0 pour une masse)
     if (!map.getSource(C3D_SRC)) map.addSource(C3D_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    if (!map.getLayer(C3D_TRUNK)) map.addLayer({ id: C3D_TRUNK, type: "fill-extrusion", source: C3D_SRC,
-      paint: { "fill-extrusion-color": "#5c3d28", "fill-extrusion-base": 0, "fill-extrusion-height": ["min", 2, ["get", "height"]], "fill-extrusion-opacity": 0.95 } });
     if (!map.getLayer(C3D_CROWN)) map.addLayer({ id: C3D_CROWN, type: "fill-extrusion", source: C3D_SRC,
       paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["get", "height"], 2, "#9ccc7a", 6, "#5aa85a", 12, "#2f8f3f", 20, "#166534"],
-        "fill-extrusion-base": ["min", 2, ["get", "height"]], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.9 } });
+        "fill-extrusion-base": ["get", "base"], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.92 } });
   }, []);
 
   const fetchCanopy3D = useCallback(async () => {
@@ -531,15 +551,28 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }
     setCanopyMsg({ busy: true, three: true });
     try {
-      const body = { bbox, min_height: 2, scale: 4 };
+      const body = { bbox, min_height: 2, scale: 3 };
       if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
       const r = await fetch(`${API}/shadow/canopy_patches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const gj = await r.json();
+      const crowns = [], trunks = [];
+      for (const f of gj.features || []) {
+        const h = f.properties?.height; if (h == null) continue;
+        const g = f.geometry; if (!g) continue;
+        const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+        for (const poly of polys) {
+          const ring = poly[0]; if (!ring || ring.length < 4) continue;
+          const isTree = polyAreaM2(ring) < 250;   // petite tache = arbre isolé (tronc + houppier flottant)
+          crowns.push({ type: "Feature", properties: { height: h, base: isTree ? Math.min(2, h * 0.6) : 0 }, geometry: { type: "Polygon", coordinates: [ring] } });
+          if (isTree && h > 2.5) trunks.push({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [hexAround(centroidOf(ring), 0.45)] } });
+        }
+      }
       ensureC3DLayers(map);
-      const cs = map.getSource(C3D_SRC); if (cs) cs.setData({ type: "FeatureCollection", features: gj.features || [] });
+      map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
+      map.getSource(C3D_TSRC)?.setData({ type: "FeatureCollection", features: trunks });
       setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true);
-      setCanopyMsg({ ok: true, three: true, n: gj.count, dataset: gj.dataset });
+      setCanopyMsg({ ok: true, three: true, n: crowns.length, dataset: gj.dataset });
     } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
   }, [mapRef, ensureC3DLayers]);
 
@@ -1021,7 +1054,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (map) {
           const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
