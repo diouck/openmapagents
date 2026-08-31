@@ -945,6 +945,14 @@ try:
 except Exception as e:
     print(f"✗ Ombres/canopée non chargé: {e}")
 
+# Routage & isochrones via backend (jeton backend, pas de dépendance au build front)
+try:
+    from routing_routes import router as routing_router
+    app.include_router(routing_router)
+    print("✓ Routage/isochrone chargé (/api/route/directions)")
+except Exception as e:
+    print(f"✗ Routage/isochrone non chargé: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)
