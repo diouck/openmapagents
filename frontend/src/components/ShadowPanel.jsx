@@ -78,7 +78,8 @@ function queryTiles(map, name) {
   } catch (_) { return []; }
 }
 
-const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
+const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";       // ombres portées
+const CAN_SRC = "oma-canopy-src", CAN_LYR = "oma-canopy-fill"; // canopée réelle (vert)
 const MAX_BLD = 4000;          // plafond de bâtiments (perf)
 const MAX_TREE = 2500;         // plafond de surfaces arborées
 const WOOD = new Set(["wood", "forest", "tree", "trees"]);   // classes arborées OMT (landcover/landuse)
@@ -139,15 +140,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   // ── couche MapLibre (ajout paresseux, ré-ajout après changement de fond) ──
   const ensureLayer = useCallback((map) => {
+    // Insertion sous les bâtiments 3D (fill-extrusion) → ils s'élèvent au-dessus
+    // de l'ombre ; à défaut, sous les labels.
+    const sl = map.getStyle().layers || [];
+    const before = (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
-      // Sous les bâtiments 3D (fill-extrusion) pour qu'ils s'élèvent au-dessus de
-      // leur ombre ; à défaut, sous les labels.
-      const sl = map.getStyle().layers || [];
-      const before = (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
       map.addLayer({ id: LYR, type: "fill", source: SRC,
-        paint: { "fill-color": ["case", ["==", ["get", "kind"], "tree"], "#123522", "#0e1630"],
+        paint: { "fill-color": ["case", ["==", ["get", "kind"], "tree"], "#1b6b3a", "#0e1630"],
                  "fill-opacity": opacity, "fill-antialias": false } }, before);
+    }
+    // Canopée réelle (polygones Meta) en vert, au-dessus de l'ombre.
+    if (!map.getSource(CAN_SRC)) map.addSource(CAN_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(CAN_LYR)) {
+      map.addLayer({ id: CAN_LYR, type: "fill", source: CAN_SRC,
+        paint: { "fill-color": "#2f9e57", "fill-opacity": 0.55, "fill-outline-color": "#14532d" } }, before);
     }
   }, [opacity]);
 
@@ -277,10 +284,17 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         for (const poly of polys) { const ring = poly[0]; if (!ring || ring.length < 4) continue; out.push({ ring, lat: ring[0][1], h }); }
       }
       metaTreeRef.current = out;
+      ensureLayer(map);
+      const cs = map.getSource(CAN_SRC);          // canopée réelle en vert (vraie emprise)
+      if (cs) cs.setData({ type: "FeatureCollection", features: gj.features || [] });
       setCanopyMsg({ ok: true, n: out.length, dataset: gj.dataset });
       compute();
-    } catch (e) { metaTreeRef.current = []; setCanopyMsg({ err: e.message || String(e) }); compute(); }
-  }, [mapRef, compute]);
+    } catch (e) {
+      metaTreeRef.current = [];
+      const cs = map.getSource?.(CAN_SRC); if (cs) cs.setData({ type: "FeatureCollection", features: [] });
+      setCanopyMsg({ err: e.message || String(e) }); compute();
+    }
+  }, [mapRef, compute, ensureLayer]);
 
   const scheduleCanopy = useCallback(() => {
     clearTimeout(canopyTimer.current);
@@ -291,7 +305,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   useEffect(() => {
     treesRef.current = trees;
     if (trees) scheduleCanopy();
-    else { metaTreeRef.current = []; setCanopyMsg(null); compute(); }
+    else {
+      metaTreeRef.current = []; setCanopyMsg(null);
+      const cs = mapRef?.current?.getMap?.()?.getSource?.(CAN_SRC);
+      if (cs) cs.setData({ type: "FeatureCollection", features: [] });
+      compute();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trees]);
 
@@ -346,7 +365,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const map = mapRef?.current?.getMap?.();
       if (playRef.current) clearInterval(playRef.current);
       clearTimeout(canopyTimer.current);
-      try { if (map) { if (map.getLayer(LYR)) map.removeLayer(LYR); if (map.getSource(SRC)) map.removeSource(SRC); } } catch (_) {}
+      try {
+        if (map) {
+          [LYR, CAN_LYR].forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+          [SRC, CAN_SRC].forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
+        }
+      } catch (_) {}
     };
   }, [mapRef]);
 
@@ -390,7 +414,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
             Ombre portée des <b>bâtiments</b> et des <b>surfaces arborées</b> de la carte (aucun téléchargement). Fond <b>Liberty</b>, <b>vue 3D</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
           </div>
