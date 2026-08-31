@@ -124,11 +124,12 @@ const nodeKey = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
 function buildGraph(segments, sampler) {
   const nodes = new Map(), adj = new Map();
   const addNode = (p) => { const k = nodeKey(p); if (!nodes.has(k)) { nodes.set(k, p); adj.set(k, []); } return k; };
+  // fraction d'ombre de l'arête = moyenne sur plusieurs points (0..1)
+  const edgeShade = (a, b) => { let c = 0; const fr = [0.15, 0.4, 0.6, 0.85]; for (const f of fr) if (sampler.shaded(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)) c++; return c / fr.length; };
   for (const seg of segments) {
     for (let i = 0; i < seg.length - 1; i++) {
       const a = seg[i], b = seg[i + 1], len = haversine(a, b); if (!(len > 0)) continue;
-      const ka = addNode(a), kb = addNode(b);
-      const sh = sampler.shaded((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) ? 1 : 0;
+      const ka = addNode(a), kb = addNode(b), sh = edgeShade(a, b);
       adj.get(ka).push({ to: kb, len, shade: sh }); adj.get(kb).push({ to: ka, len, shade: sh });
     }
   }
@@ -846,7 +847,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     setRouteBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
     const [a, b] = ab;
-    const mx = Math.max(Math.abs(a[0] - b[0]) * 0.3, 0.002), my = Math.max(Math.abs(a[1] - b[1]) * 0.3, 0.002);
+    const mx = Math.max(Math.abs(a[0] - b[0]) * 0.5, 0.004), my = Math.max(Math.abs(a[1] - b[1]) * 0.5, 0.004);
     const bbox = [Math.min(a[0], b[0]) - mx, Math.min(a[1], b[1]) - my, Math.max(a[0], b[0]) + mx, Math.max(a[1], b[1]) + my];
     // cadre A→B et attend le chargement des tuiles (routes + bâtiments)
     try { map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 40, duration: 0 }); } catch (_) {}
@@ -869,9 +870,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const snap = (p) => { let bk = null, bd = Infinity; for (const [k, q] of graph.nodes) { const dd = haversine(p, q); if (dd < bd) { bd = dd; bk = k; } } return bk; };
         const ka = snap(a), kb = snap(b);
         const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
-        const K = 3.2;
-        const direct = mkRoute(dijkstra(graph, ka, kb, (e) => e.len));
-        const shade = mkRoute(dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))));
+        const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
+        const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
+        // pénalité croissante : force un détour ombragé s'il en existe un
+        let pShade = null;
+        for (const K of [3, 6, 12]) {
+          pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade)));
+          if (!samePath(pShade, pDirect)) break;
+        }
+        const direct = mkRoute(pDirect), shade = mkRoute(pShade);
         if (direct && shade) { res = { shade, direct }; viaGraph = true; }
       }
       if (!res) { res = await backendRoutes(map, a, b, sampler); note = "Réseau des tuiles insuffisant ici — itinéraire du moteur (sans optimisation d'ombre) ; zoomez sur la zone pour l'optimisation locale."; }
@@ -1036,7 +1043,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                   </div>
                 </button>
               ))}
-              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Le plus ombragé = le plus direct ici (pas de détour plus ombragé sur le réseau).</div>}
+              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Le plus ombragé = le plus direct ici. {routeResult.night ? "Il fait nuit." : "À cette heure les ombres sont peut-être courtes — essayez une heure de soleil plus rasant (matin/fin d'après-midi)."}</div>}
               <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Optimisé sur le réseau local (tuiles) pondéré par l'ombre." : "⚠ Réseau local insuffisant → itinéraire du moteur (non optimisé)."}</div>
             </div>
           )}
