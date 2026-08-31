@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useThemeContext } from "../theme";
-import { F, M, API } from "../config";
+import { F, M, API, MAPBOX_TOKEN } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
 import { importFile } from "../utils/helpers";
 
@@ -110,7 +110,35 @@ const SHAD_K = 6;                              // copies d'ombre canopée (base�
 const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
 const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
+const RT_SRC = "oma-route-src", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 4000, BLD_ZOOM = 16;
+
+/* Distance géodésique (m) entre deux [lng,lat]. */
+function haversine(a, b) {
+  const R = 6371000, la1 = a[1] * RAD, la2 = b[1] * RAD;
+  const x = Math.sin((b[1] - a[1]) * RAD / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((b[0] - a[0]) * RAD / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+/* Densifie une polyligne à ~stepM mètres (pour échantillonner l'ombre). */
+function densify(coords, stepM) {
+  const out = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i], b = coords[i + 1], d = haversine(a, b), n = Math.max(1, Math.floor(d / stepM));
+    for (let k = 0; k < n; k++) { const t = k / n; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  }
+  out.push(coords[coords.length - 1]);
+  return out;
+}
+/* Distances cumulées le long d'une polyligne. */
+function cumDist(coords) { const c = [0]; for (let i = 1; i < coords.length; i++) c.push(c[i - 1] + haversine(coords[i - 1], coords[i])); return c; }
+/* Position à la fraction f (0..1) de la longueur. */
+function alongRoute(coords, cum, f) {
+  const total = cum[cum.length - 1] || 1, target = f * total;
+  let i = 1; while (i < cum.length && cum[i] < target) i++;
+  if (i >= cum.length) return coords[coords.length - 1];
+  const seg = cum[i] - cum[i - 1], t = seg > 0 ? (target - cum[i - 1]) / seg : 0, a = coords[i - 1], b = coords[i];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
 
 /* Polygones [ [ [lng,lat]… ] …] extraits d'un GeoJSON (anneaux extérieurs). */
 function extractPolys(gj) {
@@ -162,6 +190,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
   const [dashBusy, setDashBusy] = useState(false);
+  // itinéraire ombragé
+  const [routeAB, setRouteAB] = useState([]);       // points A/B (affichage)
+  const [routePick, setRoutePick] = useState(false);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeResult, setRouteResult] = useState(null);   // {shade:{...}, direct:{...}}
+  const [routeSel, setRouteSel] = useState("shade");      // "shade" | "direct"
+  const [routeErr, setRouteErr] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewSpeed, setPreviewSpeed] = useState(2);
 
   const bldRef = useRef([]);
   const featsRef = useRef([]);
@@ -179,6 +216,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const prevPitchRef = useRef(null);
   const playRef = useRef(null);
   const sunRef = useRef({ riseH: 6, setH: 21 });   // lever/coucher (heures locales) pour la lecture
+  const routeABRef = useRef([]);
+  const routeClickRef = useRef(null);
+  const canImgRef = useRef(null);        // { url, img } — cache image canopée
+  const routeSelRef = useRef("shade");
+  const routeGeomRef = useRef(null);     // { shade:{coords,cum}, direct:{coords,cum} }
+  const animRef = useRef(null);          // { raf, start }
+  const previewSpeedRef = useRef(2);
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -555,6 +599,142 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     roiHandlerRef.current = h; map.on("click", h);
   }, [mapRef, roiDrawing, drawRoi, refreshBuildings, compute, scheduleCanopy]);
 
+  // ── Itinéraire ombragé ────────────────────────────────────────────────────
+  // Échantillonneur d'ombre (bâtiments + canopée) à l'heure courante sur une bbox.
+  const buildSampler = useCallback(async (bbox) => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false };
+    const c = map.getCenter();
+    const { alt, az } = sunPosition(localMs(date, Number(hour)), c.lat, c.lng);
+    if (alt <= 0.02) return { shaded: () => true, night: true };
+    const [w, s, e, n] = bbox;
+    const W = 600, Hh = Math.max(1, Math.min(1400, Math.round(W * (n - s) / (e - w))));
+    const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hh;
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = Hh;
+    const ctx = cv.getContext("2d"); ctx.fillStyle = "#fff";
+    const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
+    const cosN = Math.cos(th), sinE = Math.sin(th);
+    for (const b of bldRef.current) {
+      const H = isFinite(b.h) ? b.h : Number(defH); if (!(H > 0)) continue;
+      const d = H * factor, dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
+      const hf = b.hf, m = hf.length, pts = new Array(m * 2);
+      for (let i = 0; i < m; i++) { const q = hf[i]; pts[i] = q; pts[m + i] = [q[0] + dLng, q[1] + dLat]; }
+      const hull = convexHull(pts); if (hull.length < 3) continue;
+      ctx.beginPath(); hull.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill();
+    }
+    if (trees && canopyRef.current) {
+      if (!canImgRef.current || canImgRef.current.url !== canopyRef.current.url) {
+        const img = await loadImage(canopyRef.current.url).catch(() => null);
+        canImgRef.current = { url: canopyRef.current.url, img };
+      }
+      const img = canImgRef.current?.img, cc = canopyRef.current.corners;
+      if (img && cc) {
+        const cw = cc[0][0], cn = cc[0][1], ce = cc[1][0], cs = cc[2][1];
+        const dx0 = X(cw), dy0 = Y(cn), dw = (ce - cw) / (e - w) * W, dh = (cn - cs) / (n - s) * Hh;
+        const full = (canopyRef.current.meanH || 0) * factor, midlat = ((s + n) / 2) * RAD;
+        for (let k = 0; k < SHAD_K; k++) {
+          const frac = SHAD_K > 1 ? k / (SHAD_K - 1) : 1, d = full * frac;
+          const px = ((d * sinE) / (111320 * Math.cos(midlat))) / (e - w) * W, py = -((d * cosN) / 111320) / (n - s) * Hh;
+          ctx.drawImage(img, dx0 + px, dy0 + py, dw, dh);
+        }
+      }
+    }
+    const data = ctx.getImageData(0, 0, W, Hh).data;
+    return { shaded: (lng, lat) => { const x = Math.floor(X(lng)), y = Math.floor(Y(lat)); if (x < 0 || y < 0 || x >= W || y >= Hh) return false; return data[(y * W + x) * 4 + 3] > 10; } };
+  }, [mapRef, date, hour, defH, trees]);
+
+  const drawRoutes = useCallback((map, res) => {
+    const feats = [];
+    if (res.direct) feats.push({ type: "Feature", properties: { kind: "direct" }, geometry: { type: "LineString", coordinates: res.direct.coords } });
+    if (res.shade) feats.push({ type: "Feature", properties: { kind: "shade" }, geometry: { type: "LineString", coordinates: res.shade.coords } });
+    const sel = routeSelRef.current;
+    const wExpr = ["case", ["==", ["get", "kind"], sel], 6, 3];
+    const oExpr = ["case", ["==", ["get", "kind"], sel], 1, 0.5];
+    if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+    else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
+    if (!map.getLayer(RT_LINE)) map.addLayer({ id: RT_LINE, type: "line", source: RT_SRC,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ["case", ["==", ["get", "kind"], "shade"], "#2e7d4f", "#e8590c"], "line-width": wExpr, "line-opacity": oExpr } });
+    else { map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
+    const ab = routeABRef.current;
+    const abfc = { type: "FeatureCollection", features: ab.map((p, i) => ({ type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } })) };
+    if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
+    if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "circle", source: RT_AB, paint: { "circle-radius": 6, "circle-color": "#111827", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+  }, []);
+
+  const stopPreview = useCallback(() => {
+    if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
+    animRef.current = null; setPreviewing(false);
+    const ms = mapRef?.current?.getMap?.()?.getSource?.(RT_MARK); if (ms) ms.setData({ type: "FeatureCollection", features: [] });
+  }, [mapRef]);
+
+  const startPreview = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    const g = routeGeomRef.current?.[routeSelRef.current]; if (!g) return;
+    if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
+    if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "circle", source: RT_MARK, paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    setPreviewing(true);
+    const durMs = Math.max(1500, Math.min(30000, (g.duration * 1000) / (previewSpeedRef.current * 40)));
+    const start = performance.now();
+    const step = (t) => {
+      const f = Math.min(1, (t - start) / durMs), pos = alongRoute(g.coords, g.cum, f);
+      const ms = map.getSource(RT_MARK); if (ms) ms.setData({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: pos } });
+      if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
+      else { animRef.current = null; setPreviewing(false); }
+    };
+    animRef.current = { raf: requestAnimationFrame(step), start };
+  }, [mapRef]);
+
+  const selectRoute = useCallback((kind) => {
+    setRouteSel(kind); routeSelRef.current = kind; stopPreview();
+    const map = mapRef?.current?.getMap?.();
+    if (map && map.getLayer(RT_LINE)) {
+      map.setPaintProperty(RT_LINE, "line-width", ["case", ["==", ["get", "kind"], kind], 6, 3]);
+      map.setPaintProperty(RT_LINE, "line-opacity", ["case", ["==", ["get", "kind"], kind], 1, 0.5]);
+    }
+  }, [mapRef, stopPreview]);
+
+  const startRouteAB = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    if (routePick) { if (routeClickRef.current) map.off("click", routeClickRef.current); routeClickRef.current = null; setRoutePick(false); map.getCanvas().style.cursor = ""; return; }
+    routeABRef.current = []; setRouteAB([]); setRouteResult(null); stopPreview(); setRoutePick(true); map.getCanvas().style.cursor = "crosshair";
+    const h = (ev) => {
+      routeABRef.current.push([ev.lngLat.lng, ev.lngLat.lat]); setRouteAB([...routeABRef.current]);
+      drawRoutes(map, {});
+      if (routeABRef.current.length >= 2) { map.off("click", h); routeClickRef.current = null; map.getCanvas().style.cursor = ""; setRoutePick(false); }
+    };
+    routeClickRef.current = h; map.on("click", h);
+  }, [mapRef, routePick, drawRoutes, stopPreview]);
+
+  const computeShadeRoutes = useCallback(async () => {
+    const ab = routeABRef.current;
+    if (ab.length < 2) { setRouteErr("Placez les points A et B (bouton « Définir A → B »)."); return; }
+    if (!MAPBOX_TOKEN) { setRouteErr("Jeton Mapbox absent (routage indisponible)."); return; }
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    setRouteBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
+    try {
+      const [a, b] = ab;
+      const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${a[0]},${a[1]};${b[0]},${b[1]}?alternatives=true&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
+      const r = await fetch(url); if (!r.ok) throw new Error(`Mapbox ${r.status}`);
+      const d = await r.json(); const routes = d.routes || [];
+      if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
+      let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+      for (const rt of routes) for (const p of rt.geometry.coordinates) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
+      const mx = (e - w) * 0.1 || 0.001, my = (n - s) * 0.1 || 0.001;
+      const sampler = await buildSampler([w - mx, s - my, e + mx, n + my]);
+      const scored = routes.map((rt) => {
+        const coords = rt.geometry.coordinates, dense = densify(coords, 12);
+        let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++;
+        return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 };
+      });
+      const shade = scored.reduce((x, y) => (y.shade > x.shade ? y : x));
+      const direct = scored.reduce((x, y) => (y.distance < x.distance ? y : x));
+      routeGeomRef.current = { shade, direct };
+      setRouteResult({ shade, direct, night: sampler.night, same: shade === direct, n: scored.length });
+      drawRoutes(map, { shade, direct });
+    } catch (e) { setRouteErr(e.message || String(e)); } finally { setRouteBusy(false); }
+  }, [mapRef, buildSampler, drawRoutes, stopPreview]);
+
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
@@ -580,13 +760,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     return () => {
       const map = mapRef?.current?.getMap?.();
       if (playRef.current) clearInterval(playRef.current);
+      if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
       clearTimeout(canopyTimer.current);
-      if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); map.getCanvas().style.cursor = ""; } catch (_) {} }
+      if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); } catch (_) {} }
+      if (map && routeClickRef.current) { try { map.off("click", routeClickRef.current); } catch (_) {} }
+      if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_LINE, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
@@ -611,6 +794,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}` }}>
         {tabBtn("sim", "Ombrage")}
+        {tabBtn("route", "Itinéraire")}
         {tabBtn("def", "Définition")}
       </div>
 
@@ -629,6 +813,68 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <div style={{ fontWeight: 600, marginBottom: 3 }}>Emprise & statistiques</div>
             <p style={{ margin: 0, color: C.mut }}>Calcul sur la vue, l'emprise d'une couche, ou un <b>ROI</b> dessiné (2 clics). Le bouton <b>Statistiques</b> (actif une fois la canopée chargée) donne les surfaces ombragées de la zone.</p>
           </div>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Itinéraire ombragé</div>
+            <p style={{ margin: 0, color: C.mut }}>Onglet <b>Itinéraire</b> : deux trajets piétons A → B — <b>plus ombragé</b> ou <b>plus direct</b> — évalués selon l'ombre à l'heure choisie, avec prévisualisation animée (accélérée).</p>
+          </div>
+        </div>
+      ) : tab === "route" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+          <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
+            Deux itinéraires piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — évalués selon l'ombre à l'heure choisie (onglet Ombrage). Prévisualisez le parcours avec accélération.
+          </div>
+
+          <button onClick={startRouteAB}
+            style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "8px 12px", cursor: "pointer",
+              background: routePick ? C.acc : "transparent", color: routePick ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 8 }}>
+            {routePick ? `Cliquez ${routeAB.length === 0 ? "le point A" : "le point B"} sur la carte…` : (routeAB.length >= 2 ? "Redéfinir A → B" : "Définir A → B (2 clics)")}
+          </button>
+
+          <button onClick={computeShadeRoutes} disabled={routeBusy || routeAB.length < 2}
+            style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "9px 14px", cursor: (routeBusy || routeAB.length < 2) ? "not-allowed" : "pointer",
+              background: (routeBusy || routeAB.length < 2) ? C.bg2 || C.bg : C.acc, color: (routeBusy || routeAB.length < 2) ? C.dim : "#fff", border: `1px solid ${routeAB.length < 2 ? C.bdr : C.acc}`, borderRadius: 8 }}>
+            {routeBusy ? "Calcul…" : "Calculer les itinéraires"}
+          </button>
+
+          {routeErr && <div style={{ fontFamily: M, fontSize: 11.5, color: "#e11d1d", background: "#e11d1d14", border: "0.5px solid #e11d1d55", borderRadius: 6, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{routeErr}</div>}
+
+          {routeResult && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit à cette heure — tout est « à l'ombre ». Choisissez une heure de jour pour comparer.</div>}
+              {[["shade", "🌳 Plus ombragé", "#2e7d4f", routeResult.shade], ["direct", "➡ Plus direct", "#e8590c", routeResult.direct]].map(([kind, label, col, r]) => (
+                <button key={kind} onClick={() => selectRoute(kind)}
+                  style={{ textAlign: "left", fontFamily: F, cursor: "pointer", padding: "9px 11px", borderRadius: 8,
+                    border: `1.5px solid ${routeSel === kind ? col : C.bdr}`, background: routeSel === kind ? col + "12" : (C.bg2 || C.bg) }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: col }}>{label}</div>
+                  <div style={{ fontSize: 11.5, color: C.txt, marginTop: 2 }}>
+                    <b>{Math.round(r.shade * 100)}%</b> à l'ombre · {(r.distance / 1000).toFixed(2)} km · {Math.round(r.duration / 60)} min
+                  </div>
+                </button>
+              ))}
+              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Un seul itinéraire (le plus ombragé = le plus direct ici).</div>}
+            </div>
+          )}
+
+          {routeResult && (
+            <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => (previewing ? stopPreview() : startPreview())}
+                  style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "6px 12px", cursor: "pointer",
+                    background: previewing ? C.acc : "transparent", color: previewing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7 }}>
+                  {previewing ? "❚❚ Stop" : "▶ Prévisualiser"}
+                </button>
+                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vitesse</span>
+                {[1, 2, 4, 8].map((sp) => (
+                  <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { stopPreview(); setTimeout(() => startPreview(), 30); } }}
+                    style={{ fontFamily: M, fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6,
+                      border: `1px solid ${previewSpeed === sp ? C.acc : C.bdr}`, background: previewSpeed === sp ? C.acc + "18" : "transparent", color: previewSpeed === sp ? C.acc : C.mut }}>
+                    ×{sp}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Anime un repère le long de l'itinéraire sélectionné (couleur vive), accéléré selon la vitesse.</div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>

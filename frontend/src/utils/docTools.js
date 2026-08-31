@@ -265,8 +265,9 @@ export const DOC_TOOLS = {
       "Menu thématique → Urbain & aménagement → Ombres portées des bâtiments.",
       "Le fond Liberty et le zoom bâtiments se règlent automatiquement — déplacez-vous sur une ville.",
       "Choisissez l'emprise du calcul : vue courante, ou l'emprise d'une couche.",
-      "Réglez la date, puis faites glisser l'heure — ou « ▶ Journée » pour l'animer.",
+      "Réglez la date, puis faites glisser l'heure — ou « ▶ Journée » (du lever au coucher) pour l'animer.",
       "Ajustez l'opacité, la hauteur par défaut, et activez « Surfaces arborées » (hauteur de canopée réglable, ombre verte).",
+      "Onglet « Itinéraire » : placez A → B, comparez « plus ombragé » vs « plus direct », et prévisualisez le parcours (accéléré).",
     ],
     example: {
       title: "Où est l'ombre à 9h vs 17h ?",
@@ -277,7 +278,7 @@ export const DOC_TOOLS = {
         { v: "SunCalc", k: "position du soleil validée" },
       ],
     },
-    caveat: "Visualisation (bâtiments + surfaces arborées). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades) ; hauteurs de bâtiment Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; la canopée vient du modèle WRI/Meta ~1 m (Earth Engine) affichée en aperçu raster lissé (vraie emprise) ; son ombre est le même raster décalé selon la hauteur MOYENNE (décalage uniforme, non par pixel), traitée comme opaque ; l'ombre des bâtiments est l'enveloppe convexe de l'emprise balayée (exacte pour une forme convexe, légèrement surestimée sinon). Objets limités aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en heure LOCALE (fuseau du navigateur, DST géré) ; le lever et le coucher du soleil sont calculés pour le lieu (centre de la carte) et bornent la lecture « Journée » et le tableau de bord. À venir : relief, et itinéraires plus ou moins ombragés.",
+    caveat: "Visualisation (bâtiments + surfaces arborées). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades) ; hauteurs de bâtiment Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; la canopée vient du modèle WRI/Meta ~1 m (Earth Engine) affichée en aperçu raster lissé (vraie emprise) ; son ombre est le même raster décalé selon la hauteur MOYENNE (décalage uniforme, non par pixel), traitée comme opaque ; l'ombre des bâtiments est l'enveloppe convexe de l'emprise balayée (exacte pour une forme convexe, légèrement surestimée sinon). Objets limités aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en heure LOCALE (fuseau du navigateur, DST géré) ; le lever et le coucher du soleil sont calculés pour le lieu (centre de la carte) et bornent la lecture « Journée » et le tableau de bord. Itinéraire ombragé (onglet Itinéraire) : deux trajets piétons A → B (Mapbox, avec alternatives) évalués par échantillonnage de l'ombre à l'heure courante — le « plus ombragé » et le « plus direct » — avec prévisualisation animée accélérée ; la comparaison se limite aux alternatives proposées par le moteur (pas d'optimisation d'ombre sur graphe). À venir : relief.",
   },
   solarsystem: {
     date: "2026-08-28",
