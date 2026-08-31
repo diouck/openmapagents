@@ -702,20 +702,22 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
       layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
-    // sauvegarde la caméra (restaurée à la fin) et fixe un zoom « navigation »
+    // sauvegarde la caméra (restaurée à la fin)
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
-    const navZoom = Math.max(16.5, Math.min(18, preCamRef.current.zoom));
+    // ZOOM/CADRE sur l'itinéraire UNE SEULE FOIS → caméra stable, aucune saccade ;
+    // la flèche parcourt ensuite le vrai tracé (courbes comprises).
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const p of g.coords) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
+    try { map.fitBounds([[w, s], [e, n]], { padding: 70, bearing: 0, pitch: 30, duration: 700, maxZoom: 18 }); } catch (_) {}
     setPreviewing(true);
-    const durMs = Math.max(1500, Math.min(30000, (g.duration * 1000) / (previewSpeedRef.current * 40)));
+    const durMs = Math.max(2000, Math.min(30000, (g.duration * 1000) / (previewSpeedRef.current * 40)));
     const start = performance.now();
     const step = (t) => {
       const f = Math.min(1, (t - start) / durMs);
       const pos = alongRoute(g.coords, g.cum, f);
-      const ahead = alongRoute(g.coords, g.cum, Math.min(1, f + 0.02));
+      const ahead = alongRoute(g.coords, g.cum, Math.min(1, f + 0.015));
       const hdg = bearingDeg(pos, ahead);
       const ms = map.getSource(RT_MARK); if (ms) ms.setData({ type: "Feature", properties: { hdg }, geometry: { type: "Point", coordinates: pos } });
-      // la carte tourne pour que « devant » soit vers le haut, et suit le repère
-      try { map.jumpTo({ center: pos, bearing: hdg, zoom: navZoom }); } catch (_) {}
       if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
       else { animRef.current = null; setPreviewing(false); restoreCam(map); }
     };
@@ -913,7 +915,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                   </button>
                 ))}
               </div>
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Mode navigation : la carte tourne selon l'orientation et une flèche avance le long de l'itinéraire sélectionné (accéléré selon la vitesse). La vue est restaurée à la fin.</div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>La carte se cadre sur l'itinéraire (zoom) et une flèche le parcourt dans le sens de la marche (accéléré selon la vitesse). La vue est restaurée à la fin.</div>
             </div>
           )}
         </div>
