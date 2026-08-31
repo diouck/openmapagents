@@ -257,15 +257,19 @@ def canopy_patches(req: PatchReq):
         except Exception:
             pass
 
+    # Lissage morphologique (fermeture + moyenne) → contours arrondis, moins « pixel ».
     mask = height.gte(minh)
-    labeled = mask.selfMask().rename("lbl").addBands(height)
+    sm = mask.focalMax(1, "circle", "pixels").focalMin(1, "circle", "pixels")
+    sm = sm.focalMean(1.5, "circle", "pixels").gte(0.5)
+    labeled = sm.selfMask().rename("lbl").addBands(height)
     try:
         vectors = labeled.reduceToVectors(
             reducer=ee.Reducer.mean(), geometry=rect, scale=scale,
             geometryType="polygon", labelProperty="lbl", eightConnected=True,
             maxPixels=int(1e10), bestEffort=True,
         ).limit(int(req.max_features))
-        vectors = vectors.map(lambda f: f.simplify(maxError=float(scale)))
+        # simplification plus forte → adoucit l'effet « marches d'escalier »
+        vectors = vectors.map(lambda f: f.simplify(maxError=float(scale) * 2.5))
         gj = vectors.getInfo()
     except Exception as ex:
         raise HTTPException(502, f"Vectorisation canopée impossible : {ex}")
