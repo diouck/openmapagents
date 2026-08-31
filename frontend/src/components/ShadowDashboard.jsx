@@ -128,7 +128,7 @@ export default function ShadowDashboard({ data = [], meta = {}, onClose }) {
             </table>
           </div>
           <div style={{ fontFamily: F, fontSize: 10, color: C.dim, lineHeight: 1.5 }}>
-            % = fraction de la zone au sol dans l'ombre à chaque heure (temps solaire local, sol plat). « Total » = union bâtiments + canopée. La canopée utilise sa hauteur moyenne pour l'ombre.
+            % = fraction de la zone au sol dans l'ombre à chaque heure (heure locale, du lever au coucher du soleil, sol plat). « Total » = union bâtiments + canopée. La canopée utilise sa hauteur moyenne pour l'ombre.
           </div>
         </div>
       </div>
