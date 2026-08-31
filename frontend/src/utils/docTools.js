@@ -263,7 +263,7 @@ export const DOC_TOOLS = {
     abstract: "Simule l'ombre portée au sol des bâtiments, à une date et une heure choisies, et la fait défiler tout au long de la journée. Les bâtiments proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building, hauteur render_height) : aucun téléchargement ni appel serveur. Pour chaque bâtiment de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi.",
     usage: [
       "Menu thématique → Urbain & aménagement → Ombres portées des bâtiments.",
-      "Zoomez sur une ville (niveau ~15+) pour que les bâtiments soient chargés.",
+      "Le fond Liberty et le zoom bâtiments se règlent automatiquement — déplacez-vous sur une ville.",
       "Choisissez l'emprise du calcul : vue courante, ou l'emprise d'une couche.",
       "Réglez la date, puis faites glisser l'heure — ou « ▶ Journée » pour l'animer.",
       "Ajustez l'opacité et la hauteur par défaut (bâtiments sans hauteur renseignée).",

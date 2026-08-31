@@ -70,7 +70,9 @@ function layerBbox(l) {
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const MAX_BLD = 4000;          // plafond de bâtiments (perf)
 
-export default function ShadowPanel({ mapRef, layers = [] }) {
+const BLD_ZOOM = 16;           // niveau où les bâtiments sont chargés/visibles
+
+export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }) {
   const C = useThemeContext();
   const today = new Date().toISOString().slice(0, 10);
   const [tab, setTab] = useState("sim");
@@ -85,6 +87,21 @@ export default function ShadowPanel({ mapRef, layers = [] }) {
   const bldRef = useRef([]);       // footprints cache : [{ring:[[lng,lat]..], h, lat}]
   const playRef = useRef(null);
   const scopeBboxRef = useRef(null);   // emprise du calcul (null = vue courante)
+  const prevBaseRef = useRef(null);    // fond de carte avant ouverture (pour restaurer)
+
+  // ── À l'ouverture : fond LIBERTY (porte/affiche les bâtiments) + zoom au
+  //    niveau bâtiments si on est trop loin → l'outil est utilisable d'emblée.
+  //    On restaure le fond précédent en quittant l'outil.
+  useEffect(() => {
+    prevBaseRef.current = basemap;
+    if (basemap !== "liberty") setBasemap?.("liberty");
+    const map = mapRef?.current?.getMap?.();
+    try { if (map && map.getZoom() < 15) map.easeTo({ zoom: BLD_ZOOM, duration: 800 }); } catch (_) {}
+    return () => {
+      if (prevBaseRef.current && prevBaseRef.current !== "liberty") setBasemap?.(prevBaseRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Couches ayant une emprise exploitable (pour restreindre le calcul).
   const layerOptions = useMemo(() =>
@@ -276,7 +293,7 @@ export default function ShadowPanel({ mapRef, layers = [] }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Ombre portée des <b>bâtiments de la carte</b> (aucun téléchargement). Zoomez sur une ville, puis faites défiler l'heure.
+            Ombre portée des <b>bâtiments de la carte</b> (aucun téléchargement). Fond <b>Liberty</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
           </div>
 
           <div>
@@ -321,7 +338,7 @@ export default function ShadowPanel({ mapRef, layers = [] }) {
               <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s) dans la vue.</span>
             )}
             {info && !info.night && info.count === 0 && (
-              <div style={{ color: C.dim, marginTop: 4 }}>Aucun bâtiment : zoomez davantage (niveau ~15+) ou passez sur un fond avec bâtiments (Liberty/Positron/Dark).</div>
+              <div style={{ color: C.dim, marginTop: 4 }}>Aucun bâtiment ici : déplacez la carte sur une ville et zoomez un peu (le fond Liberty et le zoom bâtiments sont déjà réglés).</div>
             )}
           </div>
 
