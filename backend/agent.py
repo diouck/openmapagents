@@ -937,6 +937,14 @@ try:
 except Exception as e:
     print(f"✗ Maxar Open Data non chargé: {e}")
 
+# Ombres portées — canopée Meta (GEE) vectorisée pour l'outil d'ombrage
+try:
+    from shadow_routes import router as shadow_router
+    app.include_router(shadow_router)
+    print("✓ Ombres/canopée chargé (/api/shadow/canopy)")
+except Exception as e:
+    print(f"✗ Ombres/canopée non chargé: {e}")
+
 
 # 2. Routers
 app.include_router(resilience_router)

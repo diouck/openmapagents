@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useThemeContext } from "../theme";
-import { F, M } from "../config";
+import { F, M, API } from "../config";
 
 /* ── Position du soleil (port SunCalc, validé en Python) ────────────────────
    Renvoie {alt, az} en radians. az mesuré depuis le SUD, positif vers l'ouest. */
@@ -98,9 +98,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [playing, setPlaying] = useState(false);
   const [scope, setScope] = useState("view");    // "view" (carte) | id de couche
   const [info, setInfo] = useState(null);        // {alt, az, shadowBearing, count, night}
+  const [canopyMsg, setCanopyMsg] = useState(null);   // état chargement canopée Meta
 
   const bldRef = useRef([]);       // footprints cache : [{ring:[[lng,lat]..], h, lat}]
-  const treeRef = useRef([]);      // surfaces arborées : [{ring, lat}]
+  const treeRef = useRef([]);      // arbres des tuiles (fallback) : [{ring, lat}]
+  const metaTreeRef = useRef([]);  // canopée Meta (GEE) : [{ring, lat, h}] hauteurs réelles
+  const treesRef = useRef(true);   // miroir de `trees` pour les handlers
+  const canopyTimer = useRef(null);
   const playRef = useRef(null);
   const scopeBboxRef = useRef(null);   // emprise du calcul (null = vue courante)
   const prevBaseRef = useRef(null);    // fond de carte avant ouverture (pour restaurer)
@@ -235,7 +239,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     };
     for (const b of blds) project(b.ring, b.lat, isFinite(b.h) ? b.h : Number(defH), "bld");
     const nBld = feats.length;
-    if (trees) for (const t of treeRef.current) project(t.ring, t.lat, Number(canopyH), "tree");
+    if (trees) {
+      // canopée Meta (hauteurs réelles) si chargée, sinon arbres des tuiles (canopyH).
+      const tsrc = metaTreeRef.current.length ? metaTreeRef.current : treeRef.current;
+      for (const t of tsrc) project(t.ring, t.lat, t.h != null ? t.h : Number(canopyH), "tree");
+    }
     src && src.setData({ type: "FeatureCollection", features: feats });
     setInfo({ night: false, alt: altDeg, az: (az / RAD % 360 + 540) % 360, bearing, factor,
               count: feats.length, nBld, nTree: feats.length - nBld });
@@ -244,13 +252,56 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // recalcul quand date / heure / hauteur changent
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
 
+  // ── Canopée Meta (GEE) : polygones + hauteurs réelles sur l'emprise ───────
+  const fetchCanopy = useCallback(async () => {
+    const map = mapRef?.current?.getMap?.();
+    if (!map) return;
+    let bbox = scopeBboxRef.current;
+    if (!bbox) { const b = map.getBounds(); if (!b) return; bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+    if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) {
+      metaTreeRef.current = []; setCanopyMsg({ err: "Zoomez pour charger la canopée (emprise trop grande)." }); compute(); return;
+    }
+    setCanopyMsg({ busy: true });
+    try {
+      const r = await fetch(`${API}/shadow/canopy`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bbox, scale: 10, min_height: 3 }),
+      });
+      if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
+      const gj = await r.json();
+      const out = [];
+      for (const f of gj.features || []) {
+        const g = f.geometry; if (!g) continue;
+        const h = f.properties?.height;
+        const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+        for (const poly of polys) { const ring = poly[0]; if (!ring || ring.length < 4) continue; out.push({ ring, lat: ring[0][1], h }); }
+      }
+      metaTreeRef.current = out;
+      setCanopyMsg({ ok: true, n: out.length, dataset: gj.dataset });
+      compute();
+    } catch (e) { metaTreeRef.current = []; setCanopyMsg({ err: e.message || String(e) }); compute(); }
+  }, [mapRef, compute]);
+
+  const scheduleCanopy = useCallback(() => {
+    clearTimeout(canopyTimer.current);
+    canopyTimer.current = setTimeout(() => fetchCanopy(), 400);
+  }, [fetchCanopy]);
+
+  // charge/relâche la canopée Meta quand on (dés)active les arbres
+  useEffect(() => {
+    treesRef.current = trees;
+    if (trees) scheduleCanopy();
+    else { metaTreeRef.current = []; setCanopyMsg(null); compute(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trees]);
+
   // ── change l'emprise du calcul : vue courante ou emprise d'une couche ─────
   const changeScope = useCallback((val) => {
     setScope(val);
     const map = mapRef?.current?.getMap?.();
     if (val === "view") {
       scopeBboxRef.current = null;
-      if (map) { refreshBuildings(map, null); compute(); }
+      if (map) { refreshBuildings(map, null); compute(); if (treesRef.current) scheduleCanopy(); }
       return;
     }
     const opt = layerOptions.find((o) => o.id === val);
@@ -261,7 +312,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       // « moveend » relit et recalcule sur cette emprise.
       map.fitBounds([[w, s], [e, n]], { padding: 40, duration: 800 });
     }
-  }, [mapRef, layerOptions, refreshBuildings, compute]);
+  }, [mapRef, layerOptions, refreshBuildings, compute, scheduleCanopy]);
 
   // opacité → simple maj de peinture
   useEffect(() => {
@@ -273,12 +324,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
-    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); };
+    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); };
     const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); }, 300); };
     map.on("moveend", onMove);
     map.on("styledata", onStyle);
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
-  }, [mapRef, refreshBuildings, compute]);
+  }, [mapRef, refreshBuildings, compute, scheduleCanopy]);
 
   // lecture « toute la journée »
   useEffect(() => {
@@ -294,6 +345,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     return () => {
       const map = mapRef?.current?.getMap?.();
       if (playRef.current) clearInterval(playRef.current);
+      clearTimeout(canopyTimer.current);
       try { if (map) { if (map.getLayer(LYR)) map.removeLayer(LYR); if (map.getSource(SRC)) map.removeSource(SRC); } } catch (_) {}
     };
   }, [mapRef]);
@@ -330,11 +382,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <p style={{ margin: 0, color: C.mut }}>Position du soleil calculée pour le centre de la carte (algorithme SunCalc). L'ombre d'un bâtiment de hauteur <i>H</i> a pour longueur <i>H / tan(hauteur solaire)</i>, dans la direction opposée au soleil. Sol plat supposé.</p>
           </div>
           <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Surfaces arborées</div>
-            <p style={{ margin: 0, color: C.mut }}>Les zones boisées (couche <Code>landcover</Code>/<Code>landuse</Code>, classe <i>bois/forêt</i>) sont incluses avec une <b>hauteur de canopée réglable</b> (pas de hauteur native dans les tuiles). Leur ombre est teintée en vert. Modèle simplifié : canopée opaque, sol plat.</p>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Canopée (Meta ~1 m)</div>
+            <p style={{ margin: 0, color: C.mut }}>Les arbres proviennent du modèle <b>WRI/Meta High Resolution Canopy Height 2020</b> (~1 m, via Earth Engine) : le serveur seuille la canopée (≥ 3 m) et la vectorise en zones portant leur <b>hauteur réelle moyenne</b>, projetées en ombre comme les bâtiments (teinte verte). Si Earth Engine est indisponible, repli sur les zones boisées des tuiles avec une hauteur de secours. Modèle simplifié : canopée opaque, sol plat.</p>
           </div>
           <div style={{ background: C.bg2 || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", color: C.mut, fontSize: 11.5 }}>
-            À venir — relief, et itinéraires « plus ou moins ombragés ». Hypothèses : sol plat, hauteurs Overture parfois manquantes (repli sur une hauteur par défaut), ombre au sol seulement, canopée opaque et non poreuse.
+            À venir — relief, et itinéraires « plus ou moins ombragés ». Hypothèses : sol plat, hauteurs de bâtiment parfois manquantes (repli sur une hauteur par défaut), ombre au sol seulement, canopée opaque et non poreuse.
           </div>
         </div>
       ) : (
@@ -406,17 +458,22 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer", flex: 1 }}>
               <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
-              🌳 Surfaces arborées <span style={{ color: C.dim }}>(canopée)</span>
+              🌳 Canopée <span style={{ color: C.dim }}>(Meta ~1 m)</span>
             </label>
             <div style={{ width: 120 }}>
-              <div style={lbl}>Haut. canopée · m</div>
+              <div style={lbl}>Haut. si indispo · m</div>
               <input type="number" min={2} max={60} value={canopyH} disabled={!trees}
                 onChange={(e) => setCanopyH(Number(e.target.value))} style={{ ...inp, width: "100%", opacity: trees ? 1 : 0.5 }} />
             </div>
           </div>
-          <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>
-            Zones boisées des tuiles (bois, forêts) — sans hauteur native : on applique la hauteur de canopée. Ombre teintée en vert.
-          </div>
+          {trees && (
+            <div style={{ fontFamily: F, fontSize: 10.5 }}>
+              {canopyMsg?.busy ? <span style={{ color: C.mut }}>⏳ Chargement de la canopée Meta…</span>
+                : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} : <b>{canopyMsg.n}</b> zone(s), hauteurs réelles.</span>
+                : canopyMsg?.err ? <span style={{ color: C.dim }}>Canopée Meta indisponible — repli sur les tuiles ({Number(canopyH)} m). {canopyMsg.err}</span>
+                : <span style={{ color: C.dim }}>Hauteurs réelles du modèle WRI/Meta 2020 (~1 m). Ombre teintée en vert.</span>}
+            </div>
+          )}
         </div>
       )}
     </div>

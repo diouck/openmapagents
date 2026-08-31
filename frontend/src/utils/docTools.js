@@ -259,8 +259,8 @@ export const DOC_TOOLS = {
   },
   shadow: {
     date: "2026-08-31",
-    dataLine: "Bâtiments + surfaces arborées MapLibre (tuiles OpenMapTiles) · calcul 100 % client · algo SunCalc",
-    abstract: "Simule l'ombre portée au sol des bâtiments ET des surfaces arborées, à une date et une heure choisies, et la fait défiler tout au long de la journée. Bâtiments et zones boisées proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building avec render_height ; couches landcover/landuse classe bois/forêt) : aucun téléchargement ni appel serveur. Pour chaque objet de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi. Les surfaces arborées, sans hauteur native, reçoivent une hauteur de canopée réglable.",
+    dataLine: "Bâtiments (tuiles MapLibre) + canopée WRI/Meta ~1 m (GEE) · SunCalc",
+    abstract: "Simule l'ombre portée au sol des bâtiments ET de la canopée, à une date et une heure choisies, et la fait défiler tout au long de la journée. Les bâtiments proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building avec render_height) — aucun téléchargement. Les arbres proviennent du modèle WRI/Meta High Resolution Canopy Height 2020 (~1 m, via Earth Engine) : le serveur seuille la canopée et la vectorise en zones portant leur hauteur réelle moyenne. Pour chaque objet de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi.",
     usage: [
       "Menu thématique → Urbain & aménagement → Ombres portées des bâtiments.",
       "Le fond Liberty et le zoom bâtiments se règlent automatiquement — déplacez-vous sur une ville.",
@@ -277,7 +277,7 @@ export const DOC_TOOLS = {
         { v: "SunCalc", k: "position du soleil validée" },
       ],
     },
-    caveat: "Visualisation (bâtiments + surfaces arborées). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades) ; hauteurs de bâtiment Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; les surfaces arborées n'ont pas de hauteur native → hauteur de canopée réglable, canopée traitée comme opaque (non poreuse) ; l'ombre par objet est l'enveloppe convexe de l'emprise balayée (exacte pour une forme convexe, légèrement surestimée sinon). Objets limités aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en temps solaire local (méridien du lieu). À venir : relief, et itinéraires plus ou moins ombragés.",
+    caveat: "Visualisation (bâtiments + surfaces arborées). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades) ; hauteurs de bâtiment Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; la canopée vient du modèle WRI/Meta ~1 m (Earth Engine) vectorisé avec hauteur réelle moyenne (repli sur les zones boisées des tuiles + hauteur de secours si GEE indisponible), traitée comme opaque (non poreuse) ; l'ombre par objet est l'enveloppe convexe de l'emprise balayée (exacte pour une forme convexe, légèrement surestimée sinon). Objets limités aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en temps solaire local (méridien du lieu). À venir : relief, et itinéraires plus ou moins ombragés.",
   },
   solarsystem: {
     date: "2026-08-28",
