@@ -251,7 +251,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [canopyMsg, setCanopyMsg] = useState(null);
   const [sunTimes, setSunTimes] = useState(null);   // {riseH, setH, riseStr, setStr, polar, off}
   const [tzMode, setTzMode] = useState("auto");     // "auto" (longitude) | "utc" | "browser"
-  const [navMode, setNavMode] = useState("immersive"); // "immersive" | "top" | "follow"
+  const [navMode, setNavMode] = useState("top");    // "top" (défaut) | "immersive" | "follow"
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
   const [dashBusy, setDashBusy] = useState(false);
@@ -293,7 +293,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const preCamRef = useRef(null);        // caméra avant prévisualisation (pour restaurer)
   const geoTimer = useRef(null);         // debounce géocodage
   const tzModeRef = useRef("auto");
-  const navModeRef = useRef("immersive");
+  const navModeRef = useRef("top");
   tzModeRef.current = tzMode; navModeRef.current = navMode;   // synchro (lecture dans les callbacks)
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
@@ -464,8 +464,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
     let bbox = scopeBboxRef.current;
-    if (!bbox) { const b = map.getBounds(); if (!b) return; bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
-    if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.2) {
+    if (!bbox) {
+      // Vue courante : on récupère une emprise un peu PLUS LARGE que l'écran
+      // → les petits déplacements restent couverts (canopée qui suit la carte).
+      const b = map.getBounds(); if (!b) return;
+      const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
+      const px = (e - w) * 0.2, py = (n - s) * 0.2;
+      bbox = [w - px, s - py, e + px, n + py];
+    }
+    if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) {
       canopyRef.current = null; setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
       setCanopyMsg({ err: "Zoomez pour charger la canopée (emprise trop grande)." }); return;
     }
@@ -492,7 +499,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const scheduleCanopy = useCallback(() => {
     clearTimeout(canopyTimer.current);
-    canopyTimer.current = setTimeout(() => fetchCanopy(), 400);
+    canopyTimer.current = setTimeout(() => fetchCanopy(), 250);
   }, [fetchCanopy]);
 
   useEffect(() => {
@@ -1075,7 +1082,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vue</span>
-                {[["immersive", "Immersive 3D"], ["follow", "Suivi"], ["top", "De dessus"]].map(([m, label]) => (
+                {[["top", "De dessus"], ["immersive", "Immersive 3D"], ["follow", "Suivi"]].map(([m, label]) => (
                   <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
                     style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
                       border: `1px solid ${navMode === m ? C.acc : C.bdr}`, background: navMode === m ? C.acc + "18" : "transparent", color: navMode === m ? C.acc : C.mut }}>
