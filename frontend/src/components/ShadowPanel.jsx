@@ -281,7 +281,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const roiHandlerRef = useRef(null);
   const roiPtsRef = useRef([]);
   const prevBaseRef = useRef(null);
-  const prevPitchRef = useRef(null);
   const playRef = useRef(null);
   const sunRef = useRef({ riseH: 6, setH: 21 });   // lever/coucher (heures locales) pour la lecture
   const routeABRef = useRef([]);
@@ -298,23 +297,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const previewCanopyRef = useRef(false);
   const hideCanopyRef = useRef(false);   // masque la canopée (pendant une prévisualisation)
   const computeRef = useRef(null);       // dernier compute (appelable depuis les callbacks)
-  tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;   // synchro
+  const hourRef = useRef(14);
+  const opacityRef = useRef(0.35);
+  tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
+  hourRef.current = hour; opacityRef.current = opacity;   // synchro (lecture dans les callbacks)
 
-  // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
+  // ── ouverture : Liberty + zoom bâtiments (carte NORMALE, pas d'inclinaison
+  //    imposée — l'utilisateur incline/pivote à la souris s'il le souhaite) ───
   useEffect(() => {
     prevBaseRef.current = basemap;
     if (basemap !== "liberty") setBasemap?.("liberty");
     const map = mapRef?.current?.getMap?.();
-    if (map) {
-      prevPitchRef.current = map.getPitch();
-      const opts = { pitch: 55, duration: 900 };
-      if (map.getZoom() < 15) opts.zoom = BLD_ZOOM;
-      try { map.easeTo(opts); } catch (_) {}
-    }
+    if (map && map.getZoom() < 15) { try { map.easeTo({ zoom: BLD_ZOOM, duration: 800 }); } catch (_) {} }
     return () => {
       if (prevBaseRef.current && prevBaseRef.current !== "liberty") setBasemap?.(prevBaseRef.current);
-      const m = mapRef?.current?.getMap?.();
-      try { if (m && prevPitchRef.current != null) m.easeTo({ pitch: prevPitchRef.current, duration: 600 }); } catch (_) {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -931,19 +927,33 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
   }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun]);
 
+  // fondu des ombres (nuit tombante) — dip d'opacité puis retour
+  const fadeShadows = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map || !map.getLayer(LYR)) return;
+    try {
+      map.setPaintProperty(LYR, "fill-opacity-transition", { duration: 700, delay: 0 });
+      map.setPaintProperty(LYR, "fill-opacity", 0);
+      setTimeout(() => { try { if (map.getLayer(LYR)) map.setPaintProperty(LYR, "fill-opacity", Number(opacityRef.current)); } catch (_) {} }, 950);
+    } catch (_) {}
+  }, [mapRef]);
+
   useEffect(() => {
     if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } if (hideCanopyRef.current) { hideCanopyRef.current = false; computeRef.current?.(); } return; }
     // pendant la lecture « Journée » : canopée masquée (option désactivée par défaut)
     hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();
-    // balaie du LEVER au COUCHER du soleil (lieu + jour). Pas fin + cadence élevée
-    // → fluide (enveloppe convexe précalculée + filtre d'emprise = images légères).
+    // balaie du LEVER au COUCHER du soleil (lieu + jour), une seule fois, puis
+    // s'arrête en FONDU (nuit tombante). Pas fin + cadence élevée = fluide.
     const lo0 = sunRef.current?.riseH ?? 6, hi0 = sunRef.current?.setH ?? 21;
-    setHour((h) => (h < lo0 || h > hi0 ? lo0 : h));
+    if (hourRef.current < lo0 || hourRef.current >= hi0) setHour(lo0);
     playRef.current = setInterval(() => {
-      setHour((h) => { const lo = sunRef.current?.riseH ?? 6, hi = sunRef.current?.setH ?? 21; const nx = h + 0.12; return nx > hi ? lo : nx; });
+      const lo = sunRef.current?.riseH ?? 6, hi = sunRef.current?.setH ?? 21;
+      const nx = hourRef.current + 0.12;
+      if (nx >= hi) { setHour(hi); setPlaying(false); fadeShadows(); return; }
+      setHour(nx);
     }, 80);
     return () => { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } };
-  }, [playing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, fadeShadows]);
 
   useEffect(() => {
     return () => {
