@@ -67,8 +67,21 @@ function layerBbox(l) {
   return isFinite(w) ? [w, s, e, n] : null;
 }
 
+/* Interroge une couche vectorielle des tuiles chargées (building, landcover…). */
+function queryTiles(map, name) {
+  const sl = map.getStyle().layers || [];
+  const lyr = sl.find((l) => l["source-layer"] === name && l.source);
+  try {
+    let f = lyr ? map.querySourceFeatures(lyr.source, { sourceLayer: name }) : [];
+    if (!f.length) f = map.querySourceFeatures("openmaptiles", { sourceLayer: name });
+    return f || [];
+  } catch (_) { return []; }
+}
+
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const MAX_BLD = 4000;          // plafond de bâtiments (perf)
+const MAX_TREE = 2500;         // plafond de surfaces arborées
+const WOOD = new Set(["wood", "forest", "tree", "trees"]);   // classes arborées OMT (landcover/landuse)
 
 const BLD_ZOOM = 16;           // niveau où les bâtiments sont chargés/visibles
 
@@ -80,11 +93,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [hour, setHour] = useState(14);          // heure solaire locale
   const [opacity, setOpacity] = useState(0.35);
   const [defH, setDefH] = useState(9);           // hauteur si absente (m)
+  const [trees, setTrees] = useState(true);      // inclure les surfaces arborées
+  const [canopyH, setCanopyH] = useState(12);    // hauteur de canopée (m)
   const [playing, setPlaying] = useState(false);
   const [scope, setScope] = useState("view");    // "view" (carte) | id de couche
   const [info, setInfo] = useState(null);        // {alt, az, shadowBearing, count, night}
 
   const bldRef = useRef([]);       // footprints cache : [{ring:[[lng,lat]..], h, lat}]
+  const treeRef = useRef([]);      // surfaces arborées : [{ring, lat}]
   const playRef = useRef(null);
   const scopeBboxRef = useRef(null);   // emprise du calcul (null = vue courante)
   const prevBaseRef = useRef(null);    // fond de carte avant ouverture (pour restaurer)
@@ -126,26 +142,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const sl = map.getStyle().layers || [];
       const before = (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
       map.addLayer({ id: LYR, type: "fill", source: SRC,
-        paint: { "fill-color": "#0e1630", "fill-opacity": opacity, "fill-antialias": false } }, before);
+        paint: { "fill-color": ["case", ["==", ["get", "kind"], "tree"], "#123522", "#0e1630"],
+                 "fill-opacity": opacity, "fill-antialias": false } }, before);
     }
   }, [opacity]);
 
   // ── (re)lecture des bâtiments dans la vue (tuiles déjà chargées) ──────────
   // bbox optionnel [w,s,e,n] : restreint le calcul à l'emprise d'une couche.
   const refreshBuildings = useCallback((map, bbox) => {
-    // Trouve la source qui porte la couche vectorielle `building`.
-    const styleLayers = map.getStyle().layers || [];
-    const bl = styleLayers.find((l) => l["source-layer"] === "building" && l.source);
-    let feats = [];
-    try {
-      if (bl) feats = map.querySourceFeatures(bl.source, { sourceLayer: "building" });
-      if (!feats.length) feats = map.querySourceFeatures("openmaptiles", { sourceLayer: "building" });
-    } catch (_) { feats = []; }
-
     const inBbox = bbox ? (lng, lat) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] : null;
+
+    // 1) Bâtiments (couche `building`, hauteur render_height).
     const seen = new Set();
     const out = [];
-    for (const f of feats) {
+    for (const f of queryTiles(map, "building")) {
       if (out.length >= MAX_BLD) break;
       const id = f.id != null ? f.id : null;
       if (id != null) { if (seen.has(id)) continue; seen.add(id); }
@@ -161,6 +171,28 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       }
     }
     bldRef.current = out;
+
+    // 2) Surfaces arborées (landcover/landuse classe wood/forest) → hauteur canopée.
+    const tOut = [];
+    const tseen = new Set();
+    for (const name of ["landcover", "landuse"]) {
+      for (const f of queryTiles(map, name)) {
+        if (tOut.length >= MAX_TREE) break;
+        const p = f.properties || {};
+        const cls = String(p.class ?? p.subclass ?? "").toLowerCase();
+        if (!WOOD.has(cls)) continue;
+        const id = f.id != null ? `${name}:${f.id}` : null;
+        if (id) { if (tseen.has(id)) continue; tseen.add(id); }
+        const g = f.geometry; if (!g) continue;
+        const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+        for (const poly of polys) {
+          const ring = poly[0]; if (!ring || ring.length < 4) continue;
+          if (inBbox && !inBbox(ring[0][0], ring[0][1])) continue;
+          tOut.push({ ring, lat: ring[0][1] });
+        }
+      }
+    }
+    treeRef.current = tOut;
     return out;
   }, []);
 
@@ -188,26 +220,26 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const factor = 1 / Math.tan(alt);                       // ombre = factor × hauteur
     const cosN = Math.cos(th), sinE = Math.sin(th);
     const feats = [];
-    for (const b of blds) {
-      const H = isFinite(b.h) ? b.h : Number(defH);
-      if (!(H > 0)) continue;
+    // Projette une emprise (bâtiment ou surface arborée) de hauteur H au sol.
+    const project = (ring, latc, H, kind) => {
+      if (!(H > 0)) return;
       const d = H * factor;                                 // longueur d'ombre (m)
       const dLat = (d * cosN) / 111320;
-      const dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
-      const pts = new Array(b.ring.length * 2);
-      for (let i = 0; i < b.ring.length; i++) {
-        const q = b.ring[i];
-        pts[i] = q;
-        pts[b.ring.length + i] = [q[0] + dLng, q[1] + dLat];
-      }
+      const dLng = (d * sinE) / (111320 * Math.cos(latc * RAD));
+      const n = ring.length, pts = new Array(n * 2);
+      for (let i = 0; i < n; i++) { const q = ring[i]; pts[i] = q; pts[n + i] = [q[0] + dLng, q[1] + dLat]; }
       const hull = convexHull(pts);
-      if (hull.length < 3) continue;
+      if (hull.length < 3) return;
       hull.push(hull[0]);
-      feats.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
-    }
+      feats.push({ type: "Feature", properties: { kind }, geometry: { type: "Polygon", coordinates: [hull] } });
+    };
+    for (const b of blds) project(b.ring, b.lat, isFinite(b.h) ? b.h : Number(defH), "bld");
+    const nBld = feats.length;
+    if (trees) for (const t of treeRef.current) project(t.ring, t.lat, Number(canopyH), "tree");
     src && src.setData({ type: "FeatureCollection", features: feats });
-    setInfo({ night: false, alt: altDeg, az: (az / RAD % 360 + 540) % 360, bearing, factor, count: feats.length });
-  }, [mapRef, date, hour, defH, ensureLayer, refreshBuildings]);
+    setInfo({ night: false, alt: altDeg, az: (az / RAD % 360 + 540) % 360, bearing, factor,
+              count: feats.length, nBld, nTree: feats.length - nBld });
+  }, [mapRef, date, hour, defH, trees, canopyH, ensureLayer, refreshBuildings]);
 
   // recalcul quand date / heure / hauteur changent
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
@@ -297,14 +329,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <div style={{ fontWeight: 600, marginBottom: 3 }}>Modèle</div>
             <p style={{ margin: 0, color: C.mut }}>Position du soleil calculée pour le centre de la carte (algorithme SunCalc). L'ombre d'un bâtiment de hauteur <i>H</i> a pour longueur <i>H / tan(hauteur solaire)</i>, dans la direction opposée au soleil. Sol plat supposé.</p>
           </div>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Surfaces arborées</div>
+            <p style={{ margin: 0, color: C.mut }}>Les zones boisées (couche <Code>landcover</Code>/<Code>landuse</Code>, classe <i>bois/forêt</i>) sont incluses avec une <b>hauteur de canopée réglable</b> (pas de hauteur native dans les tuiles). Leur ombre est teintée en vert. Modèle simplifié : canopée opaque, sol plat.</p>
+          </div>
           <div style={{ background: C.bg2 || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", color: C.mut, fontSize: 11.5 }}>
-            Étape 1 : visualisation. À venir — arbres/canopée, relief, et itinéraires « plus ou moins ombragés ». Hypothèses : sol plat, hauteurs Overture parfois manquantes (repli sur une hauteur par défaut), ombre au sol seulement.
+            À venir — relief, et itinéraires « plus ou moins ombragés ». Hypothèses : sol plat, hauteurs Overture parfois manquantes (repli sur une hauteur par défaut), ombre au sol seulement, canopée opaque et non poreuse.
           </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Ombre portée des <b>bâtiments de la carte</b> (aucun téléchargement). Fond <b>Liberty</b>, <b>vue 3D</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
+            Ombre portée des <b>bâtiments</b> et des <b>surfaces arborées</b> de la carte (aucun téléchargement). Fond <b>Liberty</b>, <b>vue 3D</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
           </div>
 
           <div>
@@ -346,7 +382,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             {!info ? "Calcul…" : info.night ? (
               <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit, pas d'ombre portée.</span>
             ) : (
-              <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s) dans la vue.</span>
+              <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.nBld}</b> bâtiment(s){trees && info.nTree ? <> · <b style={{ color: "#2e7d4f" }}>{info.nTree}</b> arborée(s)</> : null}.</span>
             )}
             {info && !info.night && info.count === 0 && (
               <div style={{ color: C.dim, marginTop: 4 }}>Aucun bâtiment ici : déplacez la carte sur une ville et zoomez un peu (le fond Liberty et le zoom bâtiments sont déjà réglés).</div>
@@ -365,6 +401,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           </div>
           <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>
             « Hauteur défaut » : appliquée aux bâtiments sans hauteur renseignée dans les tuiles.
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer", flex: 1 }}>
+              <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
+              🌳 Surfaces arborées <span style={{ color: C.dim }}>(canopée)</span>
+            </label>
+            <div style={{ width: 120 }}>
+              <div style={lbl}>Haut. canopée · m</div>
+              <input type="number" min={2} max={60} value={canopyH} disabled={!trees}
+                onChange={(e) => setCanopyH(Number(e.target.value))} style={{ ...inp, width: "100%", opacity: trees ? 1 : 0.5 }} />
+            </div>
+          </div>
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>
+            Zones boisées des tuiles (bois, forêts) — sans hauteur native : on applique la hauteur de canopée. Ombre teintée en vert.
           </div>
         </div>
       )}
