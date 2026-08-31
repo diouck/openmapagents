@@ -40,6 +40,7 @@ import VectorVizPanel from "./components/VectorVizPanel";
 import ViewshedPanel from "./components/ViewshedPanel";
 import StacPanel from "./components/StacPanel";
 import MaxarPanel from "./components/MaxarPanel";
+import ShadowPanel from "./components/ShadowPanel";
 import StoryPanel from "./components/StoryPanel";
 import OGCPanel from "./components/OGCPanel";
 import GEEPanel from "./components/GEEPanel";
@@ -143,6 +144,7 @@ const RAIL_GROUPS = [
       { id: "vectorviz", sub: "Chaleur", label: "Chaleur & clusters (densité de points)", Icon: IcRadar, hasPanel: true },
       { id: "viewshed", sub: "Visibilité", label: "Analyse de visibilité (viewshed)", Icon: IcMountain, hasPanel: true },
       { id: "georef", sub: "Caler", label: "Géoréférenceur (caler une image)", Icon: IcMap, hasPanel: true },
+      { id: "shadow", sub: "Ombres", label: "Ombres portées des bâtiments", Icon: IcSun, hasPanel: true },
     ],
   },
   {
@@ -2276,6 +2278,13 @@ export default function App() {
     if (activeTool === "maxar") return (
       <Embed>
         <MaxarPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    // ── Ombres portées des bâtiments (simulation soleil) ──────
+    if (activeTool === "shadow") return (
+      <Embed>
+        <ShadowPanel mapRef={mapRef} layers={layers} />
       </Embed>
     );
 
