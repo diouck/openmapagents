@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useThemeContext } from "../theme";
-import { F, M, API, MAPBOX_TOKEN } from "../config";
+import { F, M, API } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
 import { importFile } from "../utils/helpers";
 
@@ -709,21 +709,24 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const computeShadeRoutes = useCallback(async () => {
     const ab = routeABRef.current;
     if (ab.length < 2) { setRouteErr("Placez les points A et B (bouton « Définir A → B »)."); return; }
-    if (!MAPBOX_TOKEN) { setRouteErr("Jeton Mapbox absent (routage indisponible)."); return; }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     setRouteBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
     try {
       const [a, b] = ab;
-      const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${a[0]},${a[1]};${b[0]},${b[1]}?alternatives=true&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
-      const r = await fetch(url); if (!r.ok) throw new Error(`Mapbox ${r.status}`);
-      const d = await r.json(); const routes = d.routes || [];
+      // routage via le BACKEND (jeton dans l'env backend) → pas de dépendance au build front.
+      const rr = await fetch(`${API}/shadow/route`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ a, b, profile: "foot" }),
+      });
+      if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
+      const d = await rr.json(); const routes = d.routes || [];
       if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
       let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-      for (const rt of routes) for (const p of rt.geometry.coordinates) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
+      for (const rt of routes) for (const p of rt.coordinates) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
       const mx = (e - w) * 0.1 || 0.001, my = (n - s) * 0.1 || 0.001;
       const sampler = await buildSampler([w - mx, s - my, e + mx, n + my]);
       const scored = routes.map((rt) => {
-        const coords = rt.geometry.coordinates, dense = densify(coords, 12);
+        const coords = rt.coordinates, dense = densify(coords, 12);
         let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++;
         return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 };
       });
