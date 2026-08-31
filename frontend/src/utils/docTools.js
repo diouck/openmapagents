@@ -257,6 +257,28 @@ export const DOC_TOOLS = {
     },
     caveat: "Licence CC BY-NC 4.0 — usage non commercial, attribution « © Maxar Open Data ». Données lues en direct depuis le bucket AWS public maxar-opendata (lecture anonyme, aucune clé). Une acquisition peut couvrir une large bande à tuiles éparses : « Limiter à la vue » ne mosaïque que les tuiles à l'écran (plus rapide, plus net) et la sortie est bornée à 40 tuiles ; les zones sans tuile restent transparentes. Résolution : l'aperçu est une IMAGE FIGÉE (pas des tuiles), rendue jusqu'à 4096 px (« Détail : Haute déf. ») sans jamais suréchantillonner au-delà du natif (~0,5 m) — donc plus on zoome sur la zone avant d'« Ajouter », plus c'est net ; le message d'ajout indique la résolution au sol obtenue. Par sécurité, seul le bucket Maxar (URLs construites à partir d'une base fixe + identifiant validé) est lu côté serveur.",
   },
+  shadow: {
+    date: "2026-08-31",
+    dataLine: "Bâtiments MapLibre (tuiles OpenMapTiles, render_height) · calcul 100 % client · algo SunCalc",
+    abstract: "Simule l'ombre portée au sol des bâtiments, à une date et une heure choisies, et la fait défiler tout au long de la journée. Les bâtiments proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building, hauteur render_height) : aucun téléchargement ni appel serveur. Pour chaque bâtiment de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi.",
+    usage: [
+      "Menu thématique → Urbain & aménagement → Ombres portées des bâtiments.",
+      "Zoomez sur une ville (niveau ~15+) pour que les bâtiments soient chargés.",
+      "Choisissez l'emprise du calcul : vue courante, ou l'emprise d'une couche.",
+      "Réglez la date, puis faites glisser l'heure — ou « ▶ Journée » pour l'animer.",
+      "Ajustez l'opacité et la hauteur par défaut (bâtiments sans hauteur renseignée).",
+    ],
+    example: {
+      title: "Où est l'ombre à 9h vs 17h ?",
+      body: "Sur un quartier, l'ombre du matin s'étire vers l'ouest, se raccourcit vers le nord à midi, puis s'allonge vers l'est le soir. Le curseur rejoue ce défilé en direct, sans rien recharger.",
+      stats: [
+        { v: "0 téléchargement", k: "bâtiments des tuiles carte" },
+        { v: "H / tan(soleil)", k: "longueur d'ombre" },
+        { v: "SunCalc", k: "position du soleil validée" },
+      ],
+    },
+    caveat: "Étape 1 (visualisation). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades), hauteurs Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; l'ombre par bâtiment est l'enveloppe convexe de l'emprise balayée (exacte pour un bâtiment convexe, légèrement surestimée sinon). Les bâtiments se limitent aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en temps solaire local (méridien du lieu). À venir : arbres/canopée, relief, et itinéraires plus ou moins ombragés.",
+  },
   solarsystem: {
     date: "2026-08-28",
     dataLine: "Textures Solar System Scope (CC-BY) · Three.js",
