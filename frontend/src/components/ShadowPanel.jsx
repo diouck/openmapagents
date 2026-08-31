@@ -88,17 +88,25 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const playRef = useRef(null);
   const scopeBboxRef = useRef(null);   // emprise du calcul (null = vue courante)
   const prevBaseRef = useRef(null);    // fond de carte avant ouverture (pour restaurer)
+  const prevPitchRef = useRef(null);   // inclinaison avant ouverture (pour restaurer)
 
   // ── À l'ouverture : fond LIBERTY (porte/affiche les bâtiments) + zoom au
-  //    niveau bâtiments si on est trop loin → l'outil est utilisable d'emblée.
-  //    On restaure le fond précédent en quittant l'outil.
+  //    niveau bâtiments + VUE 3D (inclinaison) pour voir les hauteurs → l'outil
+  //    est utilisable d'emblée. On restaure fond + inclinaison en quittant.
   useEffect(() => {
     prevBaseRef.current = basemap;
     if (basemap !== "liberty") setBasemap?.("liberty");
     const map = mapRef?.current?.getMap?.();
-    try { if (map && map.getZoom() < 15) map.easeTo({ zoom: BLD_ZOOM, duration: 800 }); } catch (_) {}
+    if (map) {
+      prevPitchRef.current = map.getPitch();
+      const opts = { pitch: 55, duration: 900 };        // bascule en 3D (relief bâti)
+      if (map.getZoom() < 15) opts.zoom = BLD_ZOOM;
+      try { map.easeTo(opts); } catch (_) {}
+    }
     return () => {
       if (prevBaseRef.current && prevBaseRef.current !== "liberty") setBasemap?.(prevBaseRef.current);
+      const m = mapRef?.current?.getMap?.();
+      try { if (m && prevPitchRef.current != null) m.easeTo({ pitch: prevPitchRef.current, duration: 600 }); } catch (_) {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -113,7 +121,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const ensureLayer = useCallback((map) => {
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
-      const before = (map.getStyle().layers || []).find((l) => l.type === "symbol")?.id;
+      // Sous les bâtiments 3D (fill-extrusion) pour qu'ils s'élèvent au-dessus de
+      // leur ombre ; à défaut, sous les labels.
+      const sl = map.getStyle().layers || [];
+      const before = (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
       map.addLayer({ id: LYR, type: "fill", source: SRC,
         paint: { "fill-color": "#0e1630", "fill-opacity": opacity, "fill-antialias": false } }, before);
     }
@@ -293,7 +304,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Ombre portée des <b>bâtiments de la carte</b> (aucun téléchargement). Fond <b>Liberty</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
+            Ombre portée des <b>bâtiments de la carte</b> (aucun téléchargement). Fond <b>Liberty</b>, <b>vue 3D</b> et zoom bâtiments réglés automatiquement — <b>déplacez-vous sur une ville</b> et faites défiler l'heure.
           </div>
 
           <div>
