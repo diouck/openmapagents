@@ -16,6 +16,8 @@ Réutilise l'auth GEE existante (gee_auth.get_ee) et le même asset Meta que
 /api/gee/canopy.
 """
 import io
+import os
+import json
 import math
 import base64
 import urllib.request
@@ -25,6 +27,76 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/shadow", tags=["shadow"])
+
+# Jetons de routage (backend) — l'itinéraire ombragé du front passe par ici pour
+# NE PAS dépendre du build frontend (VITE_MAPBOX_TOKEN souvent absent au build).
+_ORS_KEY = os.getenv("ORS_API_KEY", "")
+_ORS_BASE = os.getenv("ORS_BASE_URL", "https://api.openrouteservice.org")
+_MAPBOX = os.getenv("MAPBOX_ACCESS_TOKEN") or os.getenv("VITE_MAPBOX_TOKEN") or ""
+
+
+class RouteReq(BaseModel):
+    a: List[float]           # [lon, lat] départ
+    b: List[float]           # [lon, lat] arrivée
+    profile: str = "foot"    # (piéton uniquement pour l'ombrage)
+
+
+def _ors_routes(a, b):
+    url = f"{_ORS_BASE}/v2/directions/foot-walking/geojson"
+    body = {
+        "coordinates": [[float(a[0]), float(a[1])], [float(b[0]), float(b[1])]],
+        "alternative_routes": {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6},
+        "instructions": False,
+    }
+    rq = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                headers={"Authorization": _ORS_KEY, "Content-Type": "application/json"})
+    with urllib.request.urlopen(rq, timeout=20) as r:
+        d = json.load(r)
+    out = []
+    for f in d.get("features", []):
+        coords = (f.get("geometry") or {}).get("coordinates") or []
+        summ = (f.get("properties") or {}).get("summary") or {}
+        if coords:
+            out.append({"coordinates": coords, "distance": summ.get("distance", 0), "duration": summ.get("duration", 0)})
+    return out
+
+
+def _mapbox_routes(a, b):
+    url = (f"https://api.mapbox.com/directions/v5/mapbox/walking/"
+           f"{a[0]},{a[1]};{b[0]},{b[1]}?alternatives=true&geometries=geojson&overview=full&access_token={_MAPBOX}")
+    with urllib.request.urlopen(url, timeout=20) as r:
+        d = json.load(r)
+    out = []
+    for rt in d.get("routes", []):
+        coords = (rt.get("geometry") or {}).get("coordinates") or []
+        if coords:
+            out.append({"coordinates": coords, "distance": rt.get("distance", 0), "duration": rt.get("duration", 0)})
+    return out
+
+
+@router.post("/route")
+def shadow_route(req: RouteReq):
+    """Itinéraires piétons A→B (avec alternatives) via le backend (ORS ou Mapbox).
+    Le front les note ensuite par l'ombre. Le jeton vient de l'env backend."""
+    if not req.a or not req.b or len(req.a) != 2 or len(req.b) != 2:
+        raise HTTPException(422, "Points a/b invalides (attendu [lon, lat]).")
+    routes, errors = [], []
+    if _ORS_KEY:
+        try:
+            routes = _ors_routes(req.a, req.b)
+        except Exception as e:
+            errors.append(f"ORS: {e}")
+    if not routes and _MAPBOX:
+        try:
+            routes = _mapbox_routes(req.a, req.b)
+        except Exception as e:
+            errors.append(f"Mapbox: {e}")
+    if not routes:
+        detail = "Routage indisponible : aucun jeton (ORS_API_KEY / MAPBOX_ACCESS_TOKEN) dans l'env backend."
+        if errors:
+            detail = "Routage en échec — " + " ; ".join(errors)
+        raise HTTPException(502, detail)
+    return {"routes": routes, "provider": "ors" if _ORS_KEY and routes else "mapbox"}
 
 _META_ASSET = "projects/meta-forest-monitoring-okw37/assets/CanopyHeight"     # ~1 m
 _ETH_ASSET = "users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1"                 # 10 m (fallback)
