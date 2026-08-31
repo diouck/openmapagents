@@ -204,3 +204,85 @@ def shadow_canopy(req: CanopyReq):
         "min_height": minh,
         "dataset": label,
     }
+
+
+class PatchReq(BaseModel):
+    bbox: List[float]                 # [ouest, sud, est, nord] WGS84
+    min_height: float = 2.0           # canopée ≥ 2 m (tronc/houppier)
+    scale: int = 4                    # résolution de vectorisation (m)
+    max_features: int = 1500
+    geometry: Optional[dict] = None   # clip exact (emprise importée)
+
+
+@router.post("/canopy_patches")
+def canopy_patches(req: PatchReq):
+    """Canopée ≥ min_height vectorisée en POLYGONES par tache (composantes
+    connexes) avec leur hauteur → pour un rendu 3D fill-extrusion (natif, sans
+    GPU dédié) épousant l'emprise exacte."""
+    if not req.bbox or len(req.bbox) != 4:
+        raise HTTPException(422, "bbox invalide.")
+    w, s, e, n = (float(x) for x in req.bbox)
+    if not (e > w and n > s):
+        raise HTTPException(422, "bbox vide.")
+    if (e - w) * (n - s) > _MAX_AREA_DEG2:
+        raise HTTPException(422, "Emprise trop grande — zoomez.")
+
+    try:
+        from gee_auth import get_ee
+        ee = get_ee()
+    except Exception as ex:
+        raise HTTPException(503, f"Earth Engine indisponible : {ex}")
+
+    rect = ee.Geometry.Rectangle([w, s, e, n])
+    minh = float(req.min_height)
+    scale = max(2, min(int(req.scale or 4), 20))
+
+    height = None
+    label = None
+    try:
+        img = ee.ImageCollection(_META_ASSET).mosaic().select(0)
+        img.bandNames().getInfo()
+        height = img.rename("h"); label = "WRI/Meta ~1 m"
+    except Exception:
+        try:
+            img = ee.Image(_ETH_ASSET).select(0)
+            img.bandNames().getInfo()
+            height = img.rename("h"); label = "ETH 10 m"
+        except Exception as ex2:
+            raise HTTPException(502, f"Aucun dataset canopée : {ex2}")
+
+    if req.geometry:
+        try:
+            height = height.clip(ee.Geometry(req.geometry))
+        except Exception:
+            pass
+
+    mask = height.gte(minh)
+    labeled = mask.selfMask().rename("lbl").addBands(height)
+    try:
+        vectors = labeled.reduceToVectors(
+            reducer=ee.Reducer.mean(), geometry=rect, scale=scale,
+            geometryType="polygon", labelProperty="lbl", eightConnected=True,
+            maxPixels=int(1e10), bestEffort=True,
+        ).limit(int(req.max_features))
+        vectors = vectors.map(lambda f: f.simplify(maxError=float(scale)))
+        gj = vectors.getInfo()
+    except Exception as ex:
+        raise HTTPException(502, f"Vectorisation canopée impossible : {ex}")
+
+    feats = []
+    for f in gj.get("features", []):
+        p = f.get("properties", {}) or {}
+        h = p.get("mean")
+        if h is None:
+            h = p.get("h") if p.get("h") is not None else p.get("h_mean")
+        g = f.get("geometry")
+        if h is None or not g:
+            continue
+        h = float(h)
+        if h < minh:
+            continue
+        feats.append({"type": "Feature", "properties": {"height": round(h, 1)}, "geometry": g})
+
+    return {"type": "FeatureCollection", "features": feats, "count": len(feats),
+            "min_height": minh, "dataset": label}
