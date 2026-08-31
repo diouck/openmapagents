@@ -156,6 +156,7 @@ const SHAD_K = 6;                              // copies d'ombre canopée (base�
 const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
 const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
+const C3D_SRC = "oma-c3d-src", C3D_TRUNK = "oma-c3d-trunk", C3D_CROWN = "oma-c3d-crown"; // canopée 3D (fill-extrusion)
 const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 4000, BLD_ZOOM = 16;
 
@@ -243,6 +244,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [opacity, setOpacity] = useState(0.35);
   const [defH, setDefH] = useState(9);
   const [trees, setTrees] = useState(true);
+  const [canopy3d, setCanopy3d] = useState(false);   // canopée en 3D (fill-extrusion, contour exact)
   const [playing, setPlaying] = useState(false);
   const [scope, setScope] = useState("view");
   const [roiReady, setRoiReady] = useState(false);
@@ -299,6 +301,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const computeRef = useRef(null);       // dernier compute (appelable depuis les callbacks)
   const hourRef = useRef(14);
   const opacityRef = useRef(0.35);
+  const canopy3dRef = useRef(false);
+  const canopy3dTimer = useRef(null);
+  canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
   hourRef.current = hour; opacityRef.current = opacity;   // synchro (lecture dans les callbacks)
 
@@ -391,7 +396,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const night = alt <= 0.02;
 
     const canOn = trees && !!can && !hideCanopyRef.current;   // masquée pendant une prévisualisation
-    setVis(map, IMG_DISP, canOn);
+    setVis(map, IMG_DISP, canOn && !canopy3dRef.current);     // canopée plate masquée si vue 3D active
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
     if (night) {
@@ -509,12 +514,59 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     canopyTimer.current = setTimeout(() => fetchCanopy(), 250);
   }, [fetchCanopy]);
 
+  // ── Canopée 3D (fill-extrusion natif : tronc 0–2 m + houppier, contour exact) ──
+  const ensureC3DLayers = useCallback((map) => {
+    if (!map.getSource(C3D_SRC)) map.addSource(C3D_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(C3D_TRUNK)) map.addLayer({ id: C3D_TRUNK, type: "fill-extrusion", source: C3D_SRC,
+      paint: { "fill-extrusion-color": "#5c3d28", "fill-extrusion-base": 0, "fill-extrusion-height": ["min", 2, ["get", "height"]], "fill-extrusion-opacity": 0.95 } });
+    if (!map.getLayer(C3D_CROWN)) map.addLayer({ id: C3D_CROWN, type: "fill-extrusion", source: C3D_SRC,
+      paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["get", "height"], 2, "#9ccc7a", 6, "#5aa85a", 12, "#2f8f3f", 20, "#166534"],
+        "fill-extrusion-base": ["min", 2, ["get", "height"]], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.9 } });
+  }, []);
+
+  const fetchCanopy3D = useCallback(async () => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    let bbox = scopeBboxRef.current;
+    if (!bbox) { const b = map.getBounds(); if (!b) return; const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth(); const px = (e - w) * 0.15, py = (n - s) * 0.15; bbox = [w - px, s - py, e + px, n + py]; }
+    if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }
+    setCanopyMsg({ busy: true, three: true });
+    try {
+      const body = { bbox, min_height: 2, scale: 4 };
+      if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
+      const r = await fetch(`${API}/shadow/canopy_patches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
+      const gj = await r.json();
+      ensureC3DLayers(map);
+      const cs = map.getSource(C3D_SRC); if (cs) cs.setData({ type: "FeatureCollection", features: gj.features || [] });
+      setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true);
+      setCanopyMsg({ ok: true, three: true, n: gj.count, dataset: gj.dataset });
+    } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
+  }, [mapRef, ensureC3DLayers]);
+
+  const scheduleCanopy3D = useCallback(() => {
+    clearTimeout(canopy3dTimer.current);
+    canopy3dTimer.current = setTimeout(() => fetchCanopy3D(), 350);
+  }, [fetchCanopy3D]);
+
+  // (dés)active la canopée 3D
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.();
+    if (canopy3d) {
+      if (map && map.getPitch() < 20) { try { map.easeTo({ pitch: 55, duration: 700 }); } catch (_) {} }  // 3D → un peu d'inclinaison
+      scheduleCanopy3D();
+    } else if (map) {
+      setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false);
+    }
+    computeRef.current?.();   // maj visibilité de la canopée 2D plate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canopy3d]);
+
   useEffect(() => {
     treesRef.current = trees;
-    if (trees) scheduleCanopy();
+    if (trees) { scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); }
     else {
       const map = mapRef?.current?.getMap?.();
-      if (map) { setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false); }
+      if (map) { setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false); setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); }
       setCanopyMsg(null); compute();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -921,11 +973,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
-    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); refreshSun(); if (treesRef.current) scheduleCanopy(); };
-    const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); }, 300); };
+    const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); refreshSun(); if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); };
+    const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); }, 300); };
     map.on("moveend", onMove); map.on("styledata", onStyle);
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
-  }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun]);
+  }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun, scheduleCanopy3D]);
 
   // fondu des ombres (nuit tombante) — dip d'opacité puis retour
   const fadeShadows = useCallback(() => {
@@ -961,15 +1013,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (playRef.current) clearInterval(playRef.current);
       if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
       if (map && preCamRef.current) { try { map.jumpTo({ bearing: preCamRef.current.bearing }); } catch (_) {} }
-      clearTimeout(canopyTimer.current); clearTimeout(geoTimer.current);
+      clearTimeout(canopyTimer.current); clearTimeout(geoTimer.current); clearTimeout(canopy3dTimer.current);
       if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); } catch (_) {} }
       if (map && routeClickRef.current) { try { map.off("click", routeClickRef.current); } catch (_) {} }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
@@ -1223,11 +1275,18 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             </label>
             {trees && (
               <div style={{ fontFamily: F, fontSize: 10.5, marginTop: 4 }}>
-                {canopyMsg?.busy ? <span style={{ color: C.mut }}>⏳ Chargement de la canopée Meta…</span>
-                  : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} affichée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span>
+                {canopyMsg?.busy ? <span style={{ color: C.mut }}>⏳ Chargement de la canopée{canopyMsg.three ? " 3D" : " Meta"}…</span>
                   : canopyMsg?.err ? <span style={{ color: C.dim }}>Canopée indisponible — {canopyMsg.err}</span>
+                  : canopyMsg?.ok && canopyMsg.three ? <span style={{ color: "#2e7d4f" }}>Canopée 3D : <b>{canopyMsg.n}</b> tache(s) extrudée(s).</span>
+                  : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} affichée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span>
                   : <span style={{ color: C.dim }}>Vraie emprise des arbres (raster) + son ombre.</span>}
               </div>
+            )}
+            {trees && (
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer", marginTop: 6 }}>
+                <input type="checkbox" checked={canopy3d} onChange={(e) => setCanopy3d(e.target.checked)} />
+                🌲 Canopée en 3D <span style={{ color: C.dim }}>(tronc + houppier extrudés, ≥ 2 m)</span>
+              </label>
             )}
           </div>
 
