@@ -264,6 +264,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [routeErr, setRouteErr] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewSpeed, setPreviewSpeed] = useState(2);
+  const [previewCanopy, setPreviewCanopy] = useState(false); // canopée pendant la prévisualisation (défaut off)
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
@@ -294,7 +295,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const geoTimer = useRef(null);         // debounce géocodage
   const tzModeRef = useRef("auto");
   const navModeRef = useRef("top");
-  tzModeRef.current = tzMode; navModeRef.current = navMode;   // synchro (lecture dans les callbacks)
+  const previewCanopyRef = useRef(false);
+  const hideCanopyRef = useRef(false);   // masque la canopée (pendant une prévisualisation)
+  const computeRef = useRef(null);       // dernier compute (appelable depuis les callbacks)
+  tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;   // synchro
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -390,7 +394,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const can = canopyRef.current;
     const night = alt <= 0.02;
 
-    setVis(map, IMG_DISP, trees && !!can);
+    const canOn = trees && !!can && !hideCanopyRef.current;   // masquée pendant une prévisualisation
+    setVis(map, IMG_DISP, canOn);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
     if (night) {
@@ -423,7 +428,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     featsRef.current = feats;
 
     // ombre de canopée : copies empilées de la base (0) au décalage plein
-    if (trees && can && can.meanH > 0) {
+    if (canOn && can.meanH > 0) {
       const full = can.meanH * factor;
       for (let i = 0; i < SHAD_K; i++) {
         const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
@@ -436,6 +441,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     setInfo({ night: false, alt: altDeg, factor, count: feats.length });
   }, [mapRef, date, hour, defH, trees, ensureShadowLayer, refreshBuildings]);
+  computeRef.current = compute;
 
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
 
@@ -455,6 +461,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setSunTimes({ riseH, setH, riseStr: fmtH(riseH), setStr: fmtH(setH), off });
   }, [mapRef, date, tzMode]);
   useEffect(() => { refreshSun(); }, [refreshSun]);
+  // applique l'option « canopée pendant la prévisualisation » à la volée si actif
+  useEffect(() => {
+    if (previewing || playing) { hideCanopyRef.current = !previewCanopy; computeRef.current?.(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCanopy]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -754,6 +765,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const pc = preCamRef.current;
     if (map && pc) { try { map.easeTo({ center: pc.center, zoom: pc.zoom, bearing: pc.bearing, pitch: pc.pitch, duration: 700 }); } catch (_) {} }
     preCamRef.current = null;
+    if (hideCanopyRef.current) { hideCanopyRef.current = false; computeRef.current?.(); }   // restaure la canopée
   }, []);
 
   const stopPreview = useCallback(() => {
@@ -773,6 +785,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
       layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+    hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();   // canopée masquée pendant la prévisualisation (option)
 
     const mode = navModeRef.current;                       // immersive | follow | top
     const followCam = mode === "immersive" || mode === "follow";
@@ -919,7 +932,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun]);
 
   useEffect(() => {
-    if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } return; }
+    if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } if (hideCanopyRef.current) { hideCanopyRef.current = false; computeRef.current?.(); } return; }
+    // pendant la lecture « Journée » : canopée masquée (option désactivée par défaut)
+    hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();
     // balaie du LEVER au COUCHER du soleil (lieu + jour). Pas fin + cadence élevée
     // → fluide (enveloppe convexe précalculée + filtre d'emprise = images légères).
     const lo0 = sunRef.current?.riseH ?? 6, hi0 = sunRef.current?.setH ?? 21;
@@ -1090,6 +1105,10 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                   </button>
                 ))}
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+                <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
+                🌳 Afficher la canopée pendant la prévisualisation
+              </label>
               <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
             </div>
           )}
@@ -1159,6 +1178,10 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 9, color: C.dim, marginTop: 2 }}>
               <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 10.5, color: C.mut, cursor: "pointer", marginTop: 4 }}>
+              <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
+              🌳 Canopée pendant la lecture « Journée »
+            </label>
           </div>
 
           <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", fontFamily: F, fontSize: 11.5, color: C.txt }}>
