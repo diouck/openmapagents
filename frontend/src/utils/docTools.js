@@ -259,14 +259,14 @@ export const DOC_TOOLS = {
   },
   shadow: {
     date: "2026-08-31",
-    dataLine: "Bâtiments MapLibre (tuiles OpenMapTiles, render_height) · calcul 100 % client · algo SunCalc",
-    abstract: "Simule l'ombre portée au sol des bâtiments, à une date et une heure choisies, et la fait défiler tout au long de la journée. Les bâtiments proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building, hauteur render_height) : aucun téléchargement ni appel serveur. Pour chaque bâtiment de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi.",
+    dataLine: "Bâtiments + surfaces arborées MapLibre (tuiles OpenMapTiles) · calcul 100 % client · algo SunCalc",
+    abstract: "Simule l'ombre portée au sol des bâtiments ET des surfaces arborées, à une date et une heure choisies, et la fait défiler tout au long de la journée. Bâtiments et zones boisées proviennent directement des tuiles vectorielles déjà chargées par la carte (couche building avec render_height ; couches landcover/landuse classe bois/forêt) : aucun téléchargement ni appel serveur. Pour chaque objet de hauteur H, l'ombre a pour longueur H / tan(hauteur du soleil) et part dans la direction opposée au soleil, dont la position (azimut, hauteur) est calculée pour le centre de la carte à l'instant choisi. Les surfaces arborées, sans hauteur native, reçoivent une hauteur de canopée réglable.",
     usage: [
       "Menu thématique → Urbain & aménagement → Ombres portées des bâtiments.",
       "Le fond Liberty et le zoom bâtiments se règlent automatiquement — déplacez-vous sur une ville.",
       "Choisissez l'emprise du calcul : vue courante, ou l'emprise d'une couche.",
       "Réglez la date, puis faites glisser l'heure — ou « ▶ Journée » pour l'animer.",
-      "Ajustez l'opacité et la hauteur par défaut (bâtiments sans hauteur renseignée).",
+      "Ajustez l'opacité, la hauteur par défaut, et activez « Surfaces arborées » (hauteur de canopée réglable, ombre verte).",
     ],
     example: {
       title: "Où est l'ombre à 9h vs 17h ?",
@@ -277,7 +277,7 @@ export const DOC_TOOLS = {
         { v: "SunCalc", k: "position du soleil validée" },
       ],
     },
-    caveat: "Étape 1 (visualisation). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades), hauteurs Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; l'ombre par bâtiment est l'enveloppe convexe de l'emprise balayée (exacte pour un bâtiment convexe, légèrement surestimée sinon). Les bâtiments se limitent aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en temps solaire local (méridien du lieu). À venir : arbres/canopée, relief, et itinéraires plus ou moins ombragés.",
+    caveat: "Visualisation (bâtiments + surfaces arborées). Hypothèses : sol plat (pas de relief), ombre au sol seulement (pas sur les façades) ; hauteurs de bâtiment Overture/OpenMapTiles parfois manquantes → repli sur une hauteur par défaut réglable ; les surfaces arborées n'ont pas de hauteur native → hauteur de canopée réglable, canopée traitée comme opaque (non poreuse) ; l'ombre par objet est l'enveloppe convexe de l'emprise balayée (exacte pour une forme convexe, légèrement surestimée sinon). Objets limités aux tuiles chargées dans la vue (d'où le recadrage quand on choisit une couche). Heure interprétée en temps solaire local (méridien du lieu). À venir : relief, et itinéraires plus ou moins ombragés.",
   },
   solarsystem: {
     date: "2026-08-28",
