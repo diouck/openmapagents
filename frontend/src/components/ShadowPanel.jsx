@@ -40,10 +40,16 @@ function sunPosition(ms, lat, lng) {
 }
 /* Heure CIVILE locale (fuseau du navigateur, DST géré) → epoch ms. Le curseur
    « hour » est donc l'heure de la montre, pas l'heure solaire. */
-function localMs(dateStr, hour) {
+function localMs(dateStr, hour, offsetHours) {
   const [y, mo, d] = dateStr.split("-").map(Number);
-  const h = Math.floor(hour), m = Math.round((hour - h) * 60);
-  return new Date(y, mo - 1, d, h, m, 0, 0).getTime();
+  return Date.UTC(y, mo - 1, d, 0, 0, 0, 0) + (hour - offsetHours) * 3600 * 1000;
+}
+/* Décalage horaire (heures) selon le mode : longitude (défaut, correct hors
+   Europe p.ex. US), UTC, ou fuseau du navigateur. */
+function tzOffsetHours(lng, mode) {
+  if (mode === "utc") return 0;
+  if (mode === "browser") return -new Date().getTimezoneOffset() / 60;
+  return Math.round(lng / 15);   // auto : heure solaire moyenne du lieu
 }
 
 /* Lever / coucher du soleil (port SunCalc getTimes) pour un lieu + un jour.
@@ -69,7 +75,9 @@ function sunTimesMs(dateMs, lat, lng) {
   return { rise: fromJulianMs(Jrise), set: fromJulianMs(Jset) };
 }
 const pad2 = (x) => String(x).padStart(2, "0");
-const fmtHM = (dt) => `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
+/* Formate une heure décimale (0..24) en HH:MM. */
+const fmtH = (h) => { const t = Math.round((((h % 24) + 24) % 24) * 60); return `${pad2(Math.floor(t / 60) % 24)}:${pad2(t % 60)}`; };
+const fmtOffset = (o) => `UTC${o >= 0 ? "+" : "−"}${Math.abs(o)}`;
 
 function convexHull(pts) {
   if (pts.length < 3) return pts;
@@ -204,7 +212,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [roiDrawing, setRoiDrawing] = useState(false);
   const [info, setInfo] = useState(null);
   const [canopyMsg, setCanopyMsg] = useState(null);
-  const [sunTimes, setSunTimes] = useState(null);   // {riseH, setH, riseStr, setStr, polar}
+  const [sunTimes, setSunTimes] = useState(null);   // {riseH, setH, riseStr, setStr, polar, off}
+  const [tzMode, setTzMode] = useState("auto");     // "auto" (longitude) | "utc" | "browser"
+  const [navMode, setNavMode] = useState("immersive"); // "immersive" | "top" | "follow"
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
   const [dashBusy, setDashBusy] = useState(false);
@@ -245,6 +255,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const previewSpeedRef = useRef(2);
   const preCamRef = useRef(null);        // caméra avant prévisualisation (pour restaurer)
   const geoTimer = useRef(null);         // debounce géocodage
+  const tzModeRef = useRef("auto");
+  const navModeRef = useRef("immersive");
+  tzModeRef.current = tzMode; navModeRef.current = navMode;   // synchro (lecture dans les callbacks)
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -334,7 +347,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!blds.length) blds = refreshBuildings(map, scopeBboxRef.current);
 
     const c = map.getCenter();
-    const { alt, az } = sunPosition(localMs(date, Number(hour)), c.lat, c.lng);
+    const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
     const altDeg = alt / RAD;
     const src = map.getSource(SRC);
     const can = canopyRef.current;
@@ -394,16 +407,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     const c = map.getCenter();
     const [y, mo, dd] = date.split("-").map(Number);
-    const noon = new Date(y, mo - 1, dd, 12, 0, 0).getTime();
+    const noon = Date.UTC(y, mo - 1, dd, 12, 0, 0, 0);
+    const off = tzOffsetHours(c.lng, tzModeRef.current);
     const t = sunTimesMs(noon, c.lat, c.lng);
-    if (!t.rise || !t.set) { setSunTimes({ polar: true }); sunRef.current = { riseH: 0, setH: 24 }; return; }
-    const rise = new Date(t.rise), set = new Date(t.set);
-    const riseH = rise.getHours() + rise.getMinutes() / 60;
-    const setH = set.getHours() + set.getMinutes() / 60;
+    if (!t.rise || !t.set) { setSunTimes({ polar: true, off }); sunRef.current = { riseH: 0, setH: 24 }; return; }
+    const dayStart = Date.UTC(y, mo - 1, dd, 0, 0, 0, 0);
+    const riseH = (t.rise - dayStart) / 3600e3 + off;   // heure locale (mode fuseau)
+    const setH = (t.set - dayStart) / 3600e3 + off;
     sunRef.current = { riseH, setH };
-    setSunTimes({ riseH, setH, riseStr: fmtHM(rise), setStr: fmtHM(set) });
-  }, [mapRef, date]);
+    setSunTimes({ riseH, setH, riseStr: fmtH(riseH), setStr: fmtH(setH), off });
+  }, [mapRef, date, tzMode]);
   useEffect(() => { refreshSun(); }, [refreshSun]);
+  // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
+  useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tzMode]);
 
   // ── Canopée Meta (raster lissé) ───────────────────────────────────────────
   const fetchCanopy = useCallback(async () => {
@@ -552,7 +569,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const hi = Math.min(24, Math.ceil(sunRef.current?.setH ?? 20));
       const out = [];
       for (let hr = lo; hr <= hi; hr++) {
-        const { alt, az } = sunPosition(localMs(date, hr), cLat, cLng);
+        const { alt, az } = sunPosition(localMs(date, hr, tzOffsetHours(cLng, tzModeRef.current)), cLat, cLng);
         if (alt <= 0.02) { out.push({ hour: hr, alt: alt / RAD, night: true, bldPct: 0, canPct: 0, totalPct: 0 }); continue; }
         const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
         const cosN = Math.cos(th), sinE = Math.sin(th);
@@ -626,7 +643,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const buildSampler = useCallback(async (bbox) => {
     const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false };
     const c = map.getCenter();
-    const { alt, az } = sunPosition(localMs(date, Number(hour)), c.lat, c.lng);
+    const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
     if (alt <= 0.02) return { shaded: () => true, night: true };
     const [w, s, e, n] = bbox;
     const W = 600, Hh = Math.max(1, Math.min(1400, Math.round(W * (n - s) / (e - w))));
@@ -701,18 +718,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     const g = routeGeomRef.current?.[routeSelRef.current]; if (!g) return;
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
-    // repère = flèche orientée (mode navigation)
     try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
       layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
-    // sauvegarde la caméra (restaurée à la fin)
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
-    // ZOOM/CADRE sur l'itinéraire UNE SEULE FOIS → caméra stable, aucune saccade ;
-    // la flèche parcourt ensuite le vrai tracé (courbes comprises).
-    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-    for (const p of g.coords) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
-    try { map.fitBounds([[w, s], [e, n]], { padding: 70, bearing: 0, pitch: 30, duration: 700, maxZoom: 18 }); } catch (_) {}
+
+    const mode = navModeRef.current;                       // immersive | follow | top
+    const followCam = mode === "immersive" || mode === "follow";
+    const navPitch = mode === "immersive" ? 68 : mode === "follow" ? 48 : 0;
+    const navZoom = mode === "immersive" ? 17.6 : mode === "follow" ? 17 : 17;
+
+    if (!followCam) {
+      // vue de dessus : cadre tout l'itinéraire une fois (caméra stable)
+      let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+      for (const p of g.coords) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
+      try { map.fitBounds([[w, s], [e, n]], { padding: 70, bearing: 0, pitch: 0, duration: 700, maxZoom: 18 }); } catch (_) {}
+    }
     setPreviewing(true);
     const durMs = Math.max(2000, Math.min(30000, (g.duration * 1000) / (previewSpeedRef.current * 40)));
     const start = performance.now();
@@ -722,6 +744,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const ahead = alongRoute(g.coords, g.cum, Math.min(1, f + 0.015));
       const hdg = bearingDeg(pos, ahead);
       const ms = map.getSource(RT_MARK); if (ms) ms.setData({ type: "Feature", properties: { hdg }, geometry: { type: "Point", coordinates: pos } });
+      // mode immersif/suivi : la carte tourne et suit la flèche (façon GPS 3D)
+      if (followCam) { try { map.jumpTo({ center: pos, bearing: hdg, zoom: navZoom, pitch: navPitch }); } catch (_) {} }
       if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
       else { animRef.current = null; setPreviewing(false); restoreCam(map); }
     };
@@ -889,7 +913,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       ) : tab === "route" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Deux itinéraires piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — évalués selon l'ombre à l'heure choisie (onglet Ombrage). Prévisualisez le parcours avec accélération.
+            Deux itinéraires piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — évalués selon l'ombre à la date/heure ci-dessous. Prévisualisez le parcours (vue immersive ou de dessus).
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <div style={lbl}>Date de l'ombre</div>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, width: "100%" }} />
+            </div>
+            <div style={{ width: 150 }}>
+              <div style={lbl}>Heure · {clock}</div>
+              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { setPlaying(false); setHour(Number(e.target.value)); }} style={{ width: "100%" }} />
+            </div>
+          </div>
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: -4 }}>
+            {sunTimes && sunTimes.off != null ? fmtOffset(sunTimes.off) : "heure locale"} · fuseau réglable dans l'onglet Ombrage.
           </div>
 
           {[["a", "Départ (A)"], ["b", "Arrivée (B)"]].map(([which, label]) => (
@@ -958,7 +996,17 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                   </button>
                 ))}
               </div>
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>La carte se cadre sur l'itinéraire (zoom) et une flèche le parcourt dans le sens de la marche (accéléré selon la vitesse). La vue est restaurée à la fin.</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vue</span>
+                {[["immersive", "Immersive 3D"], ["follow", "Suivi"], ["top", "De dessus"]].map(([m, label]) => (
+                  <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
+                    style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
+                      border: `1px solid ${navMode === m ? C.acc : C.bdr}`, background: navMode === m ? C.acc + "18" : "transparent", color: navMode === m ? C.acc : C.mut }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
             </div>
           )}
         </div>
@@ -1005,6 +1053,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           </div>
 
           <div>
+            <div style={lbl}>Fuseau horaire</div>
+            <select value={tzMode} onChange={(e) => setTzMode(e.target.value)} style={{ ...inp, width: "100%" }}>
+              <option value="auto">Heure locale du lieu (longitude){sunTimes && sunTimes.off != null ? ` · ${fmtOffset(sunTimes.off)}` : ""}</option>
+              <option value="utc">UTC</option>
+              <option value="browser">Fuseau du navigateur</option>
+            </select>
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>« Longitude » = heure solaire moyenne du lieu (correcte p.ex. aux US, ~1 h d'écart en Europe à cause du fuseau politique).</div>
+          </div>
+
+          <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button onClick={() => setPlaying((p) => !p)}
                 style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
@@ -1027,7 +1085,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             )}
             {sunTimes && (sunTimes.polar
               ? <div style={{ marginTop: 4, color: C.dim }}>☀️ Jour/nuit polaire ce jour-là (pas de lever/coucher).</div>
-              : <div style={{ marginTop: 4, color: C.mut }}>🌅 Lever <b>{sunTimes.riseStr}</b> · 🌇 Coucher <b>{sunTimes.setStr}</b> <span style={{ color: C.dim }}>(heure locale)</span></div>)}
+              : <div style={{ marginTop: 4, color: C.mut }}>🌅 Lever <b>{sunTimes.riseStr}</b> · 🌇 Coucher <b>{sunTimes.setStr}</b> <span style={{ color: C.dim }}>({sunTimes.off != null ? fmtOffset(sunTimes.off) : "heure locale"})</span></div>)}
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
