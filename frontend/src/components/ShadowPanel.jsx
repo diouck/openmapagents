@@ -1,23 +1,21 @@
 /**
  * ShadowPanel.jsx — Ombres portées des bâtiments + canopée.
  *
- * • Bâtiments : 100 % client-side. Lus des tuiles MapLibre déjà chargées
- *   (couche `building`, `render_height`), projetés au sol selon le soleil
- *   (SunCalc porté & validé) → polygones d'ombre (enveloppe convexe balayée).
- * • Canopée : modèle WRI/Meta ~1 m via GEE (POST /api/shadow/canopy) rendu en
- *   APERÇU RASTER lissé (vraie emprise, pas de polygones carrés), posé en
- *   overlay vert ; son ombre = une copie sombre du même raster décalée selon la
- *   hauteur moyenne et le soleil.
- *
- * Curseur d'heure (+ « Journée ») → l'ombre défile. À l'ouverture : fond Liberty
- * (bâtiments), vue 3D et zoom bâtiments réglés automatiquement.
+ * • Bâtiments : 100 % client-side, lus des tuiles MapLibre (couche `building`,
+ *   `render_height`), projetés au sol (SunCalc validé) → polygones d'ombre.
+ * • Canopée : modèle WRI/Meta ~1 m via GEE (/api/shadow/canopy), rendu en
+ *   aperçu raster lissé (vraie emprise, vert) ; son ombre = plusieurs copies
+ *   sombres du raster empilées de la BASE jusqu'au décalage plein (pas de trou).
+ * • Emprise du calcul : vue courante, emprise d'une couche, ou ROI dessiné.
+ * • Statistiques des surfaces ombragées sur la zone (bouton, actif une fois la
+ *   canopée chargée).
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
 
-/* ── Position du soleil (port SunCalc, validé en Python) → {alt, az} rad ; az
-   mesuré depuis le SUD, positif vers l'ouest. */
+/* ── Position du soleil (port SunCalc, validé) → {alt, az} rad ; az depuis le
+   SUD, positif vers l'ouest. */
 const RAD = Math.PI / 180;
 const dayMs = 86400000, J1970 = 2440588, J2000 = 2451545, OBL = RAD * 23.4397;
 const toDays = (ms) => ms / dayMs - 0.5 + J1970 - J2000;
@@ -42,7 +40,6 @@ function utcMs(dateStr, hour, lng) {
   return Date.UTC(y, mo - 1, d, 0, 0, 0, 0) + (hour - lng / 15) * 3600 * 1000;
 }
 
-/* Enveloppe convexe (chaîne monotone d'Andrew) sur des [lng,lat]. */
 function convexHull(pts) {
   if (pts.length < 3) return pts;
   const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -54,7 +51,6 @@ function convexHull(pts) {
   lo.pop(); up.pop(); return lo.concat(up);
 }
 
-/* Interroge une couche vectorielle des tuiles chargées (building…). */
 function queryTiles(map, name) {
   const sl = map.getStyle().layers || [];
   const lyr = sl.find((l) => l["source-layer"] === name && l.source);
@@ -65,7 +61,6 @@ function queryTiles(map, name) {
   } catch (_) { return []; }
 }
 
-/* Emprise [w,s,e,n] d'une couche : bbox fournie, sinon calculée du GeoJSON. */
 function layerBbox(l) {
   if (Array.isArray(l.bbox) && l.bbox.length === 4) return l.bbox;
   const gj = l.geojson; if (!gj?.features?.length) return null;
@@ -78,10 +73,34 @@ function layerBbox(l) {
   return isFinite(w) ? [w, s, e, n] : null;
 }
 
-const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";        // ombres bâtiments (vecteur)
-const IMG_DISP = "oma-canopy-img", IMG_SHAD = "oma-canopy-shad"; // canopée raster (vraie emprise) + son ombre
-const MAX_BLD = 4000;
-const BLD_ZOOM = 16;
+/* Fraction d'un bbox couverte par des polygones (overlaps gérés) via canvas. */
+function coverFraction(features, bbox) {
+  if (!features.length) return 0;
+  const [w, s, e, n] = bbox;
+  const W = 480, Hn = Math.max(1, Math.min(1200, Math.round(W * (n - s) / (e - w))));
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = Hn;
+  const ctx = cv.getContext("2d"); if (!ctx) return 0;
+  ctx.fillStyle = "#fff";
+  const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hn;
+  for (const f of features) {
+    const g = f.geometry; if (!g) continue;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    ctx.beginPath();
+    for (const rings of polys) for (const ring of rings) ring.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.closePath(); ctx.fill();
+  }
+  const data = ctx.getImageData(0, 0, W, Hn).data;
+  let cnt = 0; for (let i = 3; i < data.length; i += 4) if (data[i] > 0) cnt++;
+  return cnt / (W * Hn);
+}
+const fmtArea = (m2) => m2 >= 1e6 ? `${(m2 / 1e6).toFixed(2)} km²` : m2 >= 1e4 ? `${(m2 / 1e4).toFixed(1)} ha` : `${Math.round(m2)} m²`;
+
+const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
+const IMG_DISP = "oma-canopy-img";
+const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
+const shadId = (i) => `oma-canopy-shad-${i}`;
+const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
+const MAX_BLD = 4000, BLD_ZOOM = 16;
 
 export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }) {
   const C = useThemeContext();
@@ -94,19 +113,27 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [trees, setTrees] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [scope, setScope] = useState("view");
+  const [roiReady, setRoiReady] = useState(false);
+  const [roiDrawing, setRoiDrawing] = useState(false);
   const [info, setInfo] = useState(null);
   const [canopyMsg, setCanopyMsg] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [statsBusy, setStatsBusy] = useState(false);
 
   const bldRef = useRef([]);
-  const canopyRef = useRef(null);       // { url, corners:[[lng,lat]×4], meanH }
+  const featsRef = useRef([]);          // dernières ombres bâtiments (pour stats)
+  const canopyRef = useRef(null);       // { url, corners, meanH, areaM2 }
   const treesRef = useRef(true);
   const canopyTimer = useRef(null);
   const scopeBboxRef = useRef(null);
+  const roiBboxRef = useRef(null);
+  const roiHandlerRef = useRef(null);
+  const roiPtsRef = useRef([]);
   const prevBaseRef = useRef(null);
   const prevPitchRef = useRef(null);
   const playRef = useRef(null);
 
-  // ── À l'ouverture : Liberty + vue 3D + zoom bâtiments ; restauré à la sortie.
+  // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
     prevBaseRef.current = basemap;
     if (basemap !== "liberty") setBasemap?.("liberty");
@@ -136,7 +163,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   };
   const setVis = (map, id, on) => { try { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); } catch (_) {} };
 
-  // ── couche d'ombre bâtiments (fill vecteur), sous les bâtiments 3D ─────────
   const ensureShadowLayer = useCallback((map) => {
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
@@ -145,28 +171,24 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
   }, [opacity]);
 
-  // ── couches raster canopée : ombre (sombre, décalée) + affichage (vert) ────
+  // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
   const ensureCanopyLayers = useCallback((map, url, corners) => {
     const before = beforeId(map);
-    // ombre de canopée (dessous)
-    if (!map.getSource(IMG_SHAD)) map.addSource(IMG_SHAD, { type: "image", url, coordinates: corners });
-    else map.getSource(IMG_SHAD).updateImage({ url, coordinates: corners });
-    if (!map.getLayer(IMG_SHAD)) {
-      map.addLayer({ id: IMG_SHAD, type: "raster", source: IMG_SHAD,
-        paint: { "raster-opacity": Math.min(0.85, opacity + 0.15), "raster-brightness-max": 0.22, "raster-saturation": -0.4, "raster-fade-duration": 0 } }, before);
+    for (let i = 0; i < SHAD_K; i++) {
+      const id = shadId(i);
+      if (!map.getSource(id)) map.addSource(id, { type: "image", url, coordinates: corners });
+      else map.getSource(id).updateImage({ url, coordinates: corners });
+      if (!map.getLayer(id)) map.addLayer({ id, type: "raster", source: id,
+        paint: { "raster-opacity": 0.17, "raster-brightness-max": 0.2, "raster-saturation": -0.4, "raster-fade-duration": 0 } }, before);
     }
-    // canopée réelle (dessus) — vraie emprise, vert
     if (!map.getSource(IMG_DISP)) map.addSource(IMG_DISP, { type: "image", url, coordinates: corners });
     else map.getSource(IMG_DISP).updateImage({ url, coordinates: corners });
-    if (!map.getLayer(IMG_DISP)) {
-      map.addLayer({ id: IMG_DISP, type: "raster", source: IMG_DISP,
-        paint: { "raster-opacity": 0.8, "raster-fade-duration": 0 } }, before);
-    }
-  }, [opacity]);
+    if (!map.getLayer(IMG_DISP)) map.addLayer({ id: IMG_DISP, type: "raster", source: IMG_DISP,
+      paint: { "raster-opacity": 0.82, "raster-fade-duration": 0 } }, before);
+  }, []);
 
-  // ── lecture des bâtiments dans la vue (bbox optionnel = emprise couche) ────
   const refreshBuildings = useCallback((map, bbox) => {
-    const inBbox = bbox ? (lng, lat) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] : null;
+    const inB = bbox ? (lng, lat) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] : null;
     const seen = new Set();
     const out = [];
     for (const f of queryTiles(map, "building")) {
@@ -180,7 +202,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
       for (const poly of polys) {
         const ring = poly[0]; if (!ring || ring.length < 4) continue;
-        if (inBbox && !inBbox(ring[0][0], ring[0][1])) continue;
+        if (inB && !inB(ring[0][0], ring[0][1])) continue;
         out.push({ ring, h: hh, lat: ring[0][1] });
       }
     }
@@ -188,7 +210,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     return out;
   }, []);
 
-  // ── calcul + rendu des ombres pour l'instant courant ──────────────────────
   const compute = useCallback(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
@@ -203,61 +224,63 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const can = canopyRef.current;
     const night = alt <= 0.02;
 
-    // canopée : visible tant que « trees » ; son OMBRE seulement de jour.
     setVis(map, IMG_DISP, trees && !!can);
-    if (night || !trees || !can) {
+    for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
+
+    if (night) {
       src && src.setData({ type: "FeatureCollection", features: [] });
-      setVis(map, IMG_SHAD, false);
-      setInfo({ night, alt: altDeg, count: 0 });
-      if (night) return;
+      featsRef.current = [];
+      setInfo({ night: true, alt: altDeg, count: 0 });
+      return;
     }
 
-    if (!night) {
-      const bearing = ((az / RAD) % 360 + 360) % 360;
-      const th = bearing * RAD;
-      const factor = 1 / Math.tan(alt);
-      const cosN = Math.cos(th), sinE = Math.sin(th);
+    const bearing = ((az / RAD) % 360 + 360) % 360;
+    const th = bearing * RAD;
+    const factor = 1 / Math.tan(alt);
+    const cosN = Math.cos(th), sinE = Math.sin(th);
 
-      // ── ombres bâtiments (vecteur, enveloppe convexe balayée) ──
-      const feats = [];
-      for (const b of blds) {
-        const H = isFinite(b.h) ? b.h : Number(defH);
-        if (!(H > 0)) continue;
-        const d = H * factor;
-        const dLat = (d * cosN) / 111320;
-        const dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
-        const nn = b.ring.length, pts = new Array(nn * 2);
-        for (let i = 0; i < nn; i++) { const q = b.ring[i]; pts[i] = q; pts[nn + i] = [q[0] + dLng, q[1] + dLat]; }
-        const hull = convexHull(pts);
-        if (hull.length < 3) continue;
-        hull.push(hull[0]);
-        feats.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
-      }
-      src && src.setData({ type: "FeatureCollection", features: feats });
+    // ombres bâtiments (vecteur)
+    const feats = [];
+    for (const b of blds) {
+      const H = isFinite(b.h) ? b.h : Number(defH);
+      if (!(H > 0)) continue;
+      const d = H * factor;
+      const dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
+      const nn = b.ring.length, pts = new Array(nn * 2);
+      for (let i = 0; i < nn; i++) { const q = b.ring[i]; pts[i] = q; pts[nn + i] = [q[0] + dLng, q[1] + dLat]; }
+      const hull = convexHull(pts);
+      if (hull.length < 3) continue;
+      hull.push(hull[0]);
+      feats.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
+    }
+    src && src.setData({ type: "FeatureCollection", features: feats });
+    featsRef.current = feats;
 
-      // ── ombre de canopée : copie sombre du raster décalée (hauteur moyenne) ──
-      if (trees && can && can.meanH > 0) {
-        const d = can.meanH * factor;
+    // ombre de canopée : copies empilées de la base (0) au décalage plein
+    if (trees && can && can.meanH > 0) {
+      const full = can.meanH * factor;
+      for (let i = 0; i < SHAD_K; i++) {
+        const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
+        const d = full * frac;
         const dLat = (d * cosN) / 111320;
         const shad = can.corners.map(([lng, lat]) => [lng + (d * sinE) / (111320 * Math.cos(lat * RAD)), lat + dLat]);
-        const ss = map.getSource(IMG_SHAD);
-        if (ss) { ss.updateImage({ url: can.url, coordinates: shad }); setVis(map, IMG_SHAD, true); }
-      } else setVis(map, IMG_SHAD, false);
-
-      setInfo({ night: false, alt: altDeg, factor, count: feats.length });
+        const ss = map.getSource(shadId(i));
+        if (ss) { try { ss.setCoordinates(shad); } catch (_) {} setVis(map, shadId(i), true); }
+      }
     }
+    setInfo({ night: false, alt: altDeg, factor, count: feats.length });
   }, [mapRef, date, hour, defH, trees, ensureShadowLayer, refreshBuildings]);
 
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
 
-  // ── Canopée Meta (raster lissé) sur l'emprise ─────────────────────────────
+  // ── Canopée Meta (raster lissé) ───────────────────────────────────────────
   const fetchCanopy = useCallback(async () => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
     let bbox = scopeBboxRef.current;
     if (!bbox) { const b = map.getBounds(); if (!b) return; bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.2) {
-      canopyRef.current = null; setVis(map, IMG_DISP, false); setVis(map, IMG_SHAD, false);
+      canopyRef.current = null; setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
       setCanopyMsg({ err: "Zoomez pour charger la canopée (emprise trop grande)." }); return;
     }
     setCanopyMsg({ busy: true });
@@ -269,12 +292,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const d = await r.json();
       const url = `data:image/png;base64,${d.canopy_b64}`;
-      canopyRef.current = { url, corners: d.image_coordinates, meanH: d.mean_height };
+      canopyRef.current = { url, corners: d.image_coordinates, meanH: d.mean_height, areaM2: d.canopy_area_m2 };
       ensureCanopyLayers(map, url, d.image_coordinates);
-      setCanopyMsg({ ok: true, dataset: d.dataset, meanH: d.mean_height });
+      setCanopyMsg({ ok: true, dataset: d.dataset, meanH: d.mean_height, areaM2: d.canopy_area_m2 });
       compute();
     } catch (e) {
-      canopyRef.current = null; setVis(map, IMG_DISP, false); setVis(map, IMG_SHAD, false);
+      canopyRef.current = null; setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
       setCanopyMsg({ err: e.message || String(e) }); compute();
     }
   }, [mapRef, compute, ensureCanopyLayers]);
@@ -289,63 +312,127 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (trees) scheduleCanopy();
     else {
       const map = mapRef?.current?.getMap?.();
-      if (map) { setVis(map, IMG_DISP, false); setVis(map, IMG_SHAD, false); }
+      if (map) { setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false); }
       setCanopyMsg(null); compute();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trees]);
 
-  // opacité → ombres (bâtiments + canopée)
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
-    if (!map) return;
-    try {
-      if (map.getLayer(LYR)) map.setPaintProperty(LYR, "fill-opacity", Number(opacity));
-      if (map.getLayer(IMG_SHAD)) map.setPaintProperty(IMG_SHAD, "raster-opacity", Math.min(0.85, Number(opacity) + 0.15));
-    } catch (_) {}
+    if (map && map.getLayer(LYR)) { try { map.setPaintProperty(LYR, "fill-opacity", Number(opacity)); } catch (_) {} }
   }, [opacity, mapRef]);
 
+  // ── Emprise de calcul : vue / couche / ROI ────────────────────────────────
+  const clearRoi = useCallback((map) => {
+    roiBboxRef.current = null; setRoiReady(false);
+    const cs = map?.getSource?.(ROI_SRC); if (cs) cs.setData({ type: "FeatureCollection", features: [] });
+  }, []);
+
   const changeScope = useCallback((val) => {
-    setScope(val);
+    setScope(val); setStats(null);
     const map = mapRef?.current?.getMap?.();
     if (val === "view") {
-      scopeBboxRef.current = null;
+      scopeBboxRef.current = null; if (map) clearRoi(map);
       if (map) { refreshBuildings(map, null); compute(); if (treesRef.current) scheduleCanopy(); }
       return;
     }
+    if (val === "roi") {
+      scopeBboxRef.current = roiBboxRef.current;
+      if (map && roiBboxRef.current) { const [w, s, e, n] = roiBboxRef.current; map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 700 }); }
+      return;
+    }
     const opt = layerOptions.find((o) => o.id === val);
-    scopeBboxRef.current = opt?.bbox || null;
+    scopeBboxRef.current = opt?.bbox || null; if (map) clearRoi(map);
     if (map && opt?.bbox) { const [w, s, e, n] = opt.bbox; map.fitBounds([[w, s], [e, n]], { padding: 40, duration: 800 }); }
-  }, [mapRef, layerOptions, refreshBuildings, compute, scheduleCanopy]);
+  }, [mapRef, layerOptions, refreshBuildings, compute, scheduleCanopy, clearRoi]);
 
-  // ré-échantillonne bâtiments + canopée quand la carte bouge / le fond change
+  const drawRoi = useCallback((map, bbox) => {
+    const [w, s, e, n] = bbox;
+    const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] } }] };
+    if (!map.getSource(ROI_SRC)) map.addSource(ROI_SRC, { type: "geojson", data: fc });
+    else map.getSource(ROI_SRC).setData(fc);
+    if (!map.getLayer(ROI_LYR)) {
+      const before = beforeId(map);
+      map.addLayer({ id: ROI_LYR, type: "line", source: ROI_SRC, paint: { "line-color": "#e8590c", "line-width": 2, "line-dasharray": [2, 1] } }, before);
+    }
+  }, []);
+
+  const startRoi = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    if (roiDrawing) { // annuler
+      if (roiHandlerRef.current) map.off("click", roiHandlerRef.current);
+      roiHandlerRef.current = null; setRoiDrawing(false); map.getCanvas().style.cursor = ""; return;
+    }
+    roiPtsRef.current = []; setRoiDrawing(true); map.getCanvas().style.cursor = "crosshair";
+    const h = (ev) => {
+      roiPtsRef.current.push([ev.lngLat.lng, ev.lngLat.lat]);
+      if (roiPtsRef.current.length >= 2) {
+        const [a, b] = roiPtsRef.current;
+        const bbox = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        roiBboxRef.current = bbox; scopeBboxRef.current = bbox; setScope("roi"); setRoiReady(true); setStats(null);
+        drawRoi(map, bbox);
+        map.off("click", h); roiHandlerRef.current = null; map.getCanvas().style.cursor = ""; setRoiDrawing(false);
+        refreshBuildings(map, bbox); compute(); if (treesRef.current) scheduleCanopy();
+      }
+    };
+    roiHandlerRef.current = h; map.on("click", h);
+  }, [mapRef, roiDrawing, drawRoi, refreshBuildings, compute, scheduleCanopy]);
+
+  // ── Statistiques des surfaces ombragées ───────────────────────────────────
+  const computeStats = useCallback(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    let bbox = scopeBboxRef.current;
+    if (!bbox) { const b = map.getBounds(); bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+    setStatsBusy(true);
+    try {
+      const [w, s, e, n] = bbox;
+      const midlat = ((s + n) / 2) * RAD;
+      const wm = (e - w) * 111320 * Math.cos(midlat), hm = (n - s) * 111320;
+      const zoneArea = Math.abs(wm * hm);
+      // ombre bâtiments : fraction couverte (overlaps gérés) → aire
+      const feats = featsRef.current.filter((f) => {
+        const p = f.geometry.coordinates[0][0]; return p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;
+      });
+      const bldFrac = coverFraction(featsRef.current, bbox);
+      const bldArea = bldFrac * zoneArea;
+      const canArea = canopyRef.current?.areaM2 || 0;
+      setStats({
+        zoneArea, bldArea, bldPct: zoneArea ? bldArea / zoneArea * 100 : 0,
+        canArea, canPct: zoneArea ? canArea / zoneArea * 100 : 0,
+        nBld: feats.length, time: `${String(Math.floor(hour)).padStart(2, "0")}:${String(Math.round((hour - Math.floor(hour)) * 60)).padStart(2, "0")}`, date,
+        canopy: !!canopyRef.current,
+      });
+    } finally { setStatsBusy(false); }
+  }, [mapRef, hour, date]);
+
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
     const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); };
     const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); }, 300); };
-    map.on("moveend", onMove);
-    map.on("styledata", onStyle);
+    map.on("moveend", onMove); map.on("styledata", onStyle);
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
   }, [mapRef, refreshBuildings, compute, scheduleCanopy]);
 
-  // lecture « toute la journée »
   useEffect(() => {
     if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } return; }
     playRef.current = setInterval(() => { setHour((h) => { const nx = h + 0.25; return nx > 21 ? 6 : nx; }); }, 220);
     return () => { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } };
   }, [playing]);
 
-  // nettoyage à la fermeture
   useEffect(() => {
     return () => {
       const map = mapRef?.current?.getMap?.();
       if (playRef.current) clearInterval(playRef.current);
       clearTimeout(canopyTimer.current);
+      if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          [LYR, IMG_SHAD, IMG_DISP].forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          [SRC, IMG_SHAD, IMG_DISP].forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
+          const ids = [LYR, IMG_DISP, ROI_LYR, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+          const srcs = [SRC, IMG_DISP, ROI_SRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
     };
@@ -353,6 +440,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const hh = Math.floor(hour), mm = Math.round((hour - hh) * 60);
   const clock = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  const statsLocked = trees && (canopyMsg?.busy || !canopyRef.current);
 
   const lbl = { fontSize: 10, fontWeight: 500, color: C.dim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 };
   const inp = { fontFamily: F, fontSize: 12, padding: "6px 8px", borderRadius: 7, border: `0.5px solid ${C.bdr}`, background: C.input || C.bg2 || C.bg, color: C.txt, outline: "none", boxSizing: "border-box" };
@@ -373,31 +461,41 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
       {tab === "def" ? (
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 12, fontFamily: F, fontSize: 12.5, lineHeight: 1.55, color: C.txt, paddingRight: 4 }}>
-          <p style={{ margin: 0 }}>Simule l'<b>ombre portée au sol</b> des <b>bâtiments</b> et de la <b>canopée</b>, à une date et une heure, et la fait défiler tout au long de la journée.</p>
+          <p style={{ margin: 0 }}>Simule l'<b>ombre portée au sol</b> des <b>bâtiments</b> et de la <b>canopée</b>, à une date et une heure, et la fait défiler sur la journée.</p>
           <div>
             <div style={{ fontWeight: 600, marginBottom: 3 }}>Bâtiments — sans téléchargement</div>
-            <p style={{ margin: 0, color: C.mut }}>Lus des <b>tuiles vectorielles déjà chargées</b> (couche <Code>building</Code>, hauteur <Code>render_height</Code>). Ombre = <i>H / tan(hauteur solaire)</i>, direction opposée au soleil (position SunCalc). Sol plat supposé.</p>
+            <p style={{ margin: 0, color: C.mut }}>Lus des <b>tuiles</b> (couche <Code>building</Code>, <Code>render_height</Code>). Ombre = <i>H / tan(soleil)</i>, direction opposée au soleil (SunCalc). Sol plat.</p>
           </div>
           <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Canopée — modèle Meta ~1 m</div>
-            <p style={{ margin: 0, color: C.mut }}>Modèle <b>WRI/Meta High Resolution Canopy Height 2020</b> (via Earth Engine), rendu en <b>aperçu raster lissé</b> (vraie emprise des arbres, en vert) ; son ombre est une copie sombre du raster décalée selon la hauteur moyenne et le soleil.</p>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Canopée — Meta ~1 m</div>
+            <p style={{ margin: 0, color: C.mut }}>Modèle <b>WRI/Meta 2020</b> (Earth Engine) en aperçu raster lissé (vraie emprise, vert) ; son ombre = plusieurs copies sombres empilées de la base au décalage plein (sans trou).</p>
           </div>
-          <div style={{ background: C.bg2 || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", color: C.mut, fontSize: 11.5 }}>
-            À venir — relief, et itinéraires « plus ou moins ombragés ». Hypothèses : sol plat, ombre au sol seulement ; l'ombre de canopée utilise la hauteur MOYENNE (décalage uniforme).
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Emprise & statistiques</div>
+            <p style={{ margin: 0, color: C.mut }}>Calcul sur la vue, l'emprise d'une couche, ou un <b>ROI</b> dessiné (2 clics). Le bouton <b>Statistiques</b> (actif une fois la canopée chargée) donne les surfaces ombragées de la zone.</p>
           </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Ombre des <b>bâtiments</b> + <b>canopée réelle</b> (Meta ~1 m). Fond <b>Liberty</b>, <b>vue 3D</b> et zoom réglés automatiquement — déplacez-vous sur une ville et faites défiler l'heure.
+            Ombre des <b>bâtiments</b> + <b>canopée réelle</b> (Meta). Fond <b>Liberty</b>, <b>3D</b> et zoom réglés automatiquement — déplacez-vous sur une ville.
           </div>
 
           <div>
             <div style={lbl}>Emprise du calcul</div>
-            <select value={scope} onChange={(e) => changeScope(e.target.value)} style={{ ...inp, width: "100%" }}>
-              <option value="view">Vue courante de la carte</option>
-              {layerOptions.map((o) => <option key={o.id} value={o.id}>Emprise de la couche : {o.name}</option>)}
-            </select>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select value={scope} onChange={(e) => changeScope(e.target.value)} style={{ ...inp, flex: 1 }}>
+                <option value="view">Vue courante de la carte</option>
+                {roiReady && <option value="roi">ROI dessiné</option>}
+                {layerOptions.map((o) => <option key={o.id} value={o.id}>Couche : {o.name}</option>)}
+              </select>
+              <button onClick={startRoi}
+                style={{ fontFamily: F, fontSize: 11, fontWeight: 500, padding: "0 10px", cursor: "pointer",
+                  background: roiDrawing ? C.acc : "transparent", color: roiDrawing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, whiteSpace: "nowrap" }}>
+                {roiDrawing ? "Annuler" : "ROI"}
+              </button>
+            </div>
+            {roiDrawing && <div style={{ fontFamily: F, fontSize: 10.5, color: C.acc, marginTop: 3 }}>Cliquez 2 coins sur la carte pour définir le ROI.</div>}
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
@@ -428,12 +526,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
           <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", fontFamily: F, fontSize: 11.5, color: C.txt }}>
             {!info ? "Calcul…" : info.night ? (
-              <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit, pas d'ombre portée.</span>
+              <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit, pas d'ombre.</span>
             ) : (
               <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s).</span>
-            )}
-            {info && !info.night && info.count === 0 && !canopyRef.current && (
-              <div style={{ color: C.dim, marginTop: 4 }}>Aucun bâtiment ici : déplacez la carte sur une ville (le fond Liberty et le zoom sont déjà réglés).</div>
             )}
           </div>
 
@@ -447,7 +542,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
               <input type="number" min={2} max={200} value={defH} onChange={(e) => setDefH(Number(e.target.value))} style={{ ...inp, width: "100%" }} />
             </div>
           </div>
-          <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>« Hauteur défaut » : bâtiments sans hauteur renseignée dans les tuiles.</div>
 
           <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
@@ -457,9 +551,28 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             {trees && (
               <div style={{ fontFamily: F, fontSize: 10.5, marginTop: 4 }}>
                 {canopyMsg?.busy ? <span style={{ color: C.mut }}>⏳ Chargement de la canopée Meta…</span>
-                  : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} affichée{canopyMsg.meanH ? ` · hauteur moy. ${canopyMsg.meanH} m` : ""}.</span>
+                  : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} affichée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span>
                   : canopyMsg?.err ? <span style={{ color: C.dim }}>Canopée indisponible — {canopyMsg.err}</span>
-                  : <span style={{ color: C.dim }}>Vraie emprise des arbres (raster lissé, vert) + son ombre.</span>}
+                  : <span style={{ color: C.dim }}>Vraie emprise des arbres (raster) + son ombre.</span>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
+            <button onClick={computeStats} disabled={statsLocked || statsBusy}
+              style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "8px 14px", width: "100%",
+                cursor: (statsLocked || statsBusy) ? "not-allowed" : "pointer",
+                background: (statsLocked || statsBusy) ? C.bg2 || C.bg : C.acc, color: (statsLocked || statsBusy) ? C.dim : "#fff",
+                border: `1px solid ${statsLocked ? C.bdr : C.acc}`, borderRadius: 8 }}>
+              {statsBusy ? "Calcul…" : statsLocked ? "Statistiques (attente canopée…)" : "Statistiques des surfaces ombragées"}
+            </button>
+            {stats && (
+              <div style={{ marginTop: 8, background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "9px 11px", fontFamily: F, fontSize: 11.5, color: C.txt, display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: "0.05em" }}>Zone · {stats.date} {stats.time}</div>
+                <div>Surface de la zone : <b>{fmtArea(stats.zoneArea)}</b></div>
+                <div>Ombre des bâtiments : <b>{fmtArea(stats.bldArea)}</b> · <b>{stats.bldPct.toFixed(1)}%</b> du sol</div>
+                {stats.canopy && <div>Canopée (couvert) : <b style={{ color: "#2e7d4f" }}>{fmtArea(stats.canArea)}</b> · <b>{stats.canPct.toFixed(1)}%</b> du sol</div>}
+                <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>% ombre bâti = fraction du sol dans l'ombre des bâtiments à cette heure. Canopée = surface couverte par les arbres (≥ 3 m).</div>
               </div>
             )}
           </div>

@@ -92,8 +92,9 @@ def shadow_canopy(req: CanopyReq):
         raise HTTPException(502, f"Téléchargement aperçu canopée impossible : {ex}")
     b64 = base64.b64encode(png).decode("ascii")
 
-    # ── Hauteur moyenne (pour décaler l'ombre côté client) ───────────────────
+    # ── Hauteur moyenne + AIRE de canopée (pour l'ombre + les stats) ─────────
     mean_h = None
+    area_m2 = None
     try:
         stat = veg.reduceRegion(
             reducer=ee.Reducer.mean(), geometry=rect,
@@ -103,6 +104,15 @@ def shadow_canopy(req: CanopyReq):
             mean_h = round(float(stat), 1)
     except Exception:
         mean_h = None
+    try:
+        a = ee.Image.pixelArea().updateMask(height.gte(minh)).reduceRegion(
+            reducer=ee.Reducer.sum(), geometry=rect,
+            scale=10, maxPixels=int(1e9), bestEffort=True,
+        ).get("area").getInfo()
+        if a is not None:
+            area_m2 = round(float(a), 1)
+    except Exception:
+        area_m2 = None
 
     # Coins de l'image (l'aperçu couvre exactement la bbox) : TL, TR, BR, BL.
     coords = [[w, n], [e, n], [e, s], [w, s]]
@@ -111,6 +121,7 @@ def shadow_canopy(req: CanopyReq):
         "image_coordinates": coords,
         "bbox": [w, s, e, n],
         "mean_height": mean_h,
+        "canopy_area_m2": area_m2,
         "min_height": minh,
         "dataset": label,
     }
