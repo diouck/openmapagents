@@ -139,6 +139,23 @@ function alongRoute(coords, cum, f) {
   const seg = cum[i] - cum[i - 1], t = seg > 0 ? (target - cum[i - 1]) / seg : 0, a = coords[i - 1], b = coords[i];
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 }
+/* Cap (degrés depuis le nord) de a vers b. */
+function bearingDeg(a, b) {
+  const y = Math.sin((b[0] - a[0]) * RAD) * Math.cos(b[1] * RAD);
+  const x = Math.cos(a[1] * RAD) * Math.sin(b[1] * RAD) - Math.sin(a[1] * RAD) * Math.cos(b[1] * RAD) * Math.cos((b[0] - a[0]) * RAD);
+  return (Math.atan2(y, x) / RAD + 360) % 360;
+}
+/* Icône flèche de navigation (ImageData) pour le repère qui avance. */
+function navArrowImage(size = 48) {
+  const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
+  const ctx = cv.getContext("2d"); ctx.translate(size / 2, size / 2);
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.40); ctx.lineTo(size * 0.28, size * 0.32); ctx.lineTo(0, size * 0.12); ctx.lineTo(-size * 0.28, size * 0.32);
+  ctx.closePath();
+  ctx.fillStyle = "#2563eb"; ctx.fill();
+  ctx.lineWidth = size * 0.07; ctx.strokeStyle = "#fff"; ctx.stroke();
+  return ctx.getImageData(0, 0, size, size);
+}
 
 /* Polygones [ [ [lng,lat]… ] …] extraits d'un GeoJSON (anneaux extérieurs). */
 function extractPolys(gj) {
@@ -223,6 +240,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const routeGeomRef = useRef(null);     // { shade:{coords,cum}, direct:{coords,cum} }
   const animRef = useRef(null);          // { raf, start }
   const previewSpeedRef = useRef(2);
+  const preCamRef = useRef(null);        // caméra avant prévisualisation (pour restaurer)
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -661,29 +679,48 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "circle", source: RT_AB, paint: { "circle-radius": 6, "circle-color": "#111827", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
   }, []);
 
+  const restoreCam = useCallback((map) => {
+    const pc = preCamRef.current;
+    if (map && pc) { try { map.easeTo({ center: pc.center, zoom: pc.zoom, bearing: pc.bearing, pitch: pc.pitch, duration: 700 }); } catch (_) {} }
+    preCamRef.current = null;
+  }, []);
+
   const stopPreview = useCallback(() => {
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
     animRef.current = null; setPreviewing(false);
-    const ms = mapRef?.current?.getMap?.()?.getSource?.(RT_MARK); if (ms) ms.setData({ type: "FeatureCollection", features: [] });
-  }, [mapRef]);
+    const map = mapRef?.current?.getMap?.();
+    const ms = map?.getSource?.(RT_MARK); if (ms) ms.setData({ type: "FeatureCollection", features: [] });
+    if (map) restoreCam(map);
+  }, [mapRef, restoreCam]);
 
   const startPreview = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     const g = routeGeomRef.current?.[routeSelRef.current]; if (!g) return;
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
+    // repère = flèche orientée (mode navigation)
+    try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "circle", source: RT_MARK, paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
+      layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+    // sauvegarde la caméra (restaurée à la fin) et fixe un zoom « navigation »
+    if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+    const navZoom = Math.max(16.5, Math.min(18, preCamRef.current.zoom));
     setPreviewing(true);
     const durMs = Math.max(1500, Math.min(30000, (g.duration * 1000) / (previewSpeedRef.current * 40)));
     const start = performance.now();
     const step = (t) => {
-      const f = Math.min(1, (t - start) / durMs), pos = alongRoute(g.coords, g.cum, f);
-      const ms = map.getSource(RT_MARK); if (ms) ms.setData({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: pos } });
+      const f = Math.min(1, (t - start) / durMs);
+      const pos = alongRoute(g.coords, g.cum, f);
+      const ahead = alongRoute(g.coords, g.cum, Math.min(1, f + 0.02));
+      const hdg = bearingDeg(pos, ahead);
+      const ms = map.getSource(RT_MARK); if (ms) ms.setData({ type: "Feature", properties: { hdg }, geometry: { type: "Point", coordinates: pos } });
+      // la carte tourne pour que « devant » soit vers le haut, et suit le repère
+      try { map.jumpTo({ center: pos, bearing: hdg, zoom: navZoom }); } catch (_) {}
       if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
-      else { animRef.current = null; setPreviewing(false); }
+      else { animRef.current = null; setPreviewing(false); restoreCam(map); }
     };
     animRef.current = { raf: requestAnimationFrame(step), start };
-  }, [mapRef]);
+  }, [mapRef, restoreCam]);
 
   const selectRoute = useCallback((kind) => {
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
@@ -764,6 +801,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const map = mapRef?.current?.getMap?.();
       if (playRef.current) clearInterval(playRef.current);
       if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
+      if (map && preCamRef.current) { try { map.jumpTo({ bearing: preCamRef.current.bearing }); } catch (_) {} }
       clearTimeout(canopyTimer.current);
       if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); } catch (_) {} }
       if (map && routeClickRef.current) { try { map.off("click", routeClickRef.current); } catch (_) {} }
@@ -868,14 +906,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                 </button>
                 <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vitesse</span>
                 {[1, 2, 4, 8].map((sp) => (
-                  <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { stopPreview(); setTimeout(() => startPreview(), 30); } }}
+                  <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
                     style={{ fontFamily: M, fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6,
                       border: `1px solid ${previewSpeed === sp ? C.acc : C.bdr}`, background: previewSpeed === sp ? C.acc + "18" : "transparent", color: previewSpeed === sp ? C.acc : C.mut }}>
                     ×{sp}
                   </button>
                 ))}
               </div>
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Anime un repère le long de l'itinéraire sélectionné (couleur vive), accéléré selon la vitesse.</div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Mode navigation : la carte tourne selon l'orientation et une flèche avance le long de l'itinéraire sélectionné (accéléré selon la vitesse). La vue est restaurée à la fin.</div>
             </div>
           )}
         </div>
