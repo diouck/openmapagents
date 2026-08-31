@@ -36,6 +36,7 @@ class CanopyReq(BaseModel):
     bbox: List[float]                 # [ouest, sud, est, nord] WGS84
     min_height: float = 3.0           # ignore la végétation basse (< 3 m)
     dimensions: int = 1024            # côté max de l'aperçu PNG
+    geometry: Optional[dict] = None   # GeoJSON (clip exact à l'emprise importée)
 
 
 @router.post("/canopy")
@@ -76,6 +77,12 @@ def shadow_canopy(req: CanopyReq):
 
     # Canopée = hauteur ≥ min_height ; masquée ailleurs → PNG transparent hors arbres.
     veg = height.updateMask(height.gte(minh))
+    # Clip exact à l'emprise importée (GeoJSON) → transparent hors de la zone.
+    if req.geometry:
+        try:
+            veg = veg.clip(ee.Geometry(req.geometry))
+        except Exception:
+            pass
     vis = veg.visualize(min=minh, max=25, palette=_GREENS)
     dims = max(256, min(int(req.dimensions or 1024), 2048))
 

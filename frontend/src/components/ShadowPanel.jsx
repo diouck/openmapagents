@@ -96,6 +96,25 @@ function extractPolys(gj) {
 }
 const loadImage = (url) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
 
+/* Point dans l'un des anneaux (ray casting) — filtre à l'emprise exacte. */
+function pointInPolys(lng, lat, polys) {
+  for (const ring of polys) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+/* Géométrie MultiPolygon (pour le clip GEE de la canopée). */
+function zoneGeometry(gj) {
+  const polys = [];
+  for (const f of gj.features || []) { const g = f.geometry; if (!g) continue; if (g.type === "Polygon") polys.push(g.coordinates); else if (g.type === "MultiPolygon") for (const p of g.coordinates) polys.push(p); }
+  return polys.length ? { type: "MultiPolygon", coordinates: polys } : null;
+}
+
 export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }) {
   const C = useThemeContext();
   const today = new Date().toISOString().slice(0, 10);
@@ -119,6 +138,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const featsRef = useRef([]);
   const canopyRef = useRef(null);       // { url, corners, meanH, areaM2 }
   const zoneRef = useRef(null);         // { geojson, bbox, name } (GeoJSON importé)
+  const zonePolysRef = useRef(null);    // anneaux du GeoJSON (filtre exact) ou null
   const fileRef = useRef(null);
   const treesRef = useRef(true);
   const canopyTimer = useRef(null);
@@ -186,6 +206,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const refreshBuildings = useCallback((map, bbox) => {
     const inB = bbox ? (lng, lat) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] : null;
+    const zp = zonePolysRef.current;   // filtre à l'emprise exacte (GeoJSON importé)
     const seen = new Set();
     const out = [];
     for (const f of queryTiles(map, "building")) {
@@ -200,7 +221,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       for (const poly of polys) {
         const ring = poly[0]; if (!ring || ring.length < 4) continue;
         if (inB && !inB(ring[0][0], ring[0][1])) continue;
-        out.push({ ring, h: hh, lat: ring[0][1] });
+        if (zp && !pointInPolys(ring[0][0], ring[0][1], zp)) continue;
+        // hf = enveloppe convexe de l'emprise, précalculée → ombre projetée plus légère
+        out.push({ hf: convexHull(ring), h: hh, lat: ring[0][1] });
       }
     }
     bldRef.current = out;
@@ -243,8 +266,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (!(H > 0)) continue;
       const d = H * factor;
       const dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
-      const nn = b.ring.length, pts = new Array(nn * 2);
-      for (let i = 0; i < nn; i++) { const q = b.ring[i]; pts[i] = q; pts[nn + i] = [q[0] + dLng, q[1] + dLat]; }
+      const hf = b.hf, m = hf.length, pts = new Array(m * 2);
+      for (let i = 0; i < m; i++) { const q = hf[i]; pts[i] = q; pts[m + i] = [q[0] + dLng, q[1] + dLat]; }
       const hull = convexHull(pts);
       if (hull.length < 3) continue;
       hull.push(hull[0]);
@@ -282,9 +305,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     setCanopyMsg({ busy: true });
     try {
+      const body = { bbox, min_height: 3 };
+      if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
       const r = await fetch(`${API}/shadow/canopy`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bbox, min_height: 3 }),
+        body: JSON.stringify(body),
       });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const d = await r.json();
@@ -330,22 +355,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setScope(val);
     const map = mapRef?.current?.getMap?.();
     if (val === "view") {
-      scopeBboxRef.current = null; if (map) clearRoi(map);
+      scopeBboxRef.current = null; zonePolysRef.current = null; if (map) clearRoi(map);
       if (map) { refreshBuildings(map, null); compute(); if (treesRef.current) scheduleCanopy(); }
       return;
     }
     if (val === "roi") {
-      scopeBboxRef.current = roiBboxRef.current;
+      scopeBboxRef.current = roiBboxRef.current; zonePolysRef.current = null;
       if (map && roiBboxRef.current) { const [w, s, e, n] = roiBboxRef.current; map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 700 }); if (treesRef.current) scheduleCanopy(); }
       return;
     }
     if (val === "import") {
       scopeBboxRef.current = zoneRef.current?.bbox || null;
+      zonePolysRef.current = zoneRef.current?.geojson ? extractPolys(zoneRef.current.geojson) : null;
       if (map && zoneRef.current?.bbox) { const [w, s, e, n] = zoneRef.current.bbox; map.fitBounds([[w, s], [e, n]], { padding: 50, duration: 700 }); if (treesRef.current) scheduleCanopy(); }
       return;
     }
     const opt = layerOptions.find((o) => o.id === val);
-    scopeBboxRef.current = opt?.bbox || null; if (map) clearRoi(map);
+    scopeBboxRef.current = opt?.bbox || null; zonePolysRef.current = null; if (map) clearRoi(map);
     if (map && opt?.bbox) { const [w, s, e, n] = opt.bbox; map.fitBounds([[w, s], [e, n]], { padding: 40, duration: 800 }); if (treesRef.current) scheduleCanopy(); }
   }, [mapRef, layerOptions, refreshBuildings, compute, scheduleCanopy, clearRoi]);
 
@@ -365,6 +391,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const bbox = layerBbox({ geojson: gj });
       if (!bbox) throw new Error("aucune géométrie exploitable");
       zoneRef.current = { geojson: gj, bbox, name: file.name };
+      zonePolysRef.current = extractPolys(gj);   // filtre + clip à l'emprise exacte
       setZoneName(file.name);
       const map = mapRef?.current?.getMap?.();
       scopeBboxRef.current = bbox; setScope("import");
@@ -420,8 +447,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         for (const b of blds) {
           const H = isFinite(b.h) ? b.h : Number(defH); if (!(H > 0)) continue;
           const d = H * factor, dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
-          const nn = b.ring.length, pts = new Array(nn * 2);
-          for (let i = 0; i < nn; i++) { const q = b.ring[i]; pts[i] = q; pts[nn + i] = [q[0] + dLng, q[1] + dLat]; }
+          const hf = b.hf, m = hf.length, pts = new Array(m * 2);
+          for (let i = 0; i < m; i++) { const q = hf[i]; pts[i] = q; pts[m + i] = [q[0] + dLng, q[1] + dLat]; }
           const hull = convexHull(pts); if (hull.length < 3) continue;
           bx.beginPath(); hull.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? bx.lineTo(x, y) : bx.moveTo(x, y); }); bx.closePath(); bx.fill();
         }
@@ -491,7 +518,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   useEffect(() => {
     if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } return; }
-    playRef.current = setInterval(() => { setHour((h) => { const nx = h + 0.25; return nx > 21 ? 6 : nx; }); }, 220);
+    // pas fin + cadence élevée → défilement fluide (l'enveloppe convexe précalculée
+    // et le filtre d'emprise gardent chaque image légère).
+    playRef.current = setInterval(() => { setHour((h) => { const nx = h + 0.12; return nx > 21 ? 6 : nx; }); }, 80);
     return () => { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } };
   }, [playing]);
 
