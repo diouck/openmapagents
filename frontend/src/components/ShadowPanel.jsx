@@ -119,7 +119,7 @@ class MinHeap {
   push(k, p) { const a = this.a; a.push([k, p]); let i = a.length - 1; while (i > 0) { const par = (i - 1) >> 1; if (a[par][1] <= a[i][1]) break; [a[par], a[i]] = [a[i], a[par]]; i = par; } }
   pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; const n = a.length; for (;;) { let l = 2 * i + 1, r = 2 * i + 2, s = i; if (l < n && a[l][1] < a[s][1]) s = l; if (r < n && a[r][1] < a[s][1]) s = r; if (s === i) break;[a[s], a[i]] = [a[i], a[s]]; i = s; } } return top; }
 }
-const nodeKey = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+const nodeKey = (p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;   // ~1 m : soude les nœuds coupés aux bords de tuile
 /* segments = [[ [lng,lat]… ]…] ; sampler.shaded(lng,lat) → ombre 0/1 par arête. */
 function buildGraph(segments, sampler) {
   const nodes = new Map(), adj = new Map();
@@ -156,7 +156,7 @@ const SHAD_K = 6;                              // copies d'ombre canopée (base�
 const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
 const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
-const RT_SRC = "oma-route-src", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
+const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 4000, BLD_ZOOM = 16;
 
 /* Distance géodésique (m) entre deux [lng,lat]. */
@@ -723,13 +723,19 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (res.direct) feats.push({ type: "Feature", properties: { kind: "direct" }, geometry: { type: "LineString", coordinates: res.direct.coords } });
     if (res.shade) feats.push({ type: "Feature", properties: { kind: "shade" }, geometry: { type: "LineString", coordinates: res.shade.coords } });
     const sel = routeSelRef.current;
-    const wExpr = ["case", ["==", ["get", "kind"], sel], 6, 3];
-    const oExpr = ["case", ["==", ["get", "kind"], sel], 1, 0.5];
+    const wExpr = ["case", ["==", ["get", "kind"], sel], 7, 4];
+    const oExpr = ["case", ["==", ["get", "kind"], sel], 1, 0.55];
+    const cwExpr = ["case", ["==", ["get", "kind"], sel], 11, 7];   // liseré (casing) blanc, plus large
     if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
     else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
+    // liseré blanc dessous → tracés bien visibles sur un fond chargé
+    if (!map.getLayer(RT_CASE)) map.addLayer({ id: RT_CASE, type: "line", source: RT_SRC,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": cwExpr, "line-opacity": 0.9 } });
+    else map.setPaintProperty(RT_CASE, "line-width", cwExpr);
     if (!map.getLayer(RT_LINE)) map.addLayer({ id: RT_LINE, type: "line", source: RT_SRC,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": ["case", ["==", ["get", "kind"], "shade"], "#2e7d4f", "#e8590c"], "line-width": wExpr, "line-opacity": oExpr } });
+      paint: { "line-color": ["case", ["==", ["get", "kind"], "shade"], "#1b7a3e", "#e8590c"], "line-width": wExpr, "line-opacity": oExpr } });
     else { map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
     const ab = routeABRef.current || [];
     const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
@@ -793,8 +799,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
     const map = mapRef?.current?.getMap?.();
     if (map && map.getLayer(RT_LINE)) {
-      map.setPaintProperty(RT_LINE, "line-width", ["case", ["==", ["get", "kind"], kind], 6, 3]);
-      map.setPaintProperty(RT_LINE, "line-opacity", ["case", ["==", ["get", "kind"], kind], 1, 0.5]);
+      map.setPaintProperty(RT_LINE, "line-width", ["case", ["==", ["get", "kind"], kind], 7, 4]);
+      map.setPaintProperty(RT_LINE, "line-opacity", ["case", ["==", ["get", "kind"], kind], 1, 0.55]);
+      if (map.getLayer(RT_CASE)) map.setPaintProperty(RT_CASE, "line-width", ["case", ["==", ["get", "kind"], kind], 11, 7]);
     }
   }, [mapRef, stopPreview]);
 
@@ -851,7 +858,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const bbox = [Math.min(a[0], b[0]) - mx, Math.min(a[1], b[1]) - my, Math.max(a[0], b[0]) + mx, Math.max(a[1], b[1]) + my];
     // cadre A→B et attend le chargement des tuiles (routes + bâtiments)
     try { map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 40, duration: 0 }); } catch (_) {}
-    await new Promise((res) => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; map.once("idle", fin); setTimeout(fin, 3500); });
+    await new Promise((res) => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; map.once("idle", fin); setTimeout(fin, 5000); });
+    await new Promise((res) => setTimeout(res, 250));   // laisse les tuiles routes se stabiliser
     try {
       refreshBuildings(map, bbox);                       // bâtiments de la zone (pour l'ombre)
       const sampler = await buildSampler(bbox);
@@ -927,7 +935,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_LINE, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
           const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
