@@ -2,20 +2,23 @@
 shadow_routes.py — Support serveur de l'outil « Ombres portées ».
 
 L'ombrage bâtiments est 100 % client-side (bâtiments des tuiles MapLibre). Pour
-la CANOPÉE, en revanche, on a besoin de vraies hauteurs d'arbres : le modèle
-**WRI/Meta High Resolution Canopy Height 2020 (~1 m)** (fallback ETH Lang 10 m),
-servi par Google Earth Engine (les tuiles brutes AWS sont des GeoTIFF 65536²
-non-COG, illisibles à la volée).
+la CANOPÉE, on utilise le modèle **WRI/Meta High Resolution Canopy Height 2020
+(~1 m)** (fallback ETH Lang 10 m), servi par Google Earth Engine.
 
-POST /api/shadow/canopy {bbox, scale?, min_height?, max_features?}
-  → charge la canopée Meta, la seuille (≥ min_height), la vectorise en polygones
-    (reduceToVectors) avec la HAUTEUR MOYENNE par polygone, et renvoie un GeoJSON
-    WGS84 (propriété `height` en m). Le front projette ces polygones en ombre
-    comme les bâtiments, mais avec leur vraie hauteur.
+POST /api/shadow/canopy {bbox, min_height?}
+  → renvoie un APERÇU RASTER PNG de la canopée (vraie emprise, lissé — pas de
+    polygones « carrés »), colorisé en vert par la hauteur, transparent hors
+    canopée, + la HAUTEUR MOYENNE (pour décaler l'ombre côté client). Le front
+    pose l'image comme overlay (vraie emprise) et en décale une copie sombre
+    (l'ombre) selon la position du soleil.
 
 Réutilise l'auth GEE existante (gee_auth.get_ee) et le même asset Meta que
 /api/gee/canopy.
 """
+import io
+import math
+import base64
+import urllib.request
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -25,14 +28,14 @@ router = APIRouter(prefix="/api/shadow", tags=["shadow"])
 
 _META_ASSET = "projects/meta-forest-monitoring-okw37/assets/CanopyHeight"     # ~1 m
 _ETH_ASSET = "users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1"                 # 10 m (fallback)
-_MAX_AREA_DEG2 = 0.25          # garde-fou : bbox trop grande → demander de zoomer
+_MAX_AREA_DEG2 = 0.20          # garde-fou : bbox trop grande → demander de zoomer
+_GREENS = ["#c2e699", "#78c679", "#31a354", "#006837"]   # rampe hauteur (clair→foncé)
 
 
 class CanopyReq(BaseModel):
     bbox: List[float]                 # [ouest, sud, est, nord] WGS84
-    scale: int = 10                   # résolution de vectorisation (m) — 10 = bon compromis
     min_height: float = 3.0           # ignore la végétation basse (< 3 m)
-    max_features: int = 1500          # borne de sortie
+    dimensions: int = 1024            # côté max de l'aperçu PNG
 
 
 @router.post("/canopy")
@@ -52,6 +55,7 @@ def shadow_canopy(req: CanopyReq):
         raise HTTPException(503, f"Earth Engine indisponible : {ex}")
 
     rect = ee.Geometry.Rectangle([w, s, e, n])
+    minh = float(req.min_height)
 
     # ── Dataset : Meta ~1 m, fallback ETH 10 m ────────────────────────────────
     height = None
@@ -70,49 +74,43 @@ def shadow_canopy(req: CanopyReq):
         except Exception as ex2:
             raise HTTPException(502, f"Aucun dataset canopée disponible : {ex2}")
 
-    minh = float(req.min_height)
-    scale = max(5, min(int(req.scale or 10), 60))
+    # Canopée = hauteur ≥ min_height ; masquée ailleurs → PNG transparent hors arbres.
+    veg = height.updateMask(height.gte(minh))
+    vis = veg.visualize(min=minh, max=25, palette=_GREENS)
+    dims = max(256, min(int(req.dimensions or 1024), 2048))
 
-    # ── Seuillage + vectorisation avec hauteur moyenne par polygone ──────────
-    # bande 'lbl' (0/1) = étiquette des régions ; bande 'h' = hauteur → réduite
-    # en moyenne par polygone. On ne garde que lbl==1 (canopée ≥ min_height).
-    mask = height.gte(minh).rename("lbl")
-    labeled = mask.addBands(height)
+    # ── Aperçu PNG (vraie emprise, lissé) via getThumbURL ────────────────────
     try:
-        vectors = labeled.reduceToVectors(
-            reducer=ee.Reducer.mean(),
-            geometry=rect,
-            scale=scale,
-            geometryType="polygon",
-            labelProperty="lbl",
-            eightConnected=False,
-            maxPixels=1e10,
-            bestEffort=True,
-        ).filter(ee.Filter.eq("lbl", 1)).limit(int(req.max_features))
-        gj = vectors.getInfo()
+        url = vis.getThumbURL({"region": rect, "dimensions": dims, "format": "png"})
     except Exception as ex:
-        raise HTTPException(502, f"Vectorisation canopée impossible : {ex}")
+        raise HTTPException(502, f"Rendu canopée impossible : {ex}")
+    try:
+        rq = urllib.request.Request(url, headers={"User-Agent": "OpenMapAgents/1.0"})
+        with urllib.request.urlopen(rq, timeout=45) as r:
+            png = r.read()
+    except Exception as ex:
+        raise HTTPException(502, f"Téléchargement aperçu canopée impossible : {ex}")
+    b64 = base64.b64encode(png).decode("ascii")
 
-    feats = []
-    for f in gj.get("features", []):
-        p = f.get("properties", {}) or {}
-        h = p.get("mean")
-        if h is None:
-            h = p.get("h") if p.get("h") is not None else p.get("h_mean")
-        if h is None:
-            continue
-        h = float(h)
-        if h < minh:
-            continue
-        g = f.get("geometry")
-        if not g:
-            continue
-        feats.append({"type": "Feature", "properties": {"height": round(h, 1)}, "geometry": g})
+    # ── Hauteur moyenne (pour décaler l'ombre côté client) ───────────────────
+    mean_h = None
+    try:
+        stat = veg.reduceRegion(
+            reducer=ee.Reducer.mean(), geometry=rect,
+            scale=10, maxPixels=int(1e9), bestEffort=True,
+        ).get("h").getInfo()
+        if stat is not None:
+            mean_h = round(float(stat), 1)
+    except Exception:
+        mean_h = None
 
+    # Coins de l'image (l'aperçu couvre exactement la bbox) : TL, TR, BR, BL.
+    coords = [[w, n], [e, n], [e, s], [w, s]]
     return {
-        "type": "FeatureCollection",
-        "features": feats,
-        "count": len(feats),
+        "canopy_b64": b64,
+        "image_coordinates": coords,
+        "bbox": [w, s, e, n],
+        "mean_height": mean_h,
+        "min_height": minh,
         "dataset": label,
-        "scale_m": scale,
     }
