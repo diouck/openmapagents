@@ -1,13 +1,15 @@
 /**
- * Routing & Isochrone Engine — Mapbox APIs
- * Route: Mapbox Directions API (free tier 100k/month)
- * Isochrone: Mapbox Isochrone API (native polygons)
- * Geocoding: Nominatim (free, for address autocomplete)
+ * Routing & Isochrone Engine.
+ * Route + Isochrone : passent par le BACKEND (/api/route/*) qui détient le jeton
+ * (ORS ou Mapbox) — ne dépend donc PAS du build frontend (VITE_MAPBOX_TOKEN).
+ * Geocoding : Nominatim (client, sans clé) pour l'autocomplétion d'adresse.
  */
-import { MAPBOX_TOKEN } from "../config";
+import { API } from "../config";
 
-const MB = "https://api.mapbox.com";
-const PROFILES = { foot: "walking", bike: "cycling", car: "driving" };
+const minOf = (f) => {
+  const p = f.properties || {};
+  return p.value != null ? p.value / 60 : (p.contour != null ? p.contour : (p.time_min != null ? p.time_min : null));
+};
 
 // ─── GEOCODE ADDRESS (Nominatim) ─────────────────────────────
 export async function geocodeAddress(query) {
@@ -25,110 +27,60 @@ export async function geocodeAddress(query) {
   }));
 }
 
-// ─── ROUTE (Mapbox Directions) ───────────────────────────────
+// ─── ROUTE (backend → ORS/Mapbox) ─────────────────────────────
 export async function computeRoute(waypoints, profile = "foot") {
   if (waypoints.length < 2) throw new Error("Au moins 2 points requis");
-  const mbProfile = PROFILES[profile] || "walking";
-  const coords = waypoints.map(p => `${p[0]},${p[1]}`).join(";");
-  const url = `${MB}/directions/v5/mapbox/${mbProfile}/${coords}?geometries=geojson&overview=full&steps=true&language=fr&access_token=${MAPBOX_TOKEN}`;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Mapbox Directions: ${res.status}`);
+  const res = await fetch(`${API}/route/directions`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ waypoints, profile }),
+  });
+  if (!res.ok) { let m = `Directions ${res.status}`; try { m = (await res.json()).detail || m; } catch (_) {} throw new Error(m); }
   const data = await res.json();
-  if (!data.routes?.length) throw new Error("Aucun itinéraire trouvé");
+  const route = (data.routes || [])[0];
+  if (!route) throw new Error("Aucun itinéraire trouvé");
 
-  const route = data.routes[0];
-  const features = [];
-
-  // Route line
-  features.push({
+  const distKm = Math.round(route.distance / 10) / 100;
+  const durMin = Math.round(route.duration / 6) / 10;
+  const features = [{
     type: "Feature",
-    geometry: route.geometry,
-    properties: {
-      type: "route",
-      distance_km: Math.round(route.distance / 10) / 100,
-      duration_min: Math.round(route.duration / 6) / 10,
-      profile,
-      summary: `${Math.round(route.distance / 10) / 100} km — ${Math.round(route.duration / 60)} min`,
-    },
-  });
-
-  // Waypoints
-  waypoints.forEach((p, i) => {
-    features.push({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: p },
-      properties: {
-        type: "waypoint",
-        index: i,
-        label: i === 0 ? "A" : i === waypoints.length - 1 ? "B" : `${i}`,
-      },
-    });
-  });
-
-  // Turn-by-turn steps
-  const steps = [];
-  route.legs?.forEach(leg => {
-    leg.steps?.forEach(step => {
-      steps.push({
-        instruction: step.maneuver?.instruction || "",
-        distance_m: Math.round(step.distance),
-        duration_s: Math.round(step.duration),
-        name: step.name || "",
-      });
-    });
-  });
-
-  return {
-    type: "FeatureCollection",
-    features,
-    metadata: {
-      distance_km: Math.round(route.distance / 10) / 100,
-      duration_min: Math.round(route.duration / 6) / 10,
-      profile,
-      steps,
-    },
-  };
+    geometry: { type: "LineString", coordinates: route.coordinates },
+    properties: { type: "route", distance_km: distKm, duration_min: durMin, profile,
+      summary: `${distKm} km — ${Math.round(route.duration / 60)} min` },
+  }];
+  waypoints.forEach((p, i) => features.push({
+    type: "Feature", geometry: { type: "Point", coordinates: p },
+    properties: { type: "waypoint", index: i, label: i === 0 ? "A" : i === waypoints.length - 1 ? "B" : `${i}` },
+  }));
+  const steps = (route.steps || []).map(s => ({
+    instruction: s.instruction || "", distance_m: s.distance_m || 0, duration_s: s.duration_s || 0, name: s.name || "",
+  }));
+  return { type: "FeatureCollection", features, metadata: { distance_km: distKm, duration_min: durMin, profile, steps } };
 }
 
-// ─── ISOCHRONE (Mapbox native) ────────────────────────────────
-export async function computeIsochrone(center, timeMinutes = 10, profile = "foot") {
-  const mbProfile = PROFILES[profile] || "walking";
-  // Mapbox supports up to 4 contours
-  const contours = [];
-  if (timeMinutes >= 15) contours.push(5, 10, timeMinutes);
-  else if (timeMinutes >= 10) contours.push(5, timeMinutes);
-  else contours.push(timeMinutes);
-
-  const contoursStr = contours.join(",");
-  const colors = contours.map((_, i) => {
-    const c = ["1D9E75", "EF9F27", "D85A30", "E24B4A"];
-    return c[i % c.length];
-  }).join(",");
-
-  const url = `${MB}/isochrone/v1/mapbox/${mbProfile}/${center[0]},${center[1]}?contours_minutes=${contoursStr}&contours_colors=${colors}&polygons=true&access_token=${MAPBOX_TOKEN}`;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Mapbox Isochrone: ${res.status}`);
+// ─── ISOCHRONE (backend → ORS/Mapbox) ─────────────────────────
+export async function computeIsochrone(center, timeMinutes = 10, profile = "foot", intervals = null) {
+  const res = await fetch(`${API}/route/isochrone`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ center, minutes: timeMinutes, profile, intervals }),
+  });
+  if (!res.ok) { let m = `Isochrone ${res.status}`; try { m = (await res.json()).detail || m; } catch (_) {} throw new Error(m); }
   const data = await res.json();
+  const gj = data.geojson || { type: "FeatureCollection", features: [] };
+  if (!gj.features?.length) throw new Error("Aucun isochrone calculé");
 
-  if (!data.features?.length) throw new Error("Aucun isochrone calculé");
-
-  // Add metadata to each feature
-  data.features.forEach(f => {
+  const colors = ["#1a9850", "#91cf60", "#d9ef8b", "#fee08b", "#fc8d59", "#d73027"];
+  const feats = gj.features.map(f => ({ ...f, properties: { ...(f.properties || {}) } }));
+  feats.sort((a, b) => (minOf(a) || 0) - (minOf(b) || 0));   // du plus petit au plus grand
+  feats.forEach((f, i) => {
+    const mn = minOf(f);
     f.properties.type = "isochrone";
     f.properties.profile = profile;
-    f.properties.label = `${f.properties.contour} min (${profile})`;
-    f.properties.time_min = f.properties.contour;
+    f.properties.time_min = mn;
+    f.properties.contour = mn;
+    f.properties.label = `${mn} min (${profile})`;
+    f.properties.color = colors[i % colors.length];
   });
-
-  // Add center point
-  data.features.push({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: center },
-    properties: { type: "isochrone_center", label: "Centre" },
-  });
-
-  data.metadata = { center, breaks: contours, profile };
-  return data;
+  feats.reverse();   // grands polygones dessous, petits au-dessus
+  feats.push({ type: "Feature", geometry: { type: "Point", coordinates: center }, properties: { type: "isochrone_center", label: "Centre" } });
+  return { type: "FeatureCollection", features: feats, metadata: { center, breaks: data.intervals_min, profile } };
 }

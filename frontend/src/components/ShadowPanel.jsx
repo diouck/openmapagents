@@ -15,6 +15,7 @@ import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
 import { importFile } from "../utils/helpers";
+import { geocodeAddress } from "../utils/routing";
 
 /* ── Position du soleil (port SunCalc, validé) → {alt, az} rad ; az depuis le
    SUD, positif vers l'ouest. */
@@ -216,6 +217,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [routeErr, setRouteErr] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewSpeed, setPreviewSpeed] = useState(2);
+  const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
+  const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
   const bldRef = useRef([]);
   const featsRef = useRef([]);
@@ -241,6 +244,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const animRef = useRef(null);          // { raf, start }
   const previewSpeedRef = useRef(2);
   const preCamRef = useRef(null);        // caméra avant prévisualisation (pour restaurer)
+  const geoTimer = useRef(null);         // debounce géocodage
 
   // ── ouverture : Liberty + 3D + zoom ; restauré à la sortie ────────────────
   useEffect(() => {
@@ -673,8 +677,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": ["case", ["==", ["get", "kind"], "shade"], "#2e7d4f", "#e8590c"], "line-width": wExpr, "line-opacity": oExpr } });
     else { map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
-    const ab = routeABRef.current;
-    const abfc = { type: "FeatureCollection", features: ab.map((p, i) => ({ type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } })) };
+    const ab = routeABRef.current || [];
+    const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
     if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "circle", source: RT_AB, paint: { "circle-radius": 6, "circle-color": "#111827", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
   }, []);
@@ -736,7 +740,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const startRouteAB = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     if (routePick) { if (routeClickRef.current) map.off("click", routeClickRef.current); routeClickRef.current = null; setRoutePick(false); map.getCanvas().style.cursor = ""; return; }
-    routeABRef.current = []; setRouteAB([]); setRouteResult(null); stopPreview(); setRoutePick(true); map.getCanvas().style.cursor = "crosshair";
+    routeABRef.current = []; setRouteAB([]); setAddr({ a: "", b: "" }); setSugg({ a: [], b: [] }); setRouteResult(null); stopPreview(); setRoutePick(true); map.getCanvas().style.cursor = "crosshair";
     const h = (ev) => {
       routeABRef.current.push([ev.lngLat.lng, ev.lngLat.lat]); setRouteAB([...routeABRef.current]);
       drawRoutes(map, {});
@@ -745,9 +749,30 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     routeClickRef.current = h; map.on("click", h);
   }, [mapRef, routePick, drawRoutes, stopPreview]);
 
+  // pose/actualise A (idx 0) ou B (idx 1) — par adresse ou par clic
+  const setAB = useCallback((idx, pt) => {
+    const arr = (routeABRef.current || []).slice(); while (arr.length < 2) arr.push(null);
+    arr[idx] = pt; routeABRef.current = arr;
+    setRouteAB(arr.filter(Boolean)); setRouteResult(null); stopPreview();
+    const map = mapRef?.current?.getMap?.();
+    if (map) { drawRoutes(map, {}); try { map.flyTo({ center: pt, zoom: Math.max(14, map.getZoom()), duration: 600 }); } catch (_) {} }
+  }, [mapRef, drawRoutes, stopPreview]);
+
+  const onAddrChange = useCallback((which, val) => {
+    setAddr((p) => ({ ...p, [which]: val }));
+    clearTimeout(geoTimer.current);
+    if (!val || val.trim().length < 3) { setSugg((p) => ({ ...p, [which]: [] })); return; }
+    geoTimer.current = setTimeout(async () => { const res = await geocodeAddress(val).catch(() => []); setSugg((p) => ({ ...p, [which]: res })); }, 350);
+  }, []);
+
+  const pickAddr = useCallback((which, s) => {
+    setAddr((p) => ({ ...p, [which]: s.label })); setSugg((p) => ({ ...p, [which]: [] }));
+    setAB(which === "a" ? 0 : 1, [s.lon, s.lat]);
+  }, [setAB]);
+
   const computeShadeRoutes = useCallback(async () => {
-    const ab = routeABRef.current;
-    if (ab.length < 2) { setRouteErr("Placez les points A et B (bouton « Définir A → B »)."); return; }
+    const ab = (routeABRef.current || []).filter(Boolean);
+    if (ab.length < 2) { setRouteErr("Renseignez A et B (adresse ou 2 clics sur la carte)."); return; }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     setRouteBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
     try {
@@ -804,7 +829,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (playRef.current) clearInterval(playRef.current);
       if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
       if (map && preCamRef.current) { try { map.jumpTo({ bearing: preCamRef.current.bearing }); } catch (_) {} }
-      clearTimeout(canopyTimer.current);
+      clearTimeout(canopyTimer.current); clearTimeout(geoTimer.current);
       if (map && roiHandlerRef.current) { try { map.off("click", roiHandlerRef.current); } catch (_) {} }
       if (map && routeClickRef.current) { try { map.off("click", routeClickRef.current); } catch (_) {} }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
@@ -866,6 +891,24 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
             Deux itinéraires piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — évalués selon l'ombre à l'heure choisie (onglet Ombrage). Prévisualisez le parcours avec accélération.
           </div>
+
+          {[["a", "Départ (A)"], ["b", "Arrivée (B)"]].map(([which, label]) => (
+            <div key={which} style={{ position: "relative" }}>
+              <div style={lbl}>{label}</div>
+              <input value={addr[which]} onChange={(e) => onAddrChange(which, e.target.value)} placeholder="Adresse ou lieu…" style={{ ...inp, width: "100%" }} />
+              {sugg[which].length > 0 && (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: C.card || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 7, marginTop: 2, maxHeight: 170, overflowY: "auto", boxShadow: "0 8px 22px rgba(0,0,0,0.18)" }}>
+                  {sugg[which].map((s, i) => (
+                    <div key={i} onClick={() => pickAddr(which, s)}
+                      style={{ fontFamily: F, fontSize: 11, padding: "6px 9px", cursor: "pointer", color: C.txt, borderBottom: i < sugg[which].length - 1 ? `0.5px solid ${C.bdr}` : "none" }}>
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim, textAlign: "center" }}>— ou placez A/B sur la carte —</div>
 
           <button onClick={startRouteAB}
             style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "8px 12px", cursor: "pointer",
