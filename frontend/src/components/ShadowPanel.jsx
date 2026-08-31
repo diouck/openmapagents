@@ -112,6 +112,42 @@ function layerBbox(l) {
   return isFinite(w) ? [w, s, e, n] : null;
 }
 
+/* ── Graphe piéton léger depuis les tuiles + Dijkstra pondéré par l'ombre ──── */
+class MinHeap {
+  constructor() { this.a = []; }
+  get size() { return this.a.length; }
+  push(k, p) { const a = this.a; a.push([k, p]); let i = a.length - 1; while (i > 0) { const par = (i - 1) >> 1; if (a[par][1] <= a[i][1]) break; [a[par], a[i]] = [a[i], a[par]]; i = par; } }
+  pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; const n = a.length; for (;;) { let l = 2 * i + 1, r = 2 * i + 2, s = i; if (l < n && a[l][1] < a[s][1]) s = l; if (r < n && a[r][1] < a[s][1]) s = r; if (s === i) break;[a[s], a[i]] = [a[i], a[s]]; i = s; } } return top; }
+}
+const nodeKey = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+/* segments = [[ [lng,lat]… ]…] ; sampler.shaded(lng,lat) → ombre 0/1 par arête. */
+function buildGraph(segments, sampler) {
+  const nodes = new Map(), adj = new Map();
+  const addNode = (p) => { const k = nodeKey(p); if (!nodes.has(k)) { nodes.set(k, p); adj.set(k, []); } return k; };
+  for (const seg of segments) {
+    for (let i = 0; i < seg.length - 1; i++) {
+      const a = seg[i], b = seg[i + 1], len = haversine(a, b); if (!(len > 0)) continue;
+      const ka = addNode(a), kb = addNode(b);
+      const sh = sampler.shaded((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) ? 1 : 0;
+      adj.get(ka).push({ to: kb, len, shade: sh }); adj.get(kb).push({ to: ka, len, shade: sh });
+    }
+  }
+  return { nodes, adj };
+}
+function dijkstra(graph, startKey, endKey, weightFn) {
+  const dist = new Map([[startKey, 0]]), prev = new Map(), seen = new Set(), heap = new MinHeap();
+  heap.push(startKey, 0);
+  while (heap.size) {
+    const [u, du] = heap.pop(); if (seen.has(u)) continue; seen.add(u); if (u === endKey) break;
+    for (const e of graph.adj.get(u) || []) {
+      const nd = du + weightFn(e); if (nd < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, nd); prev.set(e.to, u); heap.push(e.to, nd); }
+    }
+  }
+  if (startKey !== endKey && !prev.has(endKey)) return null;
+  const path = []; let cur = endKey; const guard = graph.nodes.size + 2; let g = 0;
+  while (cur !== undefined && g++ < guard) { const p = graph.nodes.get(cur); if (p) path.push(p); if (cur === startKey) break; cur = prev.get(cur); }
+  return path.reverse();
+}
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const IMG_DISP = "oma-canopy-img";
@@ -794,37 +830,62 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setAB(which === "a" ? 0 : 1, [s.lon, s.lat]);
   }, [setAB]);
 
+  // Repli : moteur backend (Mapbox/ORS) si le réseau des tuiles est insuffisant.
+  const backendRoutes = useCallback(async (map, a, b, sampler) => {
+    const rr = await fetch(`${API}/shadow/route`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ a, b, profile: "foot" }) });
+    if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
+    const routes = (await rr.json()).routes || [];
+    if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
+    const scored = routes.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 }; });
+    return { shade: scored.reduce((x, y) => (y.shade > x.shade ? y : x)), direct: scored.reduce((x, y) => (y.distance < x.distance ? y : x)) };
+  }, []);
+
   const computeShadeRoutes = useCallback(async () => {
     const ab = (routeABRef.current || []).filter(Boolean);
     if (ab.length < 2) { setRouteErr("Renseignez A et B (adresse ou 2 clics sur la carte)."); return; }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     setRouteBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
+    const [a, b] = ab;
+    const mx = Math.max(Math.abs(a[0] - b[0]) * 0.3, 0.002), my = Math.max(Math.abs(a[1] - b[1]) * 0.3, 0.002);
+    const bbox = [Math.min(a[0], b[0]) - mx, Math.min(a[1], b[1]) - my, Math.max(a[0], b[0]) + mx, Math.max(a[1], b[1]) + my];
+    // cadre A→B et attend le chargement des tuiles (routes + bâtiments)
+    try { map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 40, duration: 0 }); } catch (_) {}
+    await new Promise((res) => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; map.once("idle", fin); setTimeout(fin, 3500); });
     try {
-      const [a, b] = ab;
-      // routage via le BACKEND (jeton dans l'env backend) → pas de dépendance au build front.
-      const rr = await fetch(`${API}/shadow/route`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ a, b, profile: "foot" }),
-      });
-      if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
-      const d = await rr.json(); const routes = d.routes || [];
-      if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
-      let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-      for (const rt of routes) for (const p of rt.coordinates) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); }
-      const mx = (e - w) * 0.1 || 0.001, my = (n - s) * 0.1 || 0.001;
-      const sampler = await buildSampler([w - mx, s - my, e + mx, n + my]);
-      const scored = routes.map((rt) => {
-        const coords = rt.coordinates, dense = densify(coords, 12);
-        let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++;
-        return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 };
-      });
-      const shade = scored.reduce((x, y) => (y.shade > x.shade ? y : x));
-      const direct = scored.reduce((x, y) => (y.distance < x.distance ? y : x));
-      routeGeomRef.current = { shade, direct };
-      setRouteResult({ shade, direct, night: sampler.night, same: shade === direct, n: scored.length });
-      drawRoutes(map, { shade, direct });
-    } catch (e) { setRouteErr(e.message || String(e)); } finally { setRouteBusy(false); }
-  }, [mapRef, buildSampler, drawRoutes, stopPreview]);
+      refreshBuildings(map, bbox);                       // bâtiments de la zone (pour l'ombre)
+      const sampler = await buildSampler(bbox);
+      // ── réseau piéton depuis les TUILES (aucun téléchargement) ──
+      const segs = [];
+      for (const f of queryTiles(map, "transportation")) {
+        const cls = String(f.properties?.class || "").toLowerCase();
+        if (cls.includes("motorway") || cls.includes("trunk") || cls === "raceway") continue;
+        const g = f.geometry; if (!g) continue;
+        if (g.type === "LineString") segs.push(g.coordinates);
+        else if (g.type === "MultiLineString") for (const l of g.coordinates) segs.push(l);
+      }
+      let res = null, viaGraph = false, note = "";
+      if (segs.length >= 4) {
+        const graph = buildGraph(segs, sampler);
+        const snap = (p) => { let bk = null, bd = Infinity; for (const [k, q] of graph.nodes) { const dd = haversine(p, q); if (dd < bd) { bd = dd; bk = k; } } return bk; };
+        const ka = snap(a), kb = snap(b);
+        const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
+        const K = 3.2;
+        const direct = mkRoute(dijkstra(graph, ka, kb, (e) => e.len));
+        const shade = mkRoute(dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))));
+        if (direct && shade) { res = { shade, direct }; viaGraph = true; }
+      }
+      if (!res) { res = await backendRoutes(map, a, b, sampler); note = "Réseau des tuiles insuffisant ici — itinéraire du moteur (sans optimisation d'ombre) ; zoomez sur la zone pour l'optimisation locale."; }
+      const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
+      routeGeomRef.current = res;
+      setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
+      if (note) setRouteErr(note);
+      drawRoutes(map, res);
+    } catch (e) {
+      // dernier recours : backend seul
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      catch (e2) { setRouteErr(e.message || String(e)); }
+    } finally { setRouteBusy(false); }
+  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes]);
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
@@ -913,7 +974,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       ) : tab === "route" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Deux itinéraires piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — évalués selon l'ombre à la date/heure ci-dessous. Prévisualisez le parcours (vue immersive ou de dessus).
+Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijkstra pondéré par l'ombre, 100 % local) : <b>plus ombragé</b> vs <b>plus direct</b>, à la date/heure ci-dessous. Prévisualisez le parcours (vue immersive ou de dessus).
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -975,7 +1036,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                   </div>
                 </button>
               ))}
-              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Un seul itinéraire (le plus ombragé = le plus direct ici).</div>}
+              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Le plus ombragé = le plus direct ici (pas de détour plus ombragé sur le réseau).</div>}
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Optimisé sur le réseau local (tuiles) pondéré par l'ombre." : "⚠ Réseau local insuffisant → itinéraire du moteur (non optimisé)."}</div>
             </div>
           )}
 
