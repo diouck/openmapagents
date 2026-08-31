@@ -2284,7 +2284,7 @@ export default function App() {
     // ── Ombres portées des bâtiments (simulation soleil) ──────
     if (activeTool === "shadow") return (
       <Embed>
-        <ShadowPanel mapRef={mapRef} layers={layers} />
+        <ShadowPanel mapRef={mapRef} layers={layers} basemap={mapSt} setBasemap={setMapSt} />
       </Embed>
     );
 
@@ -2536,12 +2536,16 @@ export default function App() {
             écartée des autres au lieu de rester collée à « Projections ». */}
         <div style={{display:"flex",gap:3,alignItems:"center"}}>
           {!isMobile&&<>
-          {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>(
-            <button key={k} onClick={()=>setMapSt(k)} className="rib"
-              style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${mapSt===k?C.acc+"55":C.bdr}`,background:mapSt===k?C.acc+"15":"transparent",color:mapSt===k?C.acc:C.dim,cursor:"pointer"}}>
+          {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>{
+            const lock = activeTool==="shadow" && k!=="liberty";   // ombrage → Liberty imposé (bâtiments)
+            return (
+            <button key={k} onClick={()=>{ if(!lock) setMapSt(k); }} disabled={lock} className="rib"
+              title={lock ? "Ombrage : fond Liberty requis (bâtiments)" : undefined}
+              style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${mapSt===k?C.acc+"55":C.bdr}`,background:mapSt===k?C.acc+"15":"transparent",color:mapSt===k?C.acc:C.dim,cursor:lock?"not-allowed":"pointer",opacity:lock?0.4:1}}>
               {k.charAt(0).toUpperCase() + k.slice(1)}
             </button>
-          ))}
+            );
+          })}
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
           {/* Sélecteur de planète (liste déroulante) : une planète se voit en globe */}
           <select value={currentPlanet} onChange={e=>selectPlanet(e.target.value)} className="rib"
