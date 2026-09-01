@@ -126,7 +126,7 @@ function buildGraph(segments, sampler) {
   const nodes = new Map(), adj = new Map();
   const addNode = (p) => { const k = nodeKey(p); if (!nodes.has(k)) { nodes.set(k, p); adj.set(k, []); } return k; };
   // fraction d'ombre de l'arête = moyenne sur plusieurs points (0..1)
-  const edgeShade = (a, b) => { let c = 0; const fr = [0.15, 0.4, 0.6, 0.85]; for (const f of fr) if (sampler.shaded(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)) c++; return c / fr.length; };
+  const edgeShade = (a, b) => { let c = 0; const fr = [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]; for (const f of fr) if (sampler.shaded(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)) c++; return c / fr.length; };
   for (const seg of segments) {
     for (let i = 0; i < seg.length - 1; i++) {
       const a = seg[i], b = seg[i + 1], len = haversine(a, b); if (!(len > 0)) continue;
@@ -995,19 +995,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       //    « direct » = le plus court réel ; « shade » = l'alternative la plus ombragée.
       const eng = await backendRoutes(map, a, b, sampler);
       let direct = eng.direct, shade = eng.shade;
-      // 2) Réseau piéton local (tuiles) → cherche un DÉTOUR plus ombragé que l'alternative moteur.
-      if (segs.length >= 8) {
+      // 2) Réseau piéton local (tuiles) → cherche un DÉTOUR plus ombragé (arbres /
+      //    bâtiments ombragés à proximité), quitte à ALLONGER un peu le trajet.
+      if (segs.length >= 6) {
         const graph = buildGraph(segs, sampler);
         const snap = (p) => { let bk = null, bd = Infinity; for (const [k, q] of graph.nodes) { const dd = haversine(p, q); if (dd < bd) { bd = dd; bk = k; } } return bk; };
         const ka = snap(a), kb = snap(b);
         const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
         const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
         const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
+        // pénalité d'ensoleillement forte → force le détour vers l'ombre proche
         let pShade = null;
-        for (const K of [4, 8, 16, 30]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
+        for (const K of [3, 8, 20, 45]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
         const gShade = mkRoute(pShade);
-        // adopte le détour local s'il est SENSIBLEMENT plus ombragé, sans être déraisonnablement long
-        if (gShade && gShade.shade > shade.shade + 0.04 && gShade.distance < Math.max(direct.distance * 1.8, 400)) { shade = gShade; viaGraph = true; }
+        // On ACCEPTE un détour plus long (aller chercher l'ombre à <~100 m) : jusqu'à
+        // +250 m ou +70% de longueur, pour un gain d'ombre même modeste (≥ 2 pts).
+        const maxLen = Math.max(direct.distance + 250, direct.distance * 1.7);
+        if (gShade && gShade.shade > shade.shade + 0.02 && gShade.distance <= maxLen) { shade = gShade; viaGraph = true; }
       }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
@@ -1209,7 +1213,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 </button>
               ))}
               {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Le plus ombragé = le plus direct ici. {routeResult.night ? "Il fait nuit." : "À cette heure les ombres sont peut-être courtes — essayez une heure de soleil plus rasant (matin/fin d'après-midi)."}</div>}
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Détour ombragé optimisé sur le réseau local (tuiles)." : "Le plus court (moteur) + son alternative la plus ombragée. Pour un vrai détour ombragé, zoomez sur la zone (réseau local plus dense)."}</div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Détour ombragé (parfois un peu plus long) : va chercher l'ombre proche (arbres / bâtiments)." : "Le plus court (moteur) + son alternative la plus ombragée. Pour un détour ombragé, zoomez sur la zone (réseau local plus dense)."}</div>
             </div>
           )}
 
