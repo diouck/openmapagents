@@ -1035,8 +1035,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const key = `${c.lng.toFixed(4)},${c.lat.toFixed(4)},${map.getZoom().toFixed(2)}`;
       if (key === lastViewRef.current) return;   // même emprise → rien à faire (évite la boucle)
       lastViewRef.current = key;
+      // Bâtiments uniquement : les tuiles arrivent après le moveend. La canopée
+      // (GEE) est déjà (re)chargée au moveend → NE PAS re-planifier ici (évite une
+      // rafale de requêtes GEE → 502 sous charge).
       refreshBuildings(map, scopeBboxRef.current); compute();
-      if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D();
     };
     map.on("moveend", onMove); map.on("styledata", onStyle); map.on("idle", onIdle);
     return () => { map.off("moveend", onMove); map.off("styledata", onStyle); map.off("idle", onIdle); };
