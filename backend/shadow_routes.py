@@ -101,7 +101,7 @@ def shadow_route(req: RouteReq):
 _META_ASSET = "projects/meta-forest-monitoring-okw37/assets/CanopyHeight"     # ~1 m
 _ETH_ASSET = "users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1"                 # 10 m (fallback)
 _MAX_AREA_DEG2 = 0.20          # garde-fou : bbox trop grande → demander de zoomer
-_GREENS = ["#c2e699", "#78c679", "#31a354", "#006837"]   # rampe hauteur (clair→foncé)
+_GREENS = ["#ffffcc", "#d9f0a3", "#addd8e", "#78c679", "#41ab5d", "#238443", "#005a32"]   # rampe hauteur YlGn (dégradé fin, clair=bas → foncé=haut)
 
 
 class CanopyReq(BaseModel):

@@ -175,7 +175,7 @@ function hexAround(c, rM) {
   return pts;
 }
 const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
-const MAX_BLD = 4000, BLD_ZOOM = 16;
+const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible borne déjà le nombre
 
 /* Distance géodésique (m) entre deux [lng,lat]. */
 function haversine(a, b) {
@@ -378,8 +378,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, []);
 
   const refreshBuildings = useCallback((map, bbox) => {
-    const inB = bbox ? (lng, lat) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] : null;
     const zp = zonePolysRef.current;   // filtre à l'emprise exacte (GeoJSON importé)
+    // Vue « large » (pas d'emprise, pas de zone) : borne à la FENÊTRE VISIBLE (+ marge)
+    // pour ne pas gaspiller le budget sur les bâtiments hors écran (tuiles débordantes)
+    // → tous les bâtiments visibles reçoivent leur ombre (plus de moitié nord sans ombre).
+    let fb = bbox;
+    if (!fb && !zp) {
+      try { const b = map.getBounds(); const mx = (b.getEast() - b.getWest()) * 0.2, my = (b.getNorth() - b.getSouth()) * 0.2;
+        fb = [b.getWest() - mx, b.getSouth() - my, b.getEast() + mx, b.getNorth() + my]; } catch (_) {}
+    }
+    const inB = fb ? (lng, lat) => lng >= fb[0] && lng <= fb[2] && lat >= fb[1] && lat <= fb[3] : null;
     const seen = new Set();
     const out = [];
     for (const f of queryTiles(map, "building")) {
@@ -516,7 +524,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     setCanopyMsg({ busy: true });
     try {
-      const body = { bbox, min_height: 3 };
+      const body = { bbox, min_height: 3, dimensions: 2048 };   // aperçu fin (moins pixelisé)
       if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
       const r = await fetch(`${API}/shadow/canopy`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -982,24 +990,26 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (g.type === "LineString") segs.push(g.coordinates);
         else if (g.type === "MultiLineString") for (const l of g.coordinates) segs.push(l);
       }
-      let res = null, viaGraph = false, note = "";
-      if (segs.length >= 4) {
+      let viaGraph = false, note = "";
+      // 1) MOTEUR (ORS/Mapbox) = base fiable : suit vraiment les rues + alternatives.
+      //    « direct » = le plus court réel ; « shade » = l'alternative la plus ombragée.
+      const eng = await backendRoutes(map, a, b, sampler);
+      let direct = eng.direct, shade = eng.shade;
+      // 2) Réseau piéton local (tuiles) → cherche un DÉTOUR plus ombragé que l'alternative moteur.
+      if (segs.length >= 8) {
         const graph = buildGraph(segs, sampler);
         const snap = (p) => { let bk = null, bd = Infinity; for (const [k, q] of graph.nodes) { const dd = haversine(p, q); if (dd < bd) { bd = dd; bk = k; } } return bk; };
         const ka = snap(a), kb = snap(b);
         const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
         const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
         const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
-        // pénalité croissante : force un détour ombragé s'il en existe un
         let pShade = null;
-        for (const K of [3, 6, 12]) {
-          pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade)));
-          if (!samePath(pShade, pDirect)) break;
-        }
-        const direct = mkRoute(pDirect), shade = mkRoute(pShade);
-        if (direct && shade) { res = { shade, direct }; viaGraph = true; }
+        for (const K of [4, 8, 16, 30]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
+        const gShade = mkRoute(pShade);
+        // adopte le détour local s'il est SENSIBLEMENT plus ombragé, sans être déraisonnablement long
+        if (gShade && gShade.shade > shade.shade + 0.04 && gShade.distance < Math.max(direct.distance * 1.8, 400)) { shade = gShade; viaGraph = true; }
       }
-      if (!res) { res = await backendRoutes(map, a, b, sampler); note = "Réseau des tuiles insuffisant ici — itinéraire du moteur (sans optimisation d'ombre) ; zoomez sur la zone pour l'optimisation locale."; }
+      const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
@@ -1197,7 +1207,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 </button>
               ))}
               {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Le plus ombragé = le plus direct ici. {routeResult.night ? "Il fait nuit." : "À cette heure les ombres sont peut-être courtes — essayez une heure de soleil plus rasant (matin/fin d'après-midi)."}</div>}
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Optimisé sur le réseau local (tuiles) pondéré par l'ombre." : "⚠ Réseau local insuffisant → itinéraire du moteur (non optimisé)."}</div>
+              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>{routeResult.graph ? "✓ Détour ombragé optimisé sur le réseau local (tuiles)." : "Le plus court (moteur) + son alternative la plus ombragée. Pour un vrai détour ombragé, zoomez sur la zone (réseau local plus dense)."}</div>
             </div>
           )}
 
