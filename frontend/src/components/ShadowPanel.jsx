@@ -320,9 +320,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const opacityRef = useRef(0.35);
   const canopy3dRef = useRef(false);
   const canopy3dTimer = useRef(null);
+  const playingRef = useRef(false);      // lecture « Journée » en cours
+  const lastViewRef = useRef("");        // dernière emprise ré-échantillonnée (idle)
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
-  hourRef.current = hour; opacityRef.current = opacity;   // synchro (lecture dans les callbacks)
+  playingRef.current = playing;
+  // pendant la lecture, la boucle rAF fait autorité sur hourRef (pas d'écrasement).
+  if (!playing) hourRef.current = hour;
+  opacityRef.current = opacity;
 
   // ── ouverture : Liberty + zoom bâtiments (carte NORMALE, pas d'inclinaison
   //    imposée — l'utilisateur incline/pivote à la souris s'il le souhaite) ───
@@ -406,7 +411,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!blds.length) blds = refreshBuildings(map, scopeBboxRef.current);
 
     const c = map.getCenter();
-    const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
+    // heure = hourRef (= `hour` hors lecture ; piloté par la boucle rAF pendant la lecture)
+    const { alt, az } = sunPosition(localMs(date, hourRef.current, tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
     const altDeg = alt / RAD;
     const src = map.getSource(SRC);
     const can = canopyRef.current;
@@ -458,7 +464,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       }
     }
     setInfo({ night: false, alt: altDeg, factor, count: feats.length });
-  }, [mapRef, date, hour, defH, trees, ensureShadowLayer, refreshBuildings]);
+    // NB: `hour` n'est PAS une dépendance — compute lit hourRef ; le curseur et la
+    // boucle de lecture déclenchent le rendu impérativement (évite les recalculs
+    // redondants pendant la lecture).
+  }, [mapRef, date, defH, trees, ensureShadowLayer, refreshBuildings]);
   computeRef.current = compute;
 
   useEffect(() => { const t = requestAnimationFrame(compute); return () => cancelAnimationFrame(t); }, [compute]);
@@ -1008,8 +1017,19 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map) return;
     const onMove = () => { refreshBuildings(map, scopeBboxRef.current); compute(); refreshSun(); if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); };
     const onStyle = () => { setTimeout(() => { refreshBuildings(map, scopeBboxRef.current); compute(); if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); }, 300); };
-    map.on("moveend", onMove); map.on("styledata", onStyle);
-    return () => { map.off("moveend", onMove); map.off("styledata", onStyle); };
+    // « idle » : les tuiles de bâtiments arrivent APRÈS le moveend → on ré-échantillonne
+    // une fois la vue stabilisée pour prendre en compte les bâtiments nouvellement chargés.
+    const onIdle = () => {
+      if (playingRef.current) return;   // la lecture gère son propre rendu
+      const c = map.getCenter();
+      const key = `${c.lng.toFixed(4)},${c.lat.toFixed(4)},${map.getZoom().toFixed(2)}`;
+      if (key === lastViewRef.current) return;   // même emprise → rien à faire (évite la boucle)
+      lastViewRef.current = key;
+      refreshBuildings(map, scopeBboxRef.current); compute();
+      if (treesRef.current) scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D();
+    };
+    map.on("moveend", onMove); map.on("styledata", onStyle); map.on("idle", onIdle);
+    return () => { map.off("moveend", onMove); map.off("styledata", onStyle); map.off("idle", onIdle); };
   }, [mapRef, refreshBuildings, compute, scheduleCanopy, refreshSun, scheduleCanopy3D]);
 
   // fondu des ombres (nuit tombante) — dip d'opacité puis retour
@@ -1023,27 +1043,35 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [mapRef]);
 
   useEffect(() => {
-    if (!playing) { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } if (hideCanopyRef.current) { hideCanopyRef.current = false; computeRef.current?.(); } return; }
+    if (!playing) { if (playRef.current) { cancelAnimationFrame(playRef.current); playRef.current = null; } if (hideCanopyRef.current) { hideCanopyRef.current = false; computeRef.current?.(); } return; }
     // pendant la lecture « Journée » : canopée masquée (option désactivée par défaut)
     hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();
-    // balaie du LEVER au COUCHER du soleil (lieu + jour), une seule fois, puis
-    // s'arrête en FONDU (nuit tombante). Pas fin + cadence élevée = fluide.
+    // Boucle requestAnimationFrame : l'heure avance selon le TEMPS ÉCOULÉ RÉEL
+    // (vitesse angulaire constante) et le rendu s'auto-cadence sur la capacité
+    // d'affichage → défilement fluide, pas de saccade même si une image coûte cher.
     const lo0 = sunRef.current?.riseH ?? 6, hi0 = sunRef.current?.setH ?? 21;
-    if (hourRef.current < lo0 || hourRef.current >= hi0) setHour(lo0);
-    playRef.current = setInterval(() => {
-      const lo = sunRef.current?.riseH ?? 6, hi = sunRef.current?.setH ?? 21;
-      const nx = hourRef.current + 0.12;
-      if (nx >= hi) { setHour(hi); setPlaying(false); fadeShadows(); return; }
-      setHour(nx);
-    }, 80);
-    return () => { if (playRef.current) { clearInterval(playRef.current); playRef.current = null; } };
+    if (hourRef.current < lo0 || hourRef.current >= hi0) { hourRef.current = lo0; setHour(lo0); }
+    const RATE = 1.6;            // heures de simulation par seconde réelle
+    let last = performance.now(), lastClock = 0;
+    const loop = (t) => {
+      const dt = Math.min(0.06, (t - last) / 1000); last = t;
+      const hi = sunRef.current?.setH ?? 21;
+      let nx = hourRef.current + dt * RATE;
+      if (nx >= hi) { hourRef.current = hi; setHour(hi); computeRef.current?.(); setPlaying(false); fadeShadows(); return; }
+      hourRef.current = nx;
+      computeRef.current?.();                              // rendu impératif à hourRef
+      if (t - lastClock > 140) { lastClock = t; setHour(nx); }   // horloge (throttle, sans re-calcul)
+      playRef.current = requestAnimationFrame(loop);
+    };
+    playRef.current = requestAnimationFrame(loop);
+    return () => { if (playRef.current) { cancelAnimationFrame(playRef.current); playRef.current = null; } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, fadeShadows]);
 
   useEffect(() => {
     return () => {
       const map = mapRef?.current?.getMap?.();
-      if (playRef.current) clearInterval(playRef.current);
+      if (playRef.current) cancelAnimationFrame(playRef.current);
       if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
       if (map && preCamRef.current) { try { map.jumpTo({ bearing: preCamRef.current.bearing }); } catch (_) {} }
       clearTimeout(canopyTimer.current); clearTimeout(geoTimer.current); clearTimeout(canopy3dTimer.current);
@@ -1116,7 +1144,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             </div>
             <div style={{ width: 150 }}>
               <div style={lbl}>Heure · {clock}</div>
-              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { setPlaying(false); setHour(Number(e.target.value)); }} style={{ width: "100%" }} />
+              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ width: "100%" }} />
             </div>
           </div>
           <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: -4 }}>
@@ -1268,7 +1296,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 {playing ? "❚❚ Pause" : "▶ Journée"}
               </button>
               <input type="range" min={0} max={24} step={0.25} value={hour}
-                onChange={(e) => { setPlaying(false); setHour(Number(e.target.value)); }} style={{ flex: 1 }} />
+                onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ flex: 1 }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 9, color: C.dim, marginTop: 2 }}>
               <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
