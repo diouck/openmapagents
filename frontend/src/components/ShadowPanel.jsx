@@ -557,7 +557,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // houppiers = les taches (base 2 m pour un arbre isolé, 0 pour une masse)
     if (!map.getSource(C3D_SRC)) map.addSource(C3D_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(C3D_CROWN)) map.addLayer({ id: C3D_CROWN, type: "fill-extrusion", source: C3D_SRC,
-      paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["get", "height"], 2, "#9ccc7a", 6, "#5aa85a", 12, "#2f8f3f", 20, "#166534"],
+      paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["get", "height"], 2, "#d9f0a3", 5, "#addd8e", 8, "#78c679", 12, "#41ab5d", 16, "#238443", 22, "#006837"],
         "fill-extrusion-base": ["get", "base"], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.92 } });
   }, []);
 
@@ -568,7 +568,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }
     setCanopyMsg({ busy: true, three: true });
     try {
-      const body = { bbox, min_height: 2, scale: 3 };
+      const body = { bbox, min_height: 2, scale: 2, max_features: 4000 };   // plus fin → épouse la forme exacte
       if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
       const r = await fetch(`${API}/shadow/canopy_patches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }

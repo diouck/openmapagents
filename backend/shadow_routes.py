@@ -267,9 +267,9 @@ def canopy_patches(req: PatchReq):
             reducer=ee.Reducer.mean(), geometry=rect, scale=scale,
             geometryType="polygon", labelProperty="lbl", eightConnected=True,
             maxPixels=int(1e10), bestEffort=True,
-        ).limit(int(req.max_features))
-        # simplification plus forte → adoucit l'effet « marches d'escalier »
-        vectors = vectors.map(lambda f: f.simplify(maxError=float(scale) * 2.5))
+        ).limit(min(int(req.max_features or 1500), 6000))
+        # simplification LÉGÈRE → garde la forme réelle de la canopée (épouse l'emprise exacte)
+        vectors = vectors.map(lambda f: f.simplify(maxError=float(scale) * 1.2))
         gj = vectors.getInfo()
     except Exception as ex:
         raise HTTPException(502, f"Vectorisation canopée impossible : {ex}")
