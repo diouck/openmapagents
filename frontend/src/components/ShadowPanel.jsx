@@ -183,6 +183,29 @@ function haversine(a, b) {
   const x = Math.sin((b[1] - a[1]) * RAD / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((b[0] - a[0]) * RAD / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
 }
+/* Distance (m) d'un point [lng,lat] à une polyligne (approx planaire locale). */
+function distPtToRouteM(lng, lat, coords) {
+  if (!coords || coords.length < 1) return Infinity;
+  const mx = 111320 * Math.cos(lat * RAD), my = 111320;
+  const px = lng * mx, py = lat * my;
+  let best = Infinity;
+  if (coords.length === 1) { const dx = px - coords[0][0] * mx, dy = py - coords[0][1] * my; return Math.sqrt(dx * dx + dy * dy); }
+  for (let i = 0; i < coords.length - 1; i++) {
+    const ax = coords[i][0] * mx, ay = coords[i][1] * my, bx = coords[i + 1][0] * mx, by = coords[i + 1][1] * my;
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    let t = L2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const qx = ax + t * dx, qy = ay + t * dy, ex = px - qx, ey = py - qy, d2 = ex * ex + ey * ey;
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
+/* Un anneau [lng,lat] passe-t-il à ≤ maxM de la polyligne ? (test des sommets) */
+function ringNearRoute(ring, coords, maxM) {
+  for (const p of ring) if (distPtToRouteM(p[0], p[1], coords) <= maxM) return true;
+  return false;
+}
+const CORRIDOR_M = 100;   // rayon du couloir « ombres près du parcours » (prévisualisation)
+
 /* Densifie une polyligne à ~stepM mètres (pour échantillonner l'ombre). */
 function densify(coords, stepM) {
   const out = [];
@@ -284,6 +307,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [previewing, setPreviewing] = useState(false);
   const [previewSpeed, setPreviewSpeed] = useState(1);
   const [previewCanopy, setPreviewCanopy] = useState(false); // canopée pendant la prévisualisation (défaut off)
+  const [previewCorridor, setPreviewCorridor] = useState(true); // prévisu : n'afficher que les ombres à ≤100 m du parcours
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
@@ -322,8 +346,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const canopy3dTimer = useRef(null);
   const playingRef = useRef(false);      // lecture « Journée » en cours
   const lastViewRef = useRef("");        // dernière emprise ré-échantillonnée (idle)
+  const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
+  const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
+  const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
+  const c3dAllRef = useRef({ crowns: [], trunks: [] }); // patches canopée 3D complets (avant filtre couloir)
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
+  previewCorridorRef.current = previewCorridor;
   playingRef.current = playing;
   // pendant la lecture, la boucle rAF fait autorité sur hourRef (pas d'écrasement).
   if (!playing) hourRef.current = hour;
@@ -456,11 +485,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       hull.push(hull[0]);
       feats.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
     }
-    src && src.setData({ type: "FeatureCollection", features: feats });
-    featsRef.current = feats;
+    // Prévisualisation « couloir » : ne garder que les ombres de bâtiments qui passent
+    // à ≤ CORRIDOR_M du parcours (le reste sans ombre) — demandé pour la prévisu.
+    const corridor = previewingRef.current && previewCorridorRef.current && routeMaskRef.current;
+    let outFeats = feats;
+    if (corridor) { const rc = routeMaskRef.current; outFeats = feats.filter((f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M)); }
+    src && src.setData({ type: "FeatureCollection", features: outFeats });
+    featsRef.current = outFeats;
 
     // ombre de canopée : copies empilées de la base (0) au décalage plein
-    if (canOn && can.meanH > 0) {
+    // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
+    //  s'appuie sur la canopée 3D filtrée pour les arbres proches du parcours).
+    if (canOn && can.meanH > 0 && !corridor) {
       const full = can.meanH * factor;
       for (let i = 0; i < SHAD_K; i++) {
         const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
@@ -501,6 +537,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (previewing || playing) { hideCanopyRef.current = !previewCanopy; computeRef.current?.(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewCanopy]);
+  // applique le couloir « ombres proches du parcours » à la volée pendant la prévisu
+  useEffect(() => {
+    if (!previewing) return;
+    const map = mapRef?.current?.getMap?.();
+    computeRef.current?.(); if (map) applyC3D(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCorridor]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -561,6 +604,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         "fill-extrusion-base": ["get", "base"], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.92 } });
   }, []);
 
+  // (Ré)applique les patches canopée 3D aux sources, filtrés au couloir du parcours
+  // pendant la prévisualisation (arbres à ≤ CORRIDOR_M du tracé ; le reste masqué).
+  const applyC3D = useCallback((map) => {
+    if (!map) return;
+    const all = c3dAllRef.current || { crowns: [], trunks: [] };
+    const corridor = previewingRef.current && previewCorridorRef.current && routeMaskRef.current;
+    const rc = routeMaskRef.current;
+    const keep = (f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M);
+    const crowns = corridor ? (all.crowns || []).filter(keep) : (all.crowns || []);
+    const trunks = corridor ? (all.trunks || []).filter(keep) : (all.trunks || []);
+    map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
+    map.getSource(C3D_TSRC)?.setData({ type: "FeatureCollection", features: trunks });
+  }, []);
+
   const fetchCanopy3D = useCallback(async () => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     let bbox = scopeBboxRef.current;
@@ -586,12 +643,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         }
       }
       ensureC3DLayers(map);
-      map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
-      map.getSource(C3D_TSRC)?.setData({ type: "FeatureCollection", features: trunks });
+      c3dAllRef.current = { crowns, trunks };
+      applyC3D(map);                                    // filtré au couloir si prévisu
       setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true);
       setCanopyMsg({ ok: true, three: true, n: crowns.length, dataset: gj.dataset });
     } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
-  }, [mapRef, ensureC3DLayers]);
+  }, [mapRef, ensureC3DLayers, applyC3D]);
 
   const scheduleCanopy3D = useCallback(() => {
     clearTimeout(canopy3dTimer.current);
@@ -797,7 +854,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false };
     const c = map.getCenter();
     const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
-    if (alt <= 0.02) return { shaded: () => true, night: true };
+    // Nuit → PAS d'ombre exploitable pour l'itinéraire (0 %), pas « ombragé partout »
+    // (renvoyer true faussait le calcul à 100 %).
+    if (alt <= 0.02) return { shaded: () => false, night: true };
     const [w, s, e, n] = bbox;
     const W = 600, Hh = Math.max(1, Math.min(1400, Math.round(W * (n - s) / (e - w))));
     const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hh;
@@ -805,9 +864,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const ctx = cv.getContext("2d"); ctx.fillStyle = "#fff";
     const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
     const cosN = Math.cos(th), sinE = Math.sin(th);
+    // Soleil bas → tan(alt) petit → ombres démesurées qui recouvrent tout le couloir
+    // (faux 100 %). On PLAFONNE la longueur d'ombre prise en compte pour l'itinéraire :
+    // seule l'ombre « utile » de proximité compte (un piéton profite de l'ombre proche).
+    const SAMP_CAP = 60;   // m
     for (const b of bldRef.current) {
       const H = isFinite(b.h) ? b.h : Number(defH); if (!(H > 0)) continue;
-      const d = H * factor, dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
+      const d = Math.min(H * factor, SAMP_CAP), dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(b.lat * RAD));
       const hf = b.hf, m = hf.length, pts = new Array(m * 2);
       for (let i = 0; i < m; i++) { const q = hf[i]; pts[i] = q; pts[m + i] = [q[0] + dLng, q[1] + dLat]; }
       const hull = convexHull(pts); if (hull.length < 3) continue;
@@ -822,7 +885,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (img && cc) {
         const cw = cc[0][0], cn = cc[0][1], ce = cc[1][0], cs = cc[2][1];
         const dx0 = X(cw), dy0 = Y(cn), dw = (ce - cw) / (e - w) * W, dh = (cn - cs) / (n - s) * Hh;
-        const full = (canopyRef.current.meanH || 0) * factor, midlat = ((s + n) / 2) * RAD;
+        const full = Math.min((canopyRef.current.meanH || 0) * factor, SAMP_CAP), midlat = ((s + n) / 2) * RAD;
         for (let k = 0; k < SHAD_K; k++) {
           const frac = SHAD_K > 1 ? k / (SHAD_K - 1) : 1, d = full * frac;
           const px = ((d * sinE) / (111320 * Math.cos(midlat))) / (e - w) * W, py = -((d * cosN) / 111320) / (n - s) * Hh;
@@ -869,10 +932,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const stopPreview = useCallback(() => {
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
     animRef.current = null; setPreviewing(false);
+    previewingRef.current = false; routeMaskRef.current = null;   // sort du mode couloir
     const map = mapRef?.current?.getMap?.();
     const ms = map?.getSource?.(RT_MARK); if (ms) ms.setData({ type: "FeatureCollection", features: [] });
-    if (map) restoreCam(map);
-  }, [mapRef, restoreCam]);
+    if (map) { restoreCam(map); applyC3D(map); }   // ombres + canopée 3D complètes restaurées
+  }, [mapRef, restoreCam, applyC3D]);
 
   const startPreview = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
@@ -883,7 +947,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
       layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
-    hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();   // canopée masquée pendant la prévisualisation (option)
+    previewingRef.current = true; routeMaskRef.current = g.coords;   // couloir « ombres à ≤100 m du parcours »
+    hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();   // ombres bâtiments filtrées au couloir + canopée masquée (option)
+    applyC3D(map);                                                   // canopée 3D filtrée au couloir
 
     const mode = navModeRef.current;                       // immersive | follow | top
     const followCam = mode === "immersive" || mode === "follow";
@@ -908,10 +974,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       // mode immersif/suivi : la carte tourne et suit la flèche (façon GPS 3D)
       if (followCam) { try { map.jumpTo({ center: pos, bearing: hdg, zoom: navZoom, pitch: navPitch }); } catch (_) {} }
       if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
-      else { animRef.current = null; setPreviewing(false); restoreCam(map); }
+      else { animRef.current = null; setPreviewing(false); previewingRef.current = false; routeMaskRef.current = null; restoreCam(map); applyC3D(map); }
     };
     animRef.current = { raf: requestAnimationFrame(step), start };
-  }, [mapRef, restoreCam]);
+  }, [mapRef, restoreCam, applyC3D]);
 
   const selectRoute = useCallback((kind) => {
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
@@ -1008,10 +1074,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         let pShade = null;
         for (const K of [3, 8, 20, 45]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
         const gShade = mkRoute(pShade);
-        // On ACCEPTE un détour plus long (aller chercher l'ombre à <~100 m) : jusqu'à
-        // +250 m ou +70% de longueur, pour un gain d'ombre même modeste (≥ 2 pts).
-        const maxLen = Math.max(direct.distance + 250, direct.distance * 1.7);
-        if (gShade && gShade.shade > shade.shade + 0.02 && gShade.distance <= maxLen) { shade = gShade; viaGraph = true; }
+        // Détour MODÉRÉ pour aller chercher l'ombre proche : jusqu'à +150 m ou +35 %
+        // de longueur (petit détour, pas un grand contournement), et seulement si le
+        // gain d'ombre est net (≥ 5 pts) — évite un « plus ombragé » identique/absurde.
+        const maxLen = Math.max(direct.distance + 150, direct.distance * 1.35);
+        if (gShade && gShade.shade > shade.shade + 0.05 && gShade.distance <= maxLen) { shade = gShade; viaGraph = true; }
       }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
@@ -1244,6 +1311,10 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                   </button>
                 ))}
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+                <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
+                🎯 N'afficher que les ombres à ≤ 100 m du parcours
+              </label>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
                 <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
                 🌳 Afficher la canopée pendant la prévisualisation
