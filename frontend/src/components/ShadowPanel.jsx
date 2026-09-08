@@ -44,12 +44,19 @@ function localMs(dateStr, hour, offsetHours) {
   const [y, mo, d] = dateStr.split("-").map(Number);
   return Date.UTC(y, mo - 1, d, 0, 0, 0, 0) + (hour - offsetHours) * 3600 * 1000;
 }
-/* Décalage horaire (heures) selon le mode : longitude (défaut, correct hors
-   Europe p.ex. US), UTC, ou fuseau du navigateur. */
-function tzOffsetHours(lng, mode) {
+/* Décalage horaire (heures) selon le mode :
+   - browser (défaut) : fuseau CIVIL du navigateur, avec heure d'été/hiver du JOUR
+     choisi (correct pour la région de l'utilisateur, ex. Paris été = UTC+2) ;
+   - auto : heure SOLAIRE moyenne du lieu (longitude / 15) ;
+   - utc : 0. */
+function tzOffsetHours(lng, mode, dateStr) {
   if (mode === "utc") return 0;
-  if (mode === "browser") return -new Date().getTimezoneOffset() / 60;
-  return Math.round(lng / 15);   // auto : heure solaire moyenne du lieu
+  if (mode === "browser") {
+    let dref = new Date();
+    if (dateStr) { const [y, mo, d] = dateStr.split("-").map(Number); if (y) dref = new Date(y, mo - 1, d, 12, 0, 0); }
+    return -dref.getTimezoneOffset() / 60;   // DST du jour choisi géré par le navigateur
+  }
+  return Math.round(lng / 15);   // heure solaire moyenne du lieu
 }
 
 /* Lever / coucher du soleil (port SunCalc getTimes) pour un lieu + un jour.
@@ -292,7 +299,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [info, setInfo] = useState(null);
   const [canopyMsg, setCanopyMsg] = useState(null);
   const [sunTimes, setSunTimes] = useState(null);   // {riseH, setH, riseStr, setStr, polar, off}
-  const [tzMode, setTzMode] = useState("auto");     // "auto" (longitude) | "utc" | "browser"
+  const [tzMode, setTzMode] = useState("browser");  // "browser" (fuseau local, défaut) | "auto" (longitude/solaire) | "utc"
   const [navMode, setNavMode] = useState("top");    // "top" (défaut) | "immersive" | "follow"
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
@@ -335,7 +342,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const previewSpeedRef = useRef(1);
   const preCamRef = useRef(null);        // caméra avant prévisualisation (pour restaurer)
   const geoTimer = useRef(null);         // debounce géocodage
-  const tzModeRef = useRef("auto");
+  const tzModeRef = useRef("browser");
   const navModeRef = useRef("top");
   const previewCanopyRef = useRef(false);
   const hideCanopyRef = useRef(false);   // masque la canopée (pendant une prévisualisation)
@@ -449,7 +456,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
     const c = map.getCenter();
     // heure = hourRef (= `hour` hors lecture ; piloté par la boucle rAF pendant la lecture)
-    const { alt, az } = sunPosition(localMs(date, hourRef.current, tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
+    const { alt, az } = sunPosition(localMs(date, hourRef.current, tzOffsetHours(c.lng, tzModeRef.current, date)), c.lat, c.lng);
     const altDeg = alt / RAD;
     const src = map.getSource(SRC);
     const can = canopyRef.current;
@@ -522,7 +529,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const c = map.getCenter();
     const [y, mo, dd] = date.split("-").map(Number);
     const noon = Date.UTC(y, mo - 1, dd, 12, 0, 0, 0);
-    const off = tzOffsetHours(c.lng, tzModeRef.current);
+    const off = tzOffsetHours(c.lng, tzModeRef.current, date);
     const t = sunTimesMs(noon, c.lat, c.lng);
     if (!t.rise || !t.set) { setSunTimes({ polar: true, off }); sunRef.current = { riseH: 0, setH: 24 }; return; }
     const dayStart = Date.UTC(y, mo - 1, dd, 0, 0, 0, 0);
@@ -779,7 +786,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const hi = Math.min(24, Math.ceil(sunRef.current?.setH ?? 20));
       const out = [];
       for (let hr = lo; hr <= hi; hr++) {
-        const { alt, az } = sunPosition(localMs(date, hr, tzOffsetHours(cLng, tzModeRef.current)), cLat, cLng);
+        const { alt, az } = sunPosition(localMs(date, hr, tzOffsetHours(cLng, tzModeRef.current, date)), cLat, cLng);
         if (alt <= 0.02) { out.push({ hour: hr, alt: alt / RAD, night: true, bldPct: 0, canPct: 0, totalPct: 0 }); continue; }
         const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
         const cosN = Math.cos(th), sinE = Math.sin(th);
@@ -853,7 +860,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const buildSampler = useCallback(async (bbox) => {
     const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false };
     const c = map.getCenter();
-    const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current)), c.lat, c.lng);
+    const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current, date)), c.lat, c.lng);
     // Nuit → PAS d'ombre exploitable pour l'itinéraire (0 %), pas « ombragé partout »
     // (renvoyer true faussait le calcul à 100 %).
     if (alt <= 0.02) return { shaded: () => false, night: true };
@@ -1368,11 +1375,11 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
           <div>
             <div style={lbl}>Fuseau horaire</div>
             <select value={tzMode} onChange={(e) => setTzMode(e.target.value)} style={{ ...inp, width: "100%" }}>
-              <option value="auto">Heure locale du lieu (longitude){sunTimes && sunTimes.off != null ? ` · ${fmtOffset(sunTimes.off)}` : ""}</option>
+              <option value="browser">Fuseau local (heure civile){sunTimes && sunTimes.off != null ? ` · ${fmtOffset(sunTimes.off)}` : ""}</option>
+              <option value="auto">Heure solaire du lieu (longitude)</option>
               <option value="utc">UTC</option>
-              <option value="browser">Fuseau du navigateur</option>
             </select>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>« Longitude » = heure solaire moyenne du lieu (correcte p.ex. aux US, ~1 h d'écart en Europe à cause du fuseau politique).</div>
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>Défaut = <b>fuseau civil du navigateur</b> (heure d'été/hiver gérée) — correct pour votre région (Paris → UTC+2 l'été). « Heure solaire » = décalage selon la longitude (heure du soleil, décalée de ~1–2 h par rapport à l'heure civile en Europe). Pour un lieu dans un autre fuseau que le vôtre, choisissez UTC.</div>
           </div>
 
           <div>
