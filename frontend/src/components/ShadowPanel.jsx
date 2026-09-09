@@ -11,7 +11,6 @@
  *   canopée chargée).
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import * as turf from "@turf/turf";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
@@ -219,6 +218,24 @@ function ringNearRoute(ring, coords, maxM) {
   for (const p of ring) if (distPtToRouteM(p[0], p[1], coords) <= maxM) return true;
   return false;
 }
+/* Tampon (buffer) approx d'une polyligne → anneau [lng,lat] à ~Rm de part et d'autre
+   (jointures droites ; suffisant pour un trou de masque). */
+function bufferRing(coords, Rm) {
+  if (!coords || coords.length < 2) return null;
+  const mLat = 111320, mLng = 111320 * Math.cos((coords[0][1]) * RAD) || 1;
+  const left = [], right = [];
+  for (let i = 0; i < coords.length; i++) {
+    const p = coords[Math.max(0, i - 1)], q = coords[Math.min(coords.length - 1, i + 1)];
+    let dx = (q[0] - p[0]) * mLng, dy = (q[1] - p[1]) * mLat;
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const px = -dy, py = dx;   // perpendiculaire unitaire
+    left.push([coords[i][0] + (px * Rm) / mLng, coords[i][1] + (py * Rm) / mLat]);
+    right.push([coords[i][0] - (px * Rm) / mLng, coords[i][1] - (py * Rm) / mLat]);
+  }
+  const ring = left.concat(right.reverse());
+  ring.push(ring[0]);
+  return ring;
+}
 const CORRIDOR_M = 100;   // rayon du couloir « ombres près du parcours » (prévisualisation)
 
 /* Densifie une polyligne à ~stepM mètres (pour échantillonner l'ombre). */
@@ -402,6 +419,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const sl = map.getStyle().layers || [];
     return (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
   };
+  // avant le 1er label uniquement (au-dessus des bâtiments 3D) → le voile estompe aussi le bâti
+  const beforeLabels = (map) => { const sl = map.getStyle().layers || []; return sl.find((l) => l.type === "symbol")?.id; };
   const setVis = (map, id, on) => { try { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); } catch (_) {} };
   // Affiche/masque les arbres du parcours selon le mode : à plat (dégradé, défaut) ou 3D.
   // La vue « Canopée 3D » de l'onglet Ombrage force la 3D quand elle est active.
@@ -425,7 +444,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // tracé ; rempli d'un blanc semi-opaque. Au-dessus des bâtiments/canopée, sous les labels.
     if (!map.getSource(MASK_SRC)) map.addSource(MASK_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(MASK_LYR)) map.addLayer({ id: MASK_LYR, type: "fill", source: MASK_SRC,
-      paint: { "fill-color": "#f4f6f8", "fill-opacity": 0.72, "fill-antialias": false } }, beforeId(map));
+      paint: { "fill-color": "#0b1020", "fill-opacity": 0.42, "fill-antialias": false } }, beforeLabels(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -525,15 +544,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const rc = routeMaskRef.current;
       if (corridor && rc && rc.length >= 2) {
         // tampon (buffer) du tracé calculé UNE fois par itinéraire (cache) → pas de
-        // recalcul turf à chaque frame de prévisualisation.
+        // recalcul à chaque frame de prévisualisation.
         if (!maskHolesRef.current || maskHolesRef.current.rc !== rc) {
-          const holes = [];
-          try {
-            const bg = turf.buffer(turf.lineString(rc), MASK_BUFFER_M, { units: "meters" })?.geometry;
-            if (bg?.type === "Polygon") holes.push(bg.coordinates[0]);
-            else if (bg?.type === "MultiPolygon") for (const p of bg.coordinates) holes.push(p[0]);
-          } catch (_) {}
-          maskHolesRef.current = { rc, holes };
+          const ring = bufferRing(rc, MASK_BUFFER_M);
+          maskHolesRef.current = { rc, holes: ring ? [ring] : [] };
         }
         const holes = maskHolesRef.current.holes;
         if (holes.length) {
