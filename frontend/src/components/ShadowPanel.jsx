@@ -732,7 +732,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const d = await r.json();
       const url = `data:image/png;base64,${d.canopy_b64}`;
-      canopyRef.current = { url, corners: d.image_coordinates, meanH: d.mean_height, areaM2: d.canopy_area_m2 };
+      canopyRef.current = { url, corners: d.image_coordinates, meanH: d.mean_height != null ? Math.max(3, d.mean_height) : 0, areaM2: d.canopy_area_m2 };   // canopée : hauteur plancher 3 m
       ensureCanopyLayers(map, url, d.image_coordinates);
       setCanopyMsg({ ok: true, dataset: d.dataset, meanH: d.mean_height, areaM2: d.canopy_area_m2 });
       compute();
@@ -786,14 +786,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }
     setCanopyMsg({ busy: true, three: true });
     try {
-      const body = { bbox, min_height: 2, scale: 2, max_features: 4000 };   // plus fin → épouse la forme exacte
+      const body = { bbox, min_height: 3, scale: 2, max_features: 4000 };   // canopée ≥ 3 m (défaut) ; plus fin → forme exacte
       if (zonePolysRef.current && zoneRef.current?.geojson) { const gm = zoneGeometry(zoneRef.current.geojson); if (gm) body.geometry = gm; }
       const r = await fetch(`${API}/shadow/canopy_patches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) { let m = `Erreur ${r.status}`; try { m = (await r.json()).detail || m; } catch (_) {} throw new Error(m); }
       const gj = await r.json();
       const crowns = [], trunks = [];
       for (const f of gj.features || []) {
-        const h = f.properties?.height; if (h == null) continue;
+        const hRaw = f.properties?.height; const h = (hRaw == null || !isFinite(hRaw)) ? 3 : Math.max(3, hRaw);   // canopée sans hauteur → 3 m par défaut
         const g = f.geometry; if (!g) continue;
         const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
         for (const poly of polys) {

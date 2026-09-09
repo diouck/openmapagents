@@ -294,7 +294,7 @@ def shadow_canopy(req: CanopyReq):
 
 class PatchReq(BaseModel):
     bbox: List[float]                 # [ouest, sud, est, nord] WGS84
-    min_height: float = 2.0           # canopée ≥ 2 m (tronc/houppier)
+    min_height: float = 3.0           # canopée ≥ 3 m (défaut ; ignore la végétation basse)
     scale: int = 4                    # résolution de vectorisation (m)
     max_features: int = 1500
     geometry: Optional[dict] = None   # clip exact (emprise importée)
