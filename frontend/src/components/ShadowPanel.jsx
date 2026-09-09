@@ -321,7 +321,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [routeErr, setRouteErr] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewSpeed, setPreviewSpeed] = useState(1);
-  const [previewCanopy, setPreviewCanopy] = useState(false); // canopée pendant la prévisualisation (défaut off)
+  const [previewCanopy, setPreviewCanopy] = useState(true); // canopée pendant la prévisualisation (défaut on)
   const [previewCorridor, setPreviewCorridor] = useState(true); // prévisu : n'afficher que les ombres à ≤100 m du parcours
   const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
   const [maskPct, setMaskPct] = useState(80);        // intensité du voile hors couloir (0 = rien, 100 = tout masqué)
@@ -355,7 +355,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const geoTimer = useRef(null);         // debounce géocodage
   const tzModeRef = useRef("browser");
   const navModeRef = useRef("top");
-  const previewCanopyRef = useRef(false);
+  const previewCanopyRef = useRef(true);
   const hideCanopyRef = useRef(false);   // masque la canopée (pendant une prévisualisation)
   const computeRef = useRef(null);       // dernier compute (appelable depuis les callbacks)
   const hourRef = useRef(14);
@@ -1099,7 +1099,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
-      layout: { "icon-image": "oma-nav-arrow", "icon-size": 1.15, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+      layout: { "icon-image": "oma-nav-arrow", "icon-size": 1.25, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map",
+        "icon-pitch-alignment": "viewport", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
     previewingRef.current = true; routeMaskRef.current = g.coords;   // couloir « ombres à ≤100 m du parcours »
     hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();   // ombres bâtiments filtrées au couloir + canopée masquée (option)
@@ -1141,6 +1142,36 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (map && routeGeomRef.current) drawRoutes(map, routeGeomRef.current);   // ne redessine QUE le tracé choisi
     computeRef.current?.(); if (map) applyC3D(map);   // re-filtre au couloir du nouvel itinéraire
   }, [mapRef, stopPreview, applyC3D, drawRoutes]);
+
+  // Efface l'itinéraire (A/B, tracés, voile) et revient à la carte nue
+  const clearRoute = useCallback(() => {
+    stopPreview();
+    routeABRef.current = []; setRouteAB([]); setAddr({ a: "", b: "" }); setSugg({ a: [], b: [] });
+    routeGeomRef.current = null; routeMaskRef.current = null; maskHolesRef.current = null;
+    setRouteResult(null); setRouteErr(null);
+    const map = mapRef?.current?.getMap?.();
+    if (map) {
+      for (const id of [RT_SRC, RT_AB, RT_MARK, MASK_SRC]) { const s = map.getSource(id); if (s) { try { s.setData({ type: "FeatureCollection", features: [] }); } catch (_) {} } }
+      computeRef.current?.();
+    }
+  }, [mapRef, stopPreview]);
+
+  // Exporte l'itinéraire (les 2 tracés + A/B) en GeoJSON téléchargeable
+  const exportRoute = useCallback(() => {
+    const g = routeGeomRef.current; if (!g) { setRouteErr("Calculez d'abord un itinéraire."); return; }
+    const feats = [];
+    for (const kind of ["shade", "direct"]) {
+      const r = g[kind];
+      if (r?.coords) feats.push({ type: "Feature", properties: { type: kind === "shade" ? "plus_ombrage" : "plus_direct", distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100) }, geometry: { type: "LineString", coordinates: r.coords } });
+    }
+    (routeABRef.current || []).filter(Boolean).forEach((p, i) => feats.push({ type: "Feature", properties: { point: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } }));
+    try {
+      const blob = new Blob([JSON.stringify({ type: "FeatureCollection", features: feats }, null, 2)], { type: "application/geo+json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "itineraire-ombrage.geojson"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (_) {}
+  }, []);
 
   const startRouteAB = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
@@ -1505,6 +1536,16 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
                 🌳 Afficher la canopée pendant la prévisualisation
               </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={exportRoute}
+                  style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.acc}66`, background: "transparent", color: C.acc }}>
+                  ⬇ Exporter la couche (GeoJSON)
+                </button>
+                <button onClick={clearRoute}
+                  style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.bdr}`, background: "transparent", color: C.mut }}>
+                  🗑 Effacer l'itinéraire
+                </button>
+              </div>
               <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
             </div>
           )}
