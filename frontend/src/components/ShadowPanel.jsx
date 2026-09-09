@@ -1228,8 +1228,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (note) setRouteErr(note);
       drawRoutes(map, res);
       computeRef.current?.();                     // onglet Itinéraire : bâtiments filtrés au couloir
-      // arbres du parcours : à plat = raster nuancé (+ ombre) ; 3D = extrusion filtrée
-      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } }
+      // arbres du parcours : à plat = raster déjà chargé par le await fetchCanopy() ci-dessus
+      // (pas de refetch → évite la rafale de requêtes GEE) ; 3D = extrusion filtrée
+      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
     } catch (e) {
       // dernier recours : backend seul
       try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
