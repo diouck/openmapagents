@@ -353,6 +353,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const canopy3dTimer = useRef(null);
   const playingRef = useRef(false);      // lecture « Journée » en cours
   const lastViewRef = useRef("");        // dernière emprise ré-échantillonnée (idle)
+  const tabRef = useRef("sim");          // onglet actif (sim | route | def)
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
   const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
@@ -360,6 +361,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
   previewCorridorRef.current = previewCorridor;
+  tabRef.current = tab;
   playingRef.current = playing;
   // pendant la lecture, la boucle rAF fait autorité sur hourRef (pas d'écrasement).
   if (!playing) hourRef.current = hour;
@@ -463,7 +465,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const night = alt <= 0.02;
 
     const canOn = trees && !!can && !hideCanopyRef.current;   // masquée pendant une prévisualisation
-    setVis(map, IMG_DISP, canOn && !canopy3dRef.current);     // canopée plate masquée si vue 3D active
+    const onRouteTab = tabRef.current === "route";
+    const hasRoute = !!routeMaskRef.current;
+    // Onglet Itinéraire : RIEN tant qu'aucun trajet (carte seule) ; une fois A→B calculé,
+    // on n'affiche QUE les bâtiments/arbres le long du parcours (couloir), pas les autres.
+    if (onRouteTab && !hasRoute) {
+      src && src.setData({ type: "FeatureCollection", features: [] });
+      featsRef.current = [];
+      setVis(map, IMG_DISP, false);
+      for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
+      if (!canopy3dRef.current) { setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); }
+      setInfo({ night, alt: altDeg, count: 0, routeEmpty: true });
+      return;
+    }
+    // couloir actif = prévisualisation OU onglet Itinéraire avec un trajet
+    const corridor = (previewingRef.current || onRouteTab) && previewCorridorRef.current && hasRoute;
+    const canOnDisp = canOn && !corridor;                     // canopée plate cachée en mode couloir
+    setVis(map, IMG_DISP, canOnDisp && !canopy3dRef.current); // canopée plate masquée si vue 3D active
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
     if (night) {
@@ -492,9 +510,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       hull.push(hull[0]);
       feats.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
     }
-    // Prévisualisation « couloir » : ne garder que les ombres de bâtiments qui passent
-    // à ≤ CORRIDOR_M du parcours (le reste sans ombre) — demandé pour la prévisu.
-    const corridor = previewingRef.current && previewCorridorRef.current && routeMaskRef.current;
+    // Couloir (prévisu ou onglet Itinéraire avec trajet) : ne garder que les ombres de
+    // bâtiments qui passent à ≤ CORRIDOR_M du parcours (le reste sans ombre).
     let outFeats = feats;
     if (corridor) { const rc = routeMaskRef.current; outFeats = feats.filter((f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M)); }
     src && src.setData({ type: "FeatureCollection", features: outFeats });
@@ -503,7 +520,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // ombre de canopée : copies empilées de la base (0) au décalage plein
     // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
     //  s'appuie sur la canopée 3D filtrée pour les arbres proches du parcours).
-    if (canOn && can.meanH > 0 && !corridor) {
+    if (canOnDisp && can.meanH > 0) {
       const full = can.meanH * factor;
       for (let i = 0; i < SHAD_K; i++) {
         const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
@@ -551,6 +568,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     computeRef.current?.(); if (map) applyC3D(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewCorridor]);
+  // changement d'onglet : l'onglet Itinéraire = carte seule (sans trajet) ou couloir
+  // (avec trajet) ; les autres onglets = affichage complet. Masque la canopée 3D auto
+  // (chargée pour le parcours) en quittant l'onglet Itinéraire si la 3D n'est pas active.
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.();
+    computeRef.current?.();
+    if (map) {
+      applyC3D(map);
+      const hasC3D = (c3dAllRef.current?.crowns || []).length > 0;
+      if (tab === "route") {
+        if (treesRef.current && hasC3D) { setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true); }
+      } else if (!canopy3dRef.current) {
+        setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false);   // canopée 3D auto masquée hors Itinéraire
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -616,7 +650,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const applyC3D = useCallback((map) => {
     if (!map) return;
     const all = c3dAllRef.current || { crowns: [], trunks: [] };
-    const corridor = previewingRef.current && previewCorridorRef.current && routeMaskRef.current;
+    const corridor = (previewingRef.current || tabRef.current === "route") && previewCorridorRef.current && routeMaskRef.current;
     const rc = routeMaskRef.current;
     const keep = (f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M);
     const crowns = corridor ? (all.crowns || []).filter(keep) : (all.crowns || []);
@@ -939,7 +973,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const stopPreview = useCallback(() => {
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
     animRef.current = null; setPreviewing(false);
-    previewingRef.current = false; routeMaskRef.current = null;   // sort du mode couloir
+    previewingRef.current = false;
+    // garde le couloir si on reste dans l'onglet Itinéraire (sinon compute l'ignore)
+    routeMaskRef.current = routeGeomRef.current?.[routeSelRef.current]?.coords || null;
     const map = mapRef?.current?.getMap?.();
     const ms = map?.getSource?.(RT_MARK); if (ms) ms.setData({ type: "FeatureCollection", features: [] });
     if (map) { restoreCam(map); applyC3D(map); }   // ombres + canopée 3D complètes restaurées
@@ -981,20 +1017,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       // mode immersif/suivi : la carte tourne et suit la flèche (façon GPS 3D)
       if (followCam) { try { map.jumpTo({ center: pos, bearing: hdg, zoom: navZoom, pitch: navPitch }); } catch (_) {} }
       if (f < 1) animRef.current = { raf: requestAnimationFrame(step), start };
-      else { animRef.current = null; setPreviewing(false); previewingRef.current = false; routeMaskRef.current = null; restoreCam(map); applyC3D(map); }
+      else { animRef.current = null; setPreviewing(false); previewingRef.current = false; routeMaskRef.current = routeGeomRef.current?.[routeSelRef.current]?.coords || null; restoreCam(map); applyC3D(map); }
     };
     animRef.current = { raf: requestAnimationFrame(step), start };
   }, [mapRef, restoreCam, applyC3D]);
 
   const selectRoute = useCallback((kind) => {
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
+    // le couloir suit l'itinéraire choisi (bâtiments/arbres le long du tracé sélectionné)
+    routeMaskRef.current = routeGeomRef.current?.[kind]?.coords || routeMaskRef.current;
     const map = mapRef?.current?.getMap?.();
     if (map && map.getLayer(RT_LINE)) {
       map.setPaintProperty(RT_LINE, "line-width", ["case", ["==", ["get", "kind"], kind], 7, 4]);
       map.setPaintProperty(RT_LINE, "line-opacity", ["case", ["==", ["get", "kind"], kind], 1, 0.55]);
       if (map.getLayer(RT_CASE)) map.setPaintProperty(RT_CASE, "line-width", ["case", ["==", ["get", "kind"], kind], 11, 7]);
     }
-  }, [mapRef, stopPreview]);
+    computeRef.current?.(); if (map) applyC3D(map);   // re-filtre au couloir du nouvel itinéraire
+  }, [mapRef, stopPreview, applyC3D]);
 
   const startRouteAB = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
@@ -1090,15 +1129,19 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
+      routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
       if (note) setRouteErr(note);
       drawRoutes(map, res);
+      computeRef.current?.();                     // onglet Itinéraire : n'affiche que le couloir
+      if (treesRef.current) fetchCanopy3D();      // arbres le long du parcours (3D, filtré au couloir)
+      else applyC3D(map);
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) fetchCanopy3D(); else applyC3D(map); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
-  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes]);
+  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, applyC3D]);
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
