@@ -417,12 +417,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       map.addLayer({ id: LYR, type: "fill", source: SRC,
         paint: { "fill-color": "#0e1630", "fill-opacity": shadowOpacityExpr(opacity), "fill-antialias": false } }, beforeId(map));
     }
-    // Bâtiments proches du parcours mis en évidence : EMPRISE EXACTE remplie d'ambre
-    // (pas d'enveloppe grossière, pas de gros contour d'entourage) → on repère d'un
-    // coup d'œil quels bâtiments bordent l'itinéraire, à leur forme réelle.
+    // Bâtiments proches du parcours mis en évidence : TOUT le volume du bâtiment en
+    // ambre (extrusion à sa hauteur réelle, empreinte exacte) → cohérent avec le rendu
+    // 3D du fond (ne pas colorer que l'empreinte au sol, ça paraît bizarre).
     if (!map.getSource(BLD_HL_SRC)) map.addSource(BLD_HL_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    if (!map.getLayer(BLD_HL)) map.addLayer({ id: BLD_HL, type: "fill", source: BLD_HL_SRC,
-      paint: { "fill-color": "#f59e0b", "fill-opacity": 0.55, "fill-outline-color": "#b45309" } }, beforeId(map));
+    if (!map.getLayer(BLD_HL)) map.addLayer({ id: BLD_HL, type: "fill-extrusion", source: BLD_HL_SRC,
+      paint: { "fill-extrusion-color": "#f59e0b", "fill-extrusion-base": 0,
+        "fill-extrusion-height": ["+", ["coalesce", ["get", "height"], 6], 0.4], "fill-extrusion-opacity": 0.92 } }, beforeId(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -521,7 +522,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const hl = [];
       if (corridor) {
         const rc = routeMaskRef.current;
-        for (const bb of blds) { const ring = bb.foot || bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [ring] } }); }
+        for (const bb of blds) { const ring = bb.foot || bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: { height: isFinite(bb.h) ? bb.h : Number(defH) }, geometry: { type: "Polygon", coordinates: [ring] } }); }
       }
       hlSrc.setData({ type: "FeatureCollection", features: hl });
     }
@@ -1127,13 +1128,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [setAB]);
 
   // Repli : moteur backend (Mapbox/ORS) si le réseau des tuiles est insuffisant.
-  const backendRoutes = useCallback(async (map, a, b, sampler) => {
-    const rr = await fetch(`${API}/shadow/route`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ a, b, profile: "foot" }) });
+  const backendRoutes = useCallback(async (map, a, b, sampler, via) => {
+    const body = { a, b, profile: "foot" }; if (via) body.via = via;
+    const rr = await fetch(`${API}/shadow/route`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
     const routes = (await rr.json()).routes || [];
     if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
     const scored = routes.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 }; });
-    return { shade: scored.reduce((x, y) => (y.shade > x.shade ? y : x)), direct: scored.reduce((x, y) => (y.distance < x.distance ? y : x)) };
+    return { scored, shade: scored.reduce((x, y) => (y.shade > x.shade ? y : x)), direct: scored.reduce((x, y) => (y.distance < x.distance ? y : x)) };
   }, []);
 
   const computeShadeRoutes = useCallback(async () => {
@@ -1199,9 +1201,27 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const maxLen = Math.max(direct.distance * 2, direct.distance + 600);
         if (cand && !samePath(pShade, pDirect) && cand.distance <= maxLen) { shade = cand; viaGraph = true; }
       }
+      // 3) GARANTIE de deux tracés distincts (exigence : quel que soit l'horaire) : si le
+      //    « plus ombragé » est encore identique au direct, on FORCE une alternative en
+      //    passant par un point décalé perpendiculairement au milieu A-B (gauche/droite)
+      //    et on garde la plus ombragée des deux.
+      const distinct = (r) => r && r !== direct && (Math.abs(r.distance - direct.distance) > 8 || (r.coords?.length || 0) !== (direct.coords?.length || 0));
+      if (!distinct(shade)) {
+        const distAB = haversine(a, b), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const mx = 111320 * Math.cos(mid[1] * RAD), my = 111320;
+        const dx = (b[0] - a[0]) * mx, dy = (b[1] - a[1]) * my, len = Math.hypot(dx, dy) || 1;
+        const off = Math.min(Math.max(distAB * 0.25, 120), 450);   // décalage (m)
+        const ux = -dy / len, uy = dx / len;                       // perpendiculaire unitaire
+        const vias = [[mid[0] + (ux * off) / mx, mid[1] + (uy * off) / my], [mid[0] - (ux * off) / mx, mid[1] - (uy * off) / my]];
+        let best = null;
+        for (const v of vias) {
+          try { const r = await backendRoutes(map, a, b, sampler, v); const alt = r?.direct; if (distinct(alt) && (!best || alt.shade > best.shade)) best = alt; } catch (_) {}
+        }
+        if (best) { shade = best; viaGraph = true; }   // alternative distincte trouvée
+      }
       const res = { shade, direct };
-      // distinct garanti dès qu'on a pris un tracé du graphe (viaGraph)
-      const same = !viaGraph && (res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01));
+      // distinct garanti dès qu'on a pris un tracé du graphe (viaGraph) ou une alternative forcée
+      const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.005);
       routeGeomRef.current = res;
       routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });

@@ -38,16 +38,19 @@ _MAPBOX = os.getenv("MAPBOX_ACCESS_TOKEN") or os.getenv("VITE_MAPBOX_TOKEN") or 
 class RouteReq(BaseModel):
     a: List[float]           # [lon, lat] départ
     b: List[float]           # [lon, lat] arrivée
+    via: Optional[List[float]] = None  # [lon, lat] point de passage (force un tracé distinct)
     profile: str = "foot"    # (piéton uniquement pour l'ombrage)
 
 
-def _ors_routes(a, b):
+def _ors_routes(a, b, via=None):
     url = f"{_ORS_BASE}/v2/directions/foot-walking/geojson"
-    body = {
-        "coordinates": [[float(a[0]), float(a[1])], [float(b[0]), float(b[1])]],
-        "alternative_routes": {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6},
-        "instructions": False,
-    }
+    coords = [[float(a[0]), float(a[1])]]
+    if via:
+        coords.append([float(via[0]), float(via[1])])
+    coords.append([float(b[0]), float(b[1])])
+    body = {"coordinates": coords, "instructions": False}
+    if not via:   # les alternatives ORS ne se combinent pas avec un point de passage
+        body["alternative_routes"] = {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6}
     rq = urllib.request.Request(url, data=json.dumps(body).encode(),
                                 headers={"Authorization": _ORS_KEY, "Content-Type": "application/json"})
     with urllib.request.urlopen(rq, timeout=20) as r:
@@ -61,9 +64,11 @@ def _ors_routes(a, b):
     return out
 
 
-def _mapbox_routes(a, b):
+def _mapbox_routes(a, b, via=None):
+    pts = f"{a[0]},{a[1]};" + (f"{via[0]},{via[1]};" if via else "") + f"{b[0]},{b[1]}"
+    alt = "false" if via else "true"
     url = (f"https://api.mapbox.com/directions/v5/mapbox/walking/"
-           f"{a[0]},{a[1]};{b[0]},{b[1]}?alternatives=true&geometries=geojson&overview=full&access_token={_MAPBOX}")
+           f"{pts}?alternatives={alt}&geometries=geojson&overview=full&access_token={_MAPBOX}")
     with urllib.request.urlopen(url, timeout=20) as r:
         d = json.load(r)
     out = []
@@ -81,14 +86,15 @@ def shadow_route(req: RouteReq):
     if not req.a or not req.b or len(req.a) != 2 or len(req.b) != 2:
         raise HTTPException(422, "Points a/b invalides (attendu [lon, lat]).")
     routes, errors = [], []
+    via = req.via if (req.via and len(req.via) == 2) else None
     if _ORS_KEY:
         try:
-            routes = _ors_routes(req.a, req.b)
+            routes = _ors_routes(req.a, req.b, via)
         except Exception as e:
             errors.append(f"ORS: {e}")
     if not routes and _MAPBOX:
         try:
-            routes = _mapbox_routes(req.a, req.b)
+            routes = _mapbox_routes(req.a, req.b, via)
         except Exception as e:
             errors.append(f"Mapbox: {e}")
     if not routes:
