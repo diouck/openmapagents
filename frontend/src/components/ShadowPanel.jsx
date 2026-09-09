@@ -159,6 +159,7 @@ function dijkstra(graph, startKey, endKey, weightFn) {
 }
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
+const BLD_HL_SRC = "oma-bld-hl-src", BLD_HL = "oma-bld-hl", BLD_HL_LINE = "oma-bld-hl-line"; // bâtiments du couloir mis en évidence
 const IMG_DISP = "oma-canopy-img";
 const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
 const shadId = (i) => `oma-canopy-shad-${i}`;
@@ -415,6 +416,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       map.addLayer({ id: LYR, type: "fill", source: SRC,
         paint: { "fill-color": "#0e1630", "fill-opacity": shadowOpacityExpr(opacity), "fill-antialias": false } }, beforeId(map));
     }
+    // Bâtiments proches du parcours mis en évidence (couleur ambre distincte + contour)
+    // → on repère d'un coup d'œil quels bâtiments bordent l'itinéraire.
+    if (!map.getSource(BLD_HL_SRC)) map.addSource(BLD_HL_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(BLD_HL)) map.addLayer({ id: BLD_HL, type: "fill", source: BLD_HL_SRC,
+      paint: { "fill-color": "#f59e0b", "fill-opacity": 0.4 } }, beforeId(map));
+    if (!map.getLayer(BLD_HL_LINE)) map.addLayer({ id: BLD_HL_LINE, type: "line", source: BLD_HL_SRC,
+      paint: { "line-color": "#b45309", "line-width": 1.4, "line-opacity": 0.9 } }, beforeId(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -489,6 +497,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // on n'affiche QUE les bâtiments/arbres le long du parcours (couloir), pas les autres.
     if (onRouteTab && !hasRoute) {
       src && src.setData({ type: "FeatureCollection", features: [] });
+      map.getSource(BLD_HL_SRC)?.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
       setVis(map, IMG_DISP, false);
       for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
@@ -504,6 +513,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const canOnDisp = canOn && !wantC3D;                      // raster canopée (à plat, avec ombre)
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
+
+    // Mise en évidence des bâtiments (empreintes) qui bordent le parcours (ambre) — même
+    // la nuit, pour repérer d'un coup d'œil quels bâtiments longent l'itinéraire.
+    const hlSrc = map.getSource(BLD_HL_SRC);
+    if (hlSrc) {
+      const hl = [];
+      if (corridor) {
+        const rc = routeMaskRef.current;
+        for (const bb of blds) { const ring = bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [[...ring, ring[0]]] } }); }
+      }
+      hlSrc.setData({ type: "FeatureCollection", features: hl });
+    }
 
     if (night) {
       src && src.setData({ type: "FeatureCollection", features: [] });
@@ -1129,6 +1150,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     await new Promise((res) => setTimeout(res, 250));   // laisse les tuiles routes se stabiliser
     try {
       refreshBuildings(map, bbox);                       // bâtiments de la zone (pour l'ombre)
+      // Canopée de la zone du parcours chargée AVANT l'échantillonnage : sinon le sampler
+      // utilise une canopée périmée → les jardins/parcs ombragés ne sont pas comptés et
+      // le « plus ombragé » ne sait pas qu'il peut traverser un parc.
+      if (treesRef.current) { try { await fetchCanopy(); } catch (_) {} }
       const sampler = await buildSampler(bbox);
       // ── réseau piéton depuis les TUILES (aucun téléchargement) ──
       const segs = [];
@@ -1178,7 +1203,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
-  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy]);
+  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
@@ -1250,9 +1275,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [BLD_HL_LINE, BLD_HL, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, BLD_HL_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
