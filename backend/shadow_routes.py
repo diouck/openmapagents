@@ -79,6 +79,86 @@ def _mapbox_routes(a, b, via=None):
     return out
 
 
+class LoopReq(BaseModel):
+    point: List[float]          # [lon, lat] départ = arrivée (boucle)
+    length_m: float = 2000      # longueur cible de la boucle (m)
+    count: int = 6              # nombre de boucles candidates à générer
+
+
+def _ors_loop(point, length_m, seed, points=5):
+    url = f"{_ORS_BASE}/v2/directions/foot-walking/geojson"
+    body = {
+        "coordinates": [[float(point[0]), float(point[1])]],
+        "options": {"round_trip": {"length": float(length_m), "points": int(points), "seed": int(seed)}},
+        "instructions": False,
+    }
+    rq = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                headers={"Authorization": _ORS_KEY, "Content-Type": "application/json"})
+    with urllib.request.urlopen(rq, timeout=25) as r:
+        d = json.load(r)
+    out = []
+    for f in d.get("features", []):
+        coords = (f.get("geometry") or {}).get("coordinates") or []
+        summ = (f.get("properties") or {}).get("summary") or {}
+        if coords:
+            out.append({"coordinates": coords, "distance": summ.get("distance", 0), "duration": summ.get("duration", 0)})
+    return out
+
+
+def _mapbox_loop(point, length_m, bearing_deg, points=4):
+    """Repli sans round-trip natif : boucle par points de passage sur un cercle."""
+    R = max(80.0, length_m / (2 * math.pi))
+    lat0 = float(point[1])
+    mlat = 111320.0
+    mlng = 111320.0 * math.cos(lat0 * math.pi / 180.0) or 1.0
+    wps = []
+    for k in range(points):
+        a = (bearing_deg + k * (360.0 / points)) * math.pi / 180.0
+        dx = R * math.sin(a)
+        dy = R * math.cos(a)
+        wps.append([float(point[0]) + dx / mlng, lat0 + dy / mlat])
+    pts = f"{point[0]},{point[1]};" + ";".join(f"{w[0]},{w[1]}" for w in wps) + f";{point[0]},{point[1]}"
+    url = (f"https://api.mapbox.com/directions/v5/mapbox/walking/"
+           f"{pts}?alternatives=false&geometries=geojson&overview=full&access_token={_MAPBOX}")
+    with urllib.request.urlopen(url, timeout=25) as r:
+        d = json.load(r)
+    out = []
+    for rt in d.get("routes", []):
+        coords = (rt.get("geometry") or {}).get("coordinates") or []
+        if coords:
+            out.append({"coordinates": coords, "distance": rt.get("distance", 0), "duration": rt.get("duration", 0)})
+    return out
+
+
+@router.post("/loop")
+def shadow_loop(req: LoopReq):
+    """Boucles piétonnes (balades) d'une longueur cible depuis un point. ORS round-trip
+    (plusieurs seeds) sinon repli Mapbox par points de passage. Le front les note à l'ombre."""
+    if not req.point or len(req.point) != 2:
+        raise HTTPException(422, "Point invalide (attendu [lon, lat]).")
+    L = max(300.0, min(float(req.length_m or 2000), 20000.0))
+    n = max(2, min(int(req.count or 6), 8))
+    loops, errors = [], []
+    if _ORS_KEY:
+        for seed in range(n):
+            try:
+                loops.extend(_ors_loop(req.point, L, seed))
+            except Exception as e:
+                errors.append(f"ORS s{seed}: {e}")
+    if not loops and _MAPBOX:
+        for k in range(n):
+            try:
+                loops.extend(_mapbox_loop(req.point, L, k * (360.0 / n)))
+            except Exception as e:
+                errors.append(f"Mapbox {k}: {e}")
+    if not loops:
+        detail = "Boucles indisponibles : aucun jeton (ORS_API_KEY / MAPBOX_ACCESS_TOKEN)."
+        if errors:
+            detail = "Génération de boucles en échec — " + " ; ".join(errors[:3])
+        raise HTTPException(502, detail)
+    return {"routes": loops, "provider": "ors" if _ORS_KEY and loops else "mapbox"}
+
+
 @router.post("/route")
 def shadow_route(req: RouteReq):
     """Itinéraires piétons A→B (avec alternatives) via le backend (ORS ou Mapbox).

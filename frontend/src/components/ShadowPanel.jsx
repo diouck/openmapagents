@@ -328,6 +328,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [relief, setRelief] = useState(false);       // relief 3D (terrain MapLibre)
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
+  // ── Balade (boucle ombragée depuis un point) ──
+  const [baladeAddr, setBaladeAddr] = useState("");
+  const [baladeSugg, setBaladeSugg] = useState([]);
+  const [baladeDurMin, setBaladeDurMin] = useState(30);   // durée cible (min)
+  const [baladeStart, setBaladeStart] = useState(null);   // [lng,lat] départ = arrivée
+  const [baladeBusy, setBaladeBusy] = useState(false);
+  const baladeStartRef = useRef(null);
+  baladeStartRef.current = baladeStart;
 
   const bldRef = useRef([]);
   const featsRef = useRef([]);
@@ -507,7 +515,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const night = alt <= 0.02;
 
     const canOn = trees && !!can && !hideCanopyRef.current;   // masquée pendant une prévisualisation
-    const onRouteTab = tabRef.current === "route";
+    const onRouteTab = tabRef.current === "route" || tabRef.current === "balade";
     const hasRoute = !!routeMaskRef.current;
     // Onglet Itinéraire : RIEN tant qu'aucun trajet (carte seule) ; une fois A→B calculé,
     // on n'affiche QUE les bâtiments/arbres le long du parcours (couloir), pas les autres.
@@ -656,7 +664,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (map) {
       applyC3D(map);
       const hasC3D = (c3dAllRef.current?.crowns || []).length > 0;
-      if (tab === "route") {
+      if (tab === "route" || tab === "balade") {
         if (treesRef.current && hasC3D) setC3DVis(map, true);   // arbres du couloir (à plat ou 3D)
       } else if (!canopy3dRef.current) {
         setC3DVis(map, false);   // canopée du parcours masquée hors Itinéraire
@@ -667,7 +675,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // bascule arbres à plat ↔ 3D : charge la donnée voulue (raster nuancé / patches 3D) + rerend
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
-    if (!map || !(previewingRef.current || (tabRef.current === "route" && routeMaskRef.current))) return;
+    if (!map || !(previewingRef.current || ((tabRef.current === "route" || tabRef.current === "balade") && routeMaskRef.current))) return;
     if (treeMode === "3d") { if (!(c3dAllRef.current?.crowns || []).length) fetchCanopy3D(); else applyC3D(map); }
     else if (treesRef.current) scheduleCanopy();   // à plat : (re)charge le raster canopée nuancé
     computeRef.current?.();                          // maj visibilité raster (IMG_DISP + ombre)
@@ -761,7 +769,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const applyC3D = useCallback((map) => {
     if (!map) return;
     const all = c3dAllRef.current || { crowns: [], trunks: [] };
-    const corridor = (previewingRef.current || tabRef.current === "route") && previewCorridorRef.current && routeMaskRef.current;
+    const corridor = (previewingRef.current || tabRef.current === "route" || tabRef.current === "balade") && previewCorridorRef.current && routeMaskRef.current;
     const rc = routeMaskRef.current;
     const keep = (f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M);
     const crowns = corridor ? (all.crowns || []).filter(keep) : (all.crowns || []);
@@ -1147,6 +1155,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const clearRoute = useCallback(() => {
     stopPreview();
     routeABRef.current = []; setRouteAB([]); setAddr({ a: "", b: "" }); setSugg({ a: [], b: [] });
+    setBaladeStart(null); baladeStartRef.current = null; setBaladeAddr(""); setBaladeSugg([]);
     routeGeomRef.current = null; routeMaskRef.current = null; maskHolesRef.current = null;
     setRouteResult(null); setRouteErr(null);
     const map = mapRef?.current?.getMap?.();
@@ -1291,6 +1300,78 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
 
+  // ── Balade : point de départ (géoloc / adresse / clic) puis 2 boucles ombragées ──
+  const setBaladeStartPt = useCallback((pt) => {
+    setBaladeStart(pt); baladeStartRef.current = pt; setRouteResult(null);
+    const map = mapRef?.current?.getMap?.();
+    if (map) { routeABRef.current = [pt]; drawRoutes(map, {}); try { map.flyTo({ center: pt, zoom: Math.max(14, map.getZoom()), duration: 600 }); } catch (_) {} }
+  }, [mapRef, drawRoutes]);
+
+  const geolocateStart = useCallback(() => {
+    if (!navigator.geolocation) { setRouteErr("Géolocalisation indisponible sur ce navigateur."); return; }
+    setRouteErr("Localisation…");
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setRouteErr(null); setBaladeStartPt([p.coords.longitude, p.coords.latitude]); },
+      () => setRouteErr("Localisation refusée — saisissez une adresse ou cliquez sur la carte."),
+      { enableHighAccuracy: true, timeout: 8000 });
+  }, [setBaladeStartPt]);
+
+  const onBaladeAddr = useCallback((val) => {
+    setBaladeAddr(val); clearTimeout(geoTimer.current);
+    if (!val || val.length < 3) { setBaladeSugg([]); return; }
+    geoTimer.current = setTimeout(async () => { const res = await geocodeAddress(val).catch(() => []); setBaladeSugg(res); }, 350);
+  }, []);
+  const pickBaladeAddr = useCallback((s) => { setBaladeAddr(s.label); setBaladeSugg([]); if (s.lon != null && s.lat != null) setBaladeStartPt([s.lon, s.lat]); }, [setBaladeStartPt]);
+
+  const computeBalades = useCallback(async () => {
+    const start = baladeStartRef.current;
+    if (!start) { setRouteErr("Choisissez un point de départ (📍, adresse ou clic sur la carte)."); return; }
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    setBaladeBusy(true); setRouteErr(null); setRouteResult(null); stopPreview();
+    const lengthM = Math.max(400, baladeDurMin * 60 * 1.35);   // durée (min) → longueur (m), ~1,35 m/s
+    const R = lengthM / (2 * Math.PI);
+    const dLat = (R * 2.4) / 111320, dLng = (R * 2.4) / (111320 * Math.cos(start[1] * RAD));
+    const bbox = [start[0] - dLng, start[1] - dLat, start[0] + dLng, start[1] + dLat];
+    try { map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 40, duration: 0 }); } catch (_) {}
+    await new Promise((res) => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; map.once("idle", fin); setTimeout(fin, 5000); });
+    try {
+      refreshBuildings(map, bbox);
+      if (treesRef.current) { try { await fetchCanopy(); } catch (_) {} }
+      const sampler = await buildSampler(bbox);
+      const rr = await fetch(`${API}/shadow/loop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point: start, length_m: lengthM, count: 6 }) });
+      if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
+      const raw = (await rr.json()).routes || [];
+      if (!raw.length) throw new Error("Aucune boucle trouvée.");
+      const scored = raw.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 14); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration || rt.distance / 1.35, shade: dense.length ? sh / dense.length : 0 }; })
+        .filter((r) => r.coords.length > 3 && r.distance > 200)
+        .sort((a, b) => b.shade - a.shade);
+      if (!scored.length) throw new Error("Boucles invalides.");
+      const midOf = (r) => alongRoute(r.coords, r.cum, 0.5);
+      const pick = [scored[0]];
+      for (const r of scored.slice(1)) { if (pick.length >= 2) break; if (haversine(midOf(pick[0]), midOf(r)) > 80 || Math.abs(r.distance - pick[0].distance) > 150) pick.push(r); }
+      if (pick.length < 2 && scored[1]) pick.push(scored[1]);
+      const res = { shade: pick[0], direct: pick[1] || pick[0], night: sampler.night, balade: true, same: pick.length < 2 };
+      routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade");
+      routeMaskRef.current = res.shade?.coords || null; maskHolesRef.current = null;
+      setRouteResult(res);
+      drawRoutes(map, res);
+      try { const cc = res.shade.coords; let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity; for (const p of cc) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); } map.fitBounds([[w, s], [e, n]], { padding: 70, duration: 700, maxZoom: 17.5 }); } catch (_) {}
+      computeRef.current?.();
+      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
+    } catch (e) { setRouteErr(e.message || String(e)); }
+    finally { setBaladeBusy(false); }
+  }, [mapRef, baladeDurMin, buildSampler, drawRoutes, stopPreview, refreshBuildings, fetchCanopy, fetchCanopy3D]);
+
+  // onglet Balade : un clic sur la carte fixe le point de départ (hors prévisu)
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.();
+    if (!map || tab !== "balade") return;
+    const h = (ev) => { if (!previewingRef.current) setBaladeStartPt([ev.lngLat.lng, ev.lngLat.lat]); };
+    map.on("click", h);
+    try { map.getCanvas().style.cursor = "crosshair"; } catch (_) {}
+    return () => { try { map.off("click", h); map.getCanvas().style.cursor = ""; } catch (_) {} };
+  }, [tab, mapRef, setBaladeStartPt]);
+
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
@@ -1384,11 +1465,81 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         borderBottom: `2px solid ${tab === id ? C.acc : "transparent"}`, marginBottom: -1 }}>{label}</button>
   );
 
+  // Contrôles de prévisualisation/affichage partagés par les onglets Itinéraire et Balade
+  const previewControls = (
+    <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => (previewing ? stopPreview() : startPreview())}
+          style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "6px 12px", cursor: "pointer",
+            background: previewing ? C.acc : "transparent", color: previewing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7 }}>
+          {previewing ? "❚❚ Stop" : "▶ Prévisualiser"}
+        </button>
+        <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vitesse</span>
+        {[1, 2, 4, 8].map((sp) => (
+          <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
+            style={{ fontFamily: M, fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6,
+              border: `1px solid ${previewSpeed === sp ? C.acc : C.bdr}`, background: previewSpeed === sp ? C.acc + "18" : "transparent", color: previewSpeed === sp ? C.acc : C.mut }}>
+            ×{sp}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vue</span>
+        {[["top", "De dessus"], ["immersive", "Immersive 3D"], ["follow", "Suivi"]].map(([m, label]) => (
+          <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
+            style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
+              border: `1px solid ${navMode === m ? C.acc : C.bdr}`, background: navMode === m ? C.acc + "18" : "transparent", color: navMode === m ? C.acc : C.mut }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+        <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
+        🎯 N'afficher que les ombres à ≤ 100 m du parcours
+      </label>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
+        <span style={{ whiteSpace: "nowrap" }}>🎭 Masque hors parcours</span>
+        <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
+        <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+        <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} />
+        ⛰️ Relief 3D (terrain)
+      </label>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
+        {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
+          <button key={m} onClick={() => { setTreeMode(m); treeModeRef.current = m; }}
+            style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
+              border: `1px solid ${treeMode === m ? C.acc : C.bdr}`, background: treeMode === m ? C.acc + "18" : "transparent", color: treeMode === m ? C.acc : C.mut }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+        <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
+        🌳 Afficher la canopée pendant la prévisualisation
+      </label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={exportRoute}
+          style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.acc}66`, background: "transparent", color: C.acc }}>
+          ⬇ Exporter la couche (GeoJSON)
+        </button>
+        <button onClick={clearRoute}
+          style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.bdr}`, background: "transparent", color: C.mut }}>
+          🗑 Effacer
+        </button>
+      </div>
+      <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
+    </div>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}` }}>
         {tabBtn("sim", "Ombrage")}
         {tabBtn("route", "Itinéraire")}
+        {tabBtn("balade", "Balade")}
         {tabBtn("def", "Définition")}
       </div>
 
@@ -1464,7 +1615,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
 
           {routeErr && <div style={{ fontFamily: M, fontSize: 11.5, color: "#e11d1d", background: "#e11d1d14", border: "0.5px solid #e11d1d55", borderRadius: 6, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{routeErr}</div>}
 
-          {routeResult && (
+          {routeResult && !routeResult.balade && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit à cette heure — tout est « à l'ombre ». Choisissez une heure de jour pour comparer.</div>}
               {[["shade", "🌳 Plus ombragé", "#2e7d4f", routeResult.shade], ["direct", "➡ Plus direct", "#e8590c", routeResult.direct]].map(([kind, label, col, r]) => (
@@ -1482,73 +1633,71 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             </div>
           )}
 
-          {routeResult && (
-            <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => (previewing ? stopPreview() : startPreview())}
-                  style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "6px 12px", cursor: "pointer",
-                    background: previewing ? C.acc : "transparent", color: previewing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7 }}>
-                  {previewing ? "❚❚ Stop" : "▶ Prévisualiser"}
+          {routeResult && !routeResult.balade && previewControls}
+        </div>
+      ) : tab === "balade" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+          <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
+            Deux <b>balades en boucle</b> parmi les plus <b>ombragées</b> depuis un point, d'une <b>durée cible</b>, à l'heure de départ choisie (départ = arrivée).
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <div style={lbl}>Date</div>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, width: "100%" }} />
+            </div>
+            <div style={{ width: 150 }}>
+              <div style={lbl}>Départ · {clock}</div>
+              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ width: "100%" }} />
+            </div>
+          </div>
+          <div>
+            <div style={lbl}>Point de départ</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={geolocateStart}
+                style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "7px 10px", cursor: "pointer", whiteSpace: "nowrap", background: "transparent", color: C.acc, border: `1px solid ${C.acc}66`, borderRadius: 8 }}>
+                📍 Ma position
+              </button>
+              <div style={{ flex: 1, position: "relative" }}>
+                <input value={baladeAddr} onChange={(e) => onBaladeAddr(e.target.value)} placeholder="Adresse ou lieu…" style={{ ...inp, width: "100%" }} />
+                {baladeSugg.length > 0 && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: C.card || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 7, marginTop: 2, maxHeight: 170, overflowY: "auto", boxShadow: "0 8px 22px rgba(0,0,0,0.18)" }}>
+                    {baladeSugg.map((s, i) => (
+                      <div key={i} onClick={() => pickBaladeAddr(s)}
+                        style={{ fontFamily: F, fontSize: 11, padding: "6px 9px", cursor: "pointer", color: C.txt, borderBottom: i < baladeSugg.length - 1 ? `0.5px solid ${C.bdr}` : "none" }}>
+                        {s.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>{baladeStart ? "✓ Départ défini." : "… ou cliquez sur la carte."}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11.5, color: C.txt }}>
+            <span style={{ whiteSpace: "nowrap" }}>⏱ Durée ~ <b>{baladeDurMin} min</b></span>
+            <input type="range" min={10} max={90} step={5} value={baladeDurMin} onChange={(e) => setBaladeDurMin(Number(e.target.value))} style={{ flex: 1 }} />
+          </div>
+          <button onClick={computeBalades} disabled={baladeBusy || !baladeStart}
+            style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "9px 14px", cursor: (baladeBusy || !baladeStart) ? "not-allowed" : "pointer",
+              background: (baladeBusy || !baladeStart) ? C.bg2 || C.bg : C.acc, color: (baladeBusy || !baladeStart) ? C.dim : "#fff", border: `1px solid ${!baladeStart ? C.bdr : C.acc}`, borderRadius: 8 }}>
+            {baladeBusy ? "Recherche des balades…" : "Proposer 2 balades ombragées"}
+          </button>
+          {routeErr && <div style={{ fontFamily: M, fontSize: 11.5, color: "#e11d1d", background: "#e11d1d14", border: "0.5px solid #e11d1d55", borderRadius: 6, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{routeErr}</div>}
+          {routeResult && routeResult.balade && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit à cette heure — tout est « à l'ombre ». Choisissez une heure de jour.</div>}
+              {[["shade", "🌳 Balade la plus ombragée", "#2e7d4f", routeResult.shade], ["direct", "🌿 Autre balade", "#2563eb", routeResult.direct]].map(([kind, label, col, r]) => (r ? (
+                <button key={kind} onClick={() => selectRoute(kind)}
+                  style={{ textAlign: "left", fontFamily: F, cursor: "pointer", padding: "9px 11px", borderRadius: 8,
+                    border: `1.5px solid ${routeSel === kind ? col : C.bdr}`, background: routeSel === kind ? col + "12" : (C.bg2 || C.bg) }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: col }}>{label}</div>
+                  <div style={{ fontSize: 11.5, color: C.txt, marginTop: 2 }}><b>{Math.round(r.shade * 100)}%</b> à l'ombre · {(r.distance / 1000).toFixed(2)} km · {Math.round(r.duration / 60)} min</div>
                 </button>
-                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vitesse</span>
-                {[1, 2, 4, 8].map((sp) => (
-                  <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
-                    style={{ fontFamily: M, fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6,
-                      border: `1px solid ${previewSpeed === sp ? C.acc : C.bdr}`, background: previewSpeed === sp ? C.acc + "18" : "transparent", color: previewSpeed === sp ? C.acc : C.mut }}>
-                    ×{sp}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vue</span>
-                {[["top", "De dessus"], ["immersive", "Immersive 3D"], ["follow", "Suivi"]].map(([m, label]) => (
-                  <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
-                    style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
-                      border: `1px solid ${navMode === m ? C.acc : C.bdr}`, background: navMode === m ? C.acc + "18" : "transparent", color: navMode === m ? C.acc : C.mut }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-                <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
-                🎯 N'afficher que les ombres à ≤ 100 m du parcours
-              </label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
-                <span style={{ whiteSpace: "nowrap" }}>🎭 Masque hors parcours</span>
-                <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
-                <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-                <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} />
-                ⛰️ Relief 3D (terrain)
-              </label>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
-                {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
-                  <button key={m} onClick={() => { setTreeMode(m); treeModeRef.current = m; }}
-                    style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
-                      border: `1px solid ${treeMode === m ? C.acc : C.bdr}`, background: treeMode === m ? C.acc + "18" : "transparent", color: treeMode === m ? C.acc : C.mut }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-                <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
-                🌳 Afficher la canopée pendant la prévisualisation
-              </label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={exportRoute}
-                  style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.acc}66`, background: "transparent", color: C.acc }}>
-                  ⬇ Exporter la couche (GeoJSON)
-                </button>
-                <button onClick={clearRoute}
-                  style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.bdr}`, background: "transparent", color: C.mut }}>
-                  🗑 Effacer l'itinéraire
-                </button>
-              </div>
-              <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
+              ) : null))}
+              {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Une seule boucle distincte trouvée — essayez une autre durée ou un autre départ.</div>}
             </div>
           )}
+          {routeResult && routeResult.balade && previewControls}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
