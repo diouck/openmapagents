@@ -160,7 +160,6 @@ function dijkstra(graph, startKey, endKey, weightFn) {
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const MASK_SRC = "oma-route-mask-src", MASK_LYR = "oma-route-mask"; // voile estompant hors du couloir
-const MASK_BUFFER_M = 75;   // demi-largeur du couloir « en clair » autour du parcours
 const IMG_DISP = "oma-canopy-img";
 const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
 const shadId = (i) => `oma-canopy-shad-${i}`;
@@ -184,7 +183,7 @@ function hexAround(c, rM) {
   pts.push(pts[0]);
   return pts;
 }
-const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
+const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark", RT_ARROWS = "oma-route-arrows";
 const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible borne déjà le nombre
 const MIN_SHADOW_ZOOM = 14;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
 // opacité des ombres bâtiments atténuée à zoom moyen (bâtiments nombreux = lavis gris),
@@ -217,24 +216,6 @@ function distPtToRouteM(lng, lat, coords) {
 function ringNearRoute(ring, coords, maxM) {
   for (const p of ring) if (distPtToRouteM(p[0], p[1], coords) <= maxM) return true;
   return false;
-}
-/* Tampon (buffer) approx d'une polyligne → anneau [lng,lat] à ~Rm de part et d'autre
-   (jointures droites ; suffisant pour un trou de masque). */
-function bufferRing(coords, Rm) {
-  if (!coords || coords.length < 2) return null;
-  const mLat = 111320, mLng = 111320 * Math.cos((coords[0][1]) * RAD) || 1;
-  const left = [], right = [];
-  for (let i = 0; i < coords.length; i++) {
-    const p = coords[Math.max(0, i - 1)], q = coords[Math.min(coords.length - 1, i + 1)];
-    let dx = (q[0] - p[0]) * mLng, dy = (q[1] - p[1]) * mLat;
-    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
-    const px = -dy, py = dx;   // perpendiculaire unitaire
-    left.push([coords[i][0] + (px * Rm) / mLng, coords[i][1] + (py * Rm) / mLat]);
-    right.push([coords[i][0] - (px * Rm) / mLng, coords[i][1] - (py * Rm) / mLat]);
-  }
-  const ring = left.concat(right.reverse());
-  ring.push(ring[0]);
-  return ring;
 }
 const CORRIDOR_M = 100;   // rayon du couloir « ombres près du parcours » (prévisualisation)
 
@@ -343,6 +324,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [previewCorridor, setPreviewCorridor] = useState(true); // prévisu : n'afficher que les ombres à ≤100 m du parcours
   const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
   const [maskPct, setMaskPct] = useState(80);        // intensité du voile hors couloir (0 = rien, 100 = tout masqué)
+  const [relief, setRelief] = useState(false);       // relief 3D (terrain MapLibre)
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
@@ -387,7 +369,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
   const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
-  const maskHolesRef = useRef(null);     // { rc, holes } cache du tampon (buffer) du parcours
+  const maskHolesRef = useRef(null);     // { rc, holes } trous du masque (empreintes bâti + arbres)
   const c3dAllRef = useRef({ crowns: [], trunks: [] }); // patches canopée 3D complets (avant filtre couloir)
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
@@ -454,7 +436,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const raiseMask = (map) => {
     try {
       if (map.getLayer(MASK_LYR)) map.moveLayer(MASK_LYR);
-      for (const id of [RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
+      for (const id of [RT_CASE, RT_LINE, RT_ARROWS, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
     } catch (_) {}
   };
 
@@ -501,7 +483,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (inB && !inB(ring[0][0], ring[0][1])) continue;
         if (zp && !pointInPolys(ring[0][0], ring[0][1], zp)) continue;
         // hf = enveloppe convexe de l'emprise, précalculée → ombre projetée plus légère
-        out.push({ hf: convexHull(ring), h: hh, lat: ring[0][1] });
+        out.push({ hf: convexHull(ring), foot: ring, h: hh, lat: ring[0][1] });
       }
     }
     bldRef.current = out;
@@ -547,33 +529,39 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
-    // Voile (mask) hors du couloir de l'itinéraire : rectangle de la vue troué le long du
-    // tracé → le parcours ressort, le reste est estompé (façon Fraichou). Même la nuit.
-    const maskSrc = map.getSource(MASK_SRC);
-    if (maskSrc) {
-      let feats = [];
+    // Voile (mask) façon Fraichou : trous = FORMES EXACTES (pas de buffer) des bâtiments +
+    // arbres (patches canopée) + ombres, à ≤ CORRIDOR_M du parcours → le parcours et ses
+    // éléments ressortent, le reste est estompé. Recalculé hors prévisu (bldRef change avec
+    // la vue) ; figé pendant la prévisu. shadowRings = ombres bâtiments à révéler.
+    const setMask = (shadowRings) => {
+      const maskSrc = map.getSource(MASK_SRC);
+      if (!maskSrc) return;
+      let maskFeats = [];
       const rc = routeMaskRef.current;
       if (corridor && rc && rc.length >= 2) {
-        // tampon (buffer) du tracé calculé UNE fois par itinéraire (cache) → pas de
-        // recalcul à chaque frame de prévisualisation.
-        if (!maskHolesRef.current || maskHolesRef.current.rc !== rc) {
-          const ring = bufferRing(rc, MASK_BUFFER_M);
-          maskHolesRef.current = { rc, holes: ring ? [ring] : [] };
+        const stale = !maskHolesRef.current || maskHolesRef.current.rc !== rc;
+        if (stale || !previewingRef.current) {
+          const holes = [];
+          for (const bb of blds) { const ring = bb.foot; if (ring && ring.length >= 4 && ringNearRoute(ring, rc, CORRIDOR_M)) holes.push(ring); }
+          for (const f of (c3dAllRef.current?.crowns || [])) { const ring = f.geometry?.coordinates?.[0]; if (ring && ring.length >= 4 && ringNearRoute(ring, rc, CORRIDOR_M)) holes.push(ring); }
+          for (const f of (shadowRings || [])) { const ring = f.geometry?.coordinates?.[0]; if (ring && ring.length >= 4) holes.push(ring); }
+          maskHolesRef.current = { rc, holes };
         }
         const holes = maskHolesRef.current.holes;
         if (holes.length) {
           const b = map.getBounds(), w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth(), ew = e - w || 0.01, nh = n - s || 0.01;
           const outer = [[w - ew, s - nh], [e + ew, s - nh], [e + ew, n + nh], [w - ew, n + nh], [w - ew, s - nh]];
-          feats = [{ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [outer, ...holes] } }];
+          maskFeats = [{ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [outer, ...holes] } }];
         }
       }
-      maskSrc.setData({ type: "FeatureCollection", features: feats });
-      if (feats.length && !previewingRef.current) raiseMask(map);   // voile au-dessus des arbres/bâti (pas par frame en prévisu)
-    }
+      maskSrc.setData({ type: "FeatureCollection", features: maskFeats });
+      if (maskFeats.length && !previewingRef.current) raiseMask(map);   // voile au-dessus des arbres/bâti/ombres
+    };
 
     if (night) {
       src && src.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
+      setMask([]);   // masque = bâtiments + arbres (pas d'ombre la nuit)
       setInfo({ night: true, alt: altDeg, count: 0 });
       return;
     }
@@ -605,6 +593,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (corridor) { const rc = routeMaskRef.current; outFeats = feats.filter((f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M)); }
     src && src.setData({ type: "FeatureCollection", features: outFeats });
     featsRef.current = outFeats;
+    setMask(outFeats);   // voile : révèle bâtiments + arbres + ombres du couloir, masque le reste
 
     // ombre de canopée : copies empilées de la base (0) au décalage plein
     // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
@@ -690,6 +679,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (map && map.getLayer(MASK_LYR)) { try { map.setPaintProperty(MASK_LYR, "fill-opacity", maskPct / 100); } catch (_) {} }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maskPct]);
+  // relief 3D (terrain MapLibre + DEM Terrarium public) — même source que le bouton du bandeau
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.(); if (!map) return;
+    try {
+      if (relief) {
+        if (!map.getSource("terrain-dem")) map.addSource("terrain-dem", { type: "raster-dem", encoding: "terrarium", tileSize: 256, maxzoom: 14, tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"] });
+        map.setTerrain({ source: "terrain-dem", exaggeration: 1.4 });
+        if (map.getPitch() < 15) { try { map.easeTo({ pitch: 55, duration: 700 }); } catch (_) {} }
+      } else { map.setTerrain(null); }
+    } catch (_) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relief]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -795,8 +796,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       }
       ensureC3DLayers(map);
       c3dAllRef.current = { crowns, trunks };
+      maskHolesRef.current = null;                      // contours d'arbres dispo → recalcule les trous du masque
       applyC3D(map);                                    // filtré au couloir si prévisu
       setC3DVis(map, true);                             // à plat (défaut) ou 3D
+      computeRef.current?.();                           // re-rend le masque avec les arbres
       setCanopyMsg({ ok: true, three: true, n: crowns.length, dataset: gj.dataset });
     } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
   }, [mapRef, ensureC3DLayers, applyC3D]);
@@ -1066,6 +1069,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": color, "line-width": 7, "line-opacity": 1 } });
     else map.setPaintProperty(RT_LINE, "line-color", color);
+    // flèches de direction le long du parcours (sens A→B), affichées PAR DÉFAUT
+    try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
+    if (!map.getLayer(RT_ARROWS)) map.addLayer({ id: RT_ARROWS, type: "symbol", source: RT_SRC,
+      layout: { "symbol-placement": "line", "symbol-spacing": 90, "icon-image": "oma-nav-arrow", "icon-size": 0.5,
+        "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     const ab = routeABRef.current || [];
     const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
@@ -1243,13 +1251,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
       if (note) setRouteErr(note);
       drawRoutes(map, res);
+      // ZOOM sur l'emprise du parcours calculé (le tracé sélectionné)
+      try {
+        const cc = (res[routeSelRef.current] || res.shade || res.direct)?.coords;
+        if (cc && cc.length) { let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity; for (const p of cc) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); } map.fitBounds([[w, s], [e, n]], { padding: 70, duration: 700, maxZoom: 17.5 }); }
+      } catch (_) {}
       computeRef.current?.();                     // onglet Itinéraire : bâtiments filtrés au couloir
-      // arbres du parcours : à plat = raster déjà chargé par le await fetchCanopy() ci-dessus
-      // (pas de refetch → évite la rafale de requêtes GEE) ; 3D = extrusion filtrée
-      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
+      // arbres du parcours : patches canopée (contours EXACTS pour les trous du masque
+      // + affichage 3D si mode 3D). Le raster reste chargé (await fetchCanopy) pour l'affichage à plat.
+      if (treesRef.current) fetchCanopy3D();
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) fetchCanopy3D(); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
@@ -1324,7 +1337,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_ARROWS, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
           const srcs = [SRC, MASK_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
@@ -1481,6 +1494,10 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
                 <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+                <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} />
+                ⛰️ Relief 3D (terrain)
+              </label>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
                 {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
