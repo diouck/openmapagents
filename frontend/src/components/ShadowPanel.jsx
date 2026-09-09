@@ -11,6 +11,7 @@
  *   canopée chargée).
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import * as turf from "@turf/turf";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
@@ -183,7 +184,7 @@ function hexAround(c, rM) {
   pts.push(pts[0]);
   return pts;
 }
-const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark", RT_ARROWS = "oma-route-arrows";
+const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible borne déjà le nombre
 const MIN_SHADOW_ZOOM = 14;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
 // opacité des ombres bâtiments atténuée à zoom moyen (bâtiments nombreux = lavis gris),
@@ -436,7 +437,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const raiseMask = (map) => {
     try {
       if (map.getLayer(MASK_LYR)) map.moveLayer(MASK_LYR);
-      for (const id of [RT_CASE, RT_LINE, RT_ARROWS, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
+      for (const id of [RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
     } catch (_) {}
   };
 
@@ -483,7 +484,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (inB && !inB(ring[0][0], ring[0][1])) continue;
         if (zp && !pointInPolys(ring[0][0], ring[0][1], zp)) continue;
         // hf = enveloppe convexe de l'emprise, précalculée → ombre projetée plus légère
-        out.push({ hf: convexHull(ring), foot: ring, h: hh, lat: ring[0][1] });
+        out.push({ hf: convexHull(ring), h: hh, lat: ring[0][1] });
       }
     }
     bldRef.current = out;
@@ -529,22 +530,22 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
-    // Voile (mask) façon Fraichou : trous = FORMES EXACTES (pas de buffer) des bâtiments +
-    // arbres (patches canopée) + ombres, à ≤ CORRIDOR_M du parcours → le parcours et ses
-    // éléments ressortent, le reste est estompé. Recalculé hors prévisu (bldRef change avec
-    // la vue) ; figé pendant la prévisu. shadowRings = ombres bâtiments à révéler.
-    const setMask = (shadowRings) => {
+    // Voile (mask) façon Fraichou : un COULOIR propre (turf.buffer, contour lissé sans
+    // artefact) autour du parcours reste en clair (carte réelle : bâtiments, arbres,
+    // ombres, rues), le reste est estompé. Trou mis en cache par itinéraire.
+    const setMask = () => {
       const maskSrc = map.getSource(MASK_SRC);
       if (!maskSrc) return;
       let maskFeats = [];
       const rc = routeMaskRef.current;
       if (corridor && rc && rc.length >= 2) {
-        const stale = !maskHolesRef.current || maskHolesRef.current.rc !== rc;
-        if (stale || !previewingRef.current) {
+        if (!maskHolesRef.current || maskHolesRef.current.rc !== rc) {
           const holes = [];
-          for (const bb of blds) { const ring = bb.foot; if (ring && ring.length >= 4 && ringNearRoute(ring, rc, CORRIDOR_M)) holes.push(ring); }
-          for (const f of (c3dAllRef.current?.crowns || [])) { const ring = f.geometry?.coordinates?.[0]; if (ring && ring.length >= 4 && ringNearRoute(ring, rc, CORRIDOR_M)) holes.push(ring); }
-          for (const f of (shadowRings || [])) { const ring = f.geometry?.coordinates?.[0]; if (ring && ring.length >= 4) holes.push(ring); }
+          try {
+            const bg = turf.buffer(turf.lineString(rc), CORRIDOR_M / 1000, { units: "kilometers" })?.geometry;
+            if (bg?.type === "Polygon") holes.push(bg.coordinates[0]);
+            else if (bg?.type === "MultiPolygon") for (const p of bg.coordinates) holes.push(p[0]);
+          } catch (_) {}
           maskHolesRef.current = { rc, holes };
         }
         const holes = maskHolesRef.current.holes;
@@ -561,7 +562,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (night) {
       src && src.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
-      setMask([]);   // masque = bâtiments + arbres (pas d'ombre la nuit)
+      setMask();   // voile : couloir clair même la nuit
       setInfo({ night: true, alt: altDeg, count: 0 });
       return;
     }
@@ -593,7 +594,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (corridor) { const rc = routeMaskRef.current; outFeats = feats.filter((f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M)); }
     src && src.setData({ type: "FeatureCollection", features: outFeats });
     featsRef.current = outFeats;
-    setMask(outFeats);   // voile : révèle bâtiments + arbres + ombres du couloir, masque le reste
+    setMask();   // voile : couloir clair autour du parcours, le reste estompé
 
     // ombre de canopée : copies empilées de la base (0) au décalage plein
     // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
@@ -796,10 +797,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       }
       ensureC3DLayers(map);
       c3dAllRef.current = { crowns, trunks };
-      maskHolesRef.current = null;                      // contours d'arbres dispo → recalcule les trous du masque
       applyC3D(map);                                    // filtré au couloir si prévisu
       setC3DVis(map, true);                             // à plat (défaut) ou 3D
-      computeRef.current?.();                           // re-rend le masque avec les arbres
       setCanopyMsg({ ok: true, three: true, n: crowns.length, dataset: gj.dataset });
     } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
   }, [mapRef, ensureC3DLayers, applyC3D]);
@@ -1069,11 +1068,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": color, "line-width": 7, "line-opacity": 1 } });
     else map.setPaintProperty(RT_LINE, "line-color", color);
-    // flèches de direction le long du parcours (sens A→B), affichées PAR DÉFAUT
-    try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
-    if (!map.getLayer(RT_ARROWS)) map.addLayer({ id: RT_ARROWS, type: "symbol", source: RT_SRC,
-      layout: { "symbol-placement": "line", "symbol-spacing": 90, "icon-image": "oma-nav-arrow", "icon-size": 0.5,
-        "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     const ab = routeABRef.current || [];
     const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
@@ -1257,12 +1251,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (cc && cc.length) { let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity; for (const p of cc) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); } map.fitBounds([[w, s], [e, n]], { padding: 70, duration: 700, maxZoom: 17.5 }); }
       } catch (_) {}
       computeRef.current?.();                     // onglet Itinéraire : bâtiments filtrés au couloir
-      // arbres du parcours : patches canopée (contours EXACTS pour les trous du masque
-      // + affichage 3D si mode 3D). Le raster reste chargé (await fetchCanopy) pour l'affichage à plat.
-      if (treesRef.current) fetchCanopy3D();
+      // arbres : à plat = raster (déjà chargé par le await fetchCanopy) ; 3D = extrusion
+      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) fetchCanopy3D(); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
@@ -1337,7 +1330,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_ARROWS, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
           const srcs = [SRC, MASK_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
