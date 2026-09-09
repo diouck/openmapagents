@@ -444,7 +444,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // tracé ; rempli d'un blanc semi-opaque. Au-dessus des bâtiments/canopée, sous les labels.
     if (!map.getSource(MASK_SRC)) map.addSource(MASK_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(MASK_LYR)) map.addLayer({ id: MASK_LYR, type: "fill", source: MASK_SRC,
-      paint: { "fill-color": "#0b1020", "fill-opacity": 0.42, "fill-antialias": false } }, beforeLabels(map));
+      paint: { "fill-color": "#ffffff", "fill-opacity": 0.8, "fill-antialias": false } }, beforeLabels(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -1030,24 +1030,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [mapRef, date, hour, defH, trees]);
 
   const drawRoutes = useCallback((map, res) => {
-    const feats = [];
-    if (res.direct) feats.push({ type: "Feature", properties: { kind: "direct" }, geometry: { type: "LineString", coordinates: res.direct.coords } });
-    if (res.shade) feats.push({ type: "Feature", properties: { kind: "shade" }, geometry: { type: "LineString", coordinates: res.shade.coords } });
+    // On n'affiche QUE l'itinéraire sélectionné (évite la « duplication » quand les deux
+    // tracés se superposent) ; le choix ombragé/direct se fait via les 2 cartes du panneau.
     const sel = routeSelRef.current;
-    const wExpr = ["case", ["==", ["get", "kind"], sel], 7, 4];
-    const oExpr = ["case", ["==", ["get", "kind"], sel], 1, 0.55];
-    const cwExpr = ["case", ["==", ["get", "kind"], sel], 11, 7];   // liseré (casing) blanc, plus large
+    const kind = res && res[sel] ? sel : (res && res.shade ? "shade" : res && res.direct ? "direct" : null);
+    const chosen = kind && res[kind];
+    const feats = chosen ? [{ type: "Feature", properties: { kind }, geometry: { type: "LineString", coordinates: chosen.coords } }] : [];
+    const color = kind === "direct" ? "#e8590c" : "#1b7a3e";
     if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
     else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
-    // liseré blanc dessous → tracés bien visibles sur un fond chargé
+    // liseré blanc dessous → tracé bien visible sur un fond chargé
     if (!map.getLayer(RT_CASE)) map.addLayer({ id: RT_CASE, type: "line", source: RT_SRC,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#ffffff", "line-width": cwExpr, "line-opacity": 0.9 } });
-    else map.setPaintProperty(RT_CASE, "line-width", cwExpr);
+      paint: { "line-color": "#ffffff", "line-width": 11, "line-opacity": 0.95 } });
     if (!map.getLayer(RT_LINE)) map.addLayer({ id: RT_LINE, type: "line", source: RT_SRC,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": ["case", ["==", ["get", "kind"], "shade"], "#1b7a3e", "#e8590c"], "line-width": wExpr, "line-opacity": oExpr } });
-    else { map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
+      paint: { "line-color": color, "line-width": 7, "line-opacity": 1 } });
+    else map.setPaintProperty(RT_LINE, "line-color", color);
     const ab = routeABRef.current || [];
     const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
@@ -1118,13 +1117,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // le couloir suit l'itinéraire choisi (bâtiments/arbres le long du tracé sélectionné)
     routeMaskRef.current = routeGeomRef.current?.[kind]?.coords || routeMaskRef.current;
     const map = mapRef?.current?.getMap?.();
-    if (map && map.getLayer(RT_LINE)) {
-      map.setPaintProperty(RT_LINE, "line-width", ["case", ["==", ["get", "kind"], kind], 7, 4]);
-      map.setPaintProperty(RT_LINE, "line-opacity", ["case", ["==", ["get", "kind"], kind], 1, 0.55]);
-      if (map.getLayer(RT_CASE)) map.setPaintProperty(RT_CASE, "line-width", ["case", ["==", ["get", "kind"], kind], 11, 7]);
-    }
+    if (map && routeGeomRef.current) drawRoutes(map, routeGeomRef.current);   // ne redessine QUE le tracé choisi
     computeRef.current?.(); if (map) applyC3D(map);   // re-filtre au couloir du nouvel itinéraire
-  }, [mapRef, stopPreview, applyC3D]);
+  }, [mapRef, stopPreview, applyC3D, drawRoutes]);
 
   const startRouteAB = useCallback(() => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
