@@ -11,6 +11,7 @@
  *   canopée chargée).
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import * as turf from "@turf/turf";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
 import ShadowDashboard from "./ShadowDashboard";
@@ -159,7 +160,8 @@ function dijkstra(graph, startKey, endKey, weightFn) {
 }
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
-const BLD_HL_SRC = "oma-bld-hl-src", BLD_HL = "oma-bld-hl", BLD_HL_LINE = "oma-bld-hl-line"; // bâtiments du couloir mis en évidence
+const MASK_SRC = "oma-route-mask-src", MASK_LYR = "oma-route-mask"; // voile estompant hors du couloir
+const MASK_BUFFER_M = 75;   // demi-largeur du couloir « en clair » autour du parcours
 const IMG_DISP = "oma-canopy-img";
 const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
 const shadId = (i) => `oma-canopy-shad-${i}`;
@@ -366,6 +368,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
   const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
+  const maskHolesRef = useRef(null);     // { rc, holes } cache du tampon (buffer) du parcours
   const c3dAllRef = useRef({ crowns: [], trunks: [] }); // patches canopée 3D complets (avant filtre couloir)
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
@@ -417,13 +420,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       map.addLayer({ id: LYR, type: "fill", source: SRC,
         paint: { "fill-color": "#0e1630", "fill-opacity": shadowOpacityExpr(opacity), "fill-antialias": false } }, beforeId(map));
     }
-    // Bâtiments proches du parcours mis en évidence : TOUT le volume du bâtiment en
-    // ambre (extrusion à sa hauteur réelle, empreinte exacte) → cohérent avec le rendu
-    // 3D du fond (ne pas colorer que l'empreinte au sol, ça paraît bizarre).
-    if (!map.getSource(BLD_HL_SRC)) map.addSource(BLD_HL_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    if (!map.getLayer(BLD_HL)) map.addLayer({ id: BLD_HL, type: "fill-extrusion", source: BLD_HL_SRC,
-      paint: { "fill-extrusion-color": "#f59e0b", "fill-extrusion-base": 0,
-        "fill-extrusion-height": ["+", ["coalesce", ["get", "height"], 6], 0.4], "fill-extrusion-opacity": 0.92 } }, beforeId(map));
+    // Voile (mask) qui estompe TOUT SAUF un couloir autour de l'itinéraire → le parcours
+    // ressort (façon Fraichou). Polygone = rectangle de la vue avec un TROU le long du
+    // tracé ; rempli d'un blanc semi-opaque. Au-dessus des bâtiments/canopée, sous les labels.
+    if (!map.getSource(MASK_SRC)) map.addSource(MASK_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(MASK_LYR)) map.addLayer({ id: MASK_LYR, type: "fill", source: MASK_SRC,
+      paint: { "fill-color": "#f4f6f8", "fill-opacity": 0.72, "fill-antialias": false } }, beforeId(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -468,8 +470,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const ring = poly[0]; if (!ring || ring.length < 4) continue;
         if (inB && !inB(ring[0][0], ring[0][1])) continue;
         if (zp && !pointInPolys(ring[0][0], ring[0][1], zp)) continue;
-        // hf = enveloppe convexe (ombre projetée légère) ; foot = emprise EXACTE (surlignage)
-        out.push({ hf: convexHull(ring), foot: ring, h: hh, lat: ring[0][1] });
+        // hf = enveloppe convexe de l'emprise, précalculée → ombre projetée plus légère
+        out.push({ hf: convexHull(ring), h: hh, lat: ring[0][1] });
       }
     }
     bldRef.current = out;
@@ -498,7 +500,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // on n'affiche QUE les bâtiments/arbres le long du parcours (couloir), pas les autres.
     if (onRouteTab && !hasRoute) {
       src && src.setData({ type: "FeatureCollection", features: [] });
-      map.getSource(BLD_HL_SRC)?.setData({ type: "FeatureCollection", features: [] });
+      map.getSource(MASK_SRC)?.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
       setVis(map, IMG_DISP, false);
       for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
@@ -515,16 +517,32 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
-    // Mise en évidence des bâtiments (empreintes) qui bordent le parcours (ambre) — même
-    // la nuit, pour repérer d'un coup d'œil quels bâtiments longent l'itinéraire.
-    const hlSrc = map.getSource(BLD_HL_SRC);
-    if (hlSrc) {
-      const hl = [];
-      if (corridor) {
-        const rc = routeMaskRef.current;
-        for (const bb of blds) { const ring = bb.foot || bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: { height: isFinite(bb.h) ? bb.h : Number(defH) }, geometry: { type: "Polygon", coordinates: [ring] } }); }
+    // Voile (mask) hors du couloir de l'itinéraire : rectangle de la vue troué le long du
+    // tracé → le parcours ressort, le reste est estompé (façon Fraichou). Même la nuit.
+    const maskSrc = map.getSource(MASK_SRC);
+    if (maskSrc) {
+      let feats = [];
+      const rc = routeMaskRef.current;
+      if (corridor && rc && rc.length >= 2) {
+        // tampon (buffer) du tracé calculé UNE fois par itinéraire (cache) → pas de
+        // recalcul turf à chaque frame de prévisualisation.
+        if (!maskHolesRef.current || maskHolesRef.current.rc !== rc) {
+          const holes = [];
+          try {
+            const bg = turf.buffer(turf.lineString(rc), MASK_BUFFER_M, { units: "meters" })?.geometry;
+            if (bg?.type === "Polygon") holes.push(bg.coordinates[0]);
+            else if (bg?.type === "MultiPolygon") for (const p of bg.coordinates) holes.push(p[0]);
+          } catch (_) {}
+          maskHolesRef.current = { rc, holes };
+        }
+        const holes = maskHolesRef.current.holes;
+        if (holes.length) {
+          const b = map.getBounds(), w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth(), ew = e - w || 0.01, nh = n - s || 0.01;
+          const outer = [[w - ew, s - nh], [e + ew, s - nh], [e + ew, n + nh], [w - ew, n + nh], [w - ew, s - nh]];
+          feats = [{ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [outer, ...holes] } }];
+        }
       }
-      hlSrc.setData({ type: "FeatureCollection", features: hl });
+      maskSrc.setData({ type: "FeatureCollection", features: feats });
     }
 
     if (night) {
@@ -1308,9 +1326,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [BLD_HL_LINE, BLD_HL, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, BLD_HL_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, MASK_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
