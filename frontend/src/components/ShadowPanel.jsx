@@ -161,6 +161,8 @@ function dijkstra(graph, startKey, endKey, weightFn) {
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const MASK_SRC = "oma-route-mask-src", MASK_LYR = "oma-route-mask"; // voile estompant hors du couloir
+// Végétation + eau mises en valeur depuis les tuiles (schéma OpenMapTiles, aucun téléchargement)
+const NAT_LC = "oma-nat-lc", NAT_LU = "oma-nat-lu", NAT_WATER = "oma-nat-water", NAT_WWAY = "oma-nat-wway";
 const IMG_DISP = "oma-canopy-img";
 const SHAD_K = 6;                              // copies d'ombre canopée (base→plein)
 const shadId = (i) => `oma-canopy-shad-${i}`;
@@ -326,6 +328,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
   const [maskPct, setMaskPct] = useState(80);        // intensité du voile hors couloir (0 = rien, 100 = tout masqué)
   const [relief, setRelief] = useState(false);       // relief 3D (terrain MapLibre)
+  const [showNature, setShowNature] = useState(true); // met en valeur végétation + eau (tuiles)
+  const natureOnRef = useRef(true);
+  natureOnRef.current = showNature;
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
   // ── Balade (boucle ombragée depuis un point) ──
@@ -448,6 +453,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       for (const id of [RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
     } catch (_) {}
   };
+  // Végétation (landcover/landuse) + eau (water/waterway) mises en valeur, lues des TUILES
+  // (schéma OpenMapTiles, aucun téléchargement). Placées sous nos ombres → ressortent dans
+  // le couloir (le masque estompe le reste). Visibilité pilotée par `natureOnRef`.
+  const ensureNatureLayers = (map) => {
+    const sl = map.getStyle().layers || [];
+    const src = (sl.find((l) => (l["source-layer"] === "water" || l["source-layer"] === "landcover" || l["source-layer"] === "landuse") && l.source) || {}).source;
+    if (!src || !map.getSource(src)) return;
+    const before = beforeId(map);
+    const add = (id, sourceLayer, type, filter, paint) => {
+      if (map.getLayer(id)) return;
+      try { map.addLayer({ id, type, source: src, "source-layer": sourceLayer, filter, layout: { visibility: "none" }, paint }, before); } catch (_) {}
+    };
+    add(NAT_WATER, "water", "fill", ["all"], { "fill-color": "#2b8fd6", "fill-opacity": 0.4 });
+    add(NAT_WWAY, "waterway", "line", ["all"], { "line-color": "#2b8fd6", "line-opacity": 0.75, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3] });
+    add(NAT_LC, "landcover", "fill", ["match", ["get", "class"], ["wood", "grass", "wetland", "scrub", "tree", "forest"], true, false], { "fill-color": "#3faa5a", "fill-opacity": 0.34 });
+    add(NAT_LU, "landuse", "fill", ["match", ["get", "class"], ["park", "garden", "recreation_ground", "cemetery", "forest", "meadow", "grass", "village_green", "golf_course", "allotments", "pitch"], true, false], { "fill-color": "#43a047", "fill-opacity": 0.3 });
+  };
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
   const ensureCanopyLayers = useCallback((map, url, corners) => {
@@ -502,6 +524,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const compute = useCallback(() => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
+    ensureNatureLayers(map);   // couches végétation/eau (sous les ombres) — avant ensureShadowLayer
+    for (const id of [NAT_WATER, NAT_WWAY, NAT_LC, NAT_LU]) setVis(map, id, natureOnRef.current);
     ensureShadowLayer(map);
     let blds = bldRef.current;
     if (!blds.length) blds = refreshBuildings(map, scopeBboxRef.current);
@@ -700,6 +724,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     } catch (_) {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [relief]);
+  // (dés)active la mise en valeur végétation + eau
+  useEffect(() => { computeRef.current?.(); }, [showNature]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -1442,7 +1468,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, NAT_LC, NAT_LU, NAT_WATER, NAT_WWAY, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
           const srcs = [SRC, MASK_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
@@ -1505,6 +1531,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
         <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} />
         ⛰️ Relief 3D (terrain)
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+        <input type="checkbox" checked={showNature} onChange={(e) => setShowNature(e.target.checked)} />
+        🌿 Végétation & eau le long du parcours
       </label>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
