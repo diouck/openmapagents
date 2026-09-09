@@ -149,7 +149,7 @@ function dijkstra(graph, startKey, endKey, weightFn) {
   while (heap.size) {
     const [u, du] = heap.pop(); if (seen.has(u)) continue; seen.add(u); if (u === endKey) break;
     for (const e of graph.adj.get(u) || []) {
-      const nd = du + weightFn(e); if (nd < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, nd); prev.set(e.to, u); heap.push(e.to, nd); }
+      const nd = du + weightFn(e, u); if (nd < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, nd); prev.set(e.to, u); heap.push(e.to, nd); }
     }
   }
   if (startKey !== endKey && !prev.has(endKey)) return null;
@@ -245,15 +245,16 @@ function bearingDeg(a, b) {
   const x = Math.cos(a[1] * RAD) * Math.sin(b[1] * RAD) - Math.sin(a[1] * RAD) * Math.cos(b[1] * RAD) * Math.cos((b[0] - a[0]) * RAD);
   return (Math.atan2(y, x) / RAD + 360) % 360;
 }
-/* Icône flèche de navigation (ImageData) pour le repère qui avance. */
-function navArrowImage(size = 48) {
+/* Icône flèche de navigation (ImageData) pour le repère qui avance — plus grande
+   et lisible (halo sombre + liseré blanc + corps bleu). */
+function navArrowImage(size = 64) {
   const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
   const ctx = cv.getContext("2d"); ctx.translate(size / 2, size / 2);
-  ctx.beginPath();
-  ctx.moveTo(0, -size * 0.40); ctx.lineTo(size * 0.28, size * 0.32); ctx.lineTo(0, size * 0.12); ctx.lineTo(-size * 0.28, size * 0.32);
-  ctx.closePath();
-  ctx.fillStyle = "#2563eb"; ctx.fill();
-  ctx.lineWidth = size * 0.07; ctx.strokeStyle = "#fff"; ctx.stroke();
+  ctx.lineJoin = "round";
+  const arrow = () => { ctx.beginPath(); ctx.moveTo(0, -size * 0.42); ctx.lineTo(size * 0.30, size * 0.34); ctx.lineTo(0, size * 0.13); ctx.lineTo(-size * 0.30, size * 0.34); ctx.closePath(); };
+  arrow(); ctx.lineWidth = size * 0.17; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.stroke();   // halo (contraste)
+  arrow(); ctx.lineWidth = size * 0.10; ctx.strokeStyle = "#ffffff"; ctx.stroke();            // liseré blanc
+  arrow(); ctx.fillStyle = "#2563eb"; ctx.fill();                                             // corps bleu
   return ctx.getImageData(0, 0, size, size);
 }
 
@@ -416,13 +417,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       map.addLayer({ id: LYR, type: "fill", source: SRC,
         paint: { "fill-color": "#0e1630", "fill-opacity": shadowOpacityExpr(opacity), "fill-antialias": false } }, beforeId(map));
     }
-    // Bâtiments proches du parcours mis en évidence (couleur ambre distincte + contour)
-    // → on repère d'un coup d'œil quels bâtiments bordent l'itinéraire.
+    // Bâtiments proches du parcours mis en évidence : EMPRISE EXACTE remplie d'ambre
+    // (pas d'enveloppe grossière, pas de gros contour d'entourage) → on repère d'un
+    // coup d'œil quels bâtiments bordent l'itinéraire, à leur forme réelle.
     if (!map.getSource(BLD_HL_SRC)) map.addSource(BLD_HL_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(BLD_HL)) map.addLayer({ id: BLD_HL, type: "fill", source: BLD_HL_SRC,
-      paint: { "fill-color": "#f59e0b", "fill-opacity": 0.4 } }, beforeId(map));
-    if (!map.getLayer(BLD_HL_LINE)) map.addLayer({ id: BLD_HL_LINE, type: "line", source: BLD_HL_SRC,
-      paint: { "line-color": "#b45309", "line-width": 1.4, "line-opacity": 0.9 } }, beforeId(map));
+      paint: { "fill-color": "#f59e0b", "fill-opacity": 0.55, "fill-outline-color": "#b45309" } }, beforeId(map));
   }, [opacity]);
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -467,8 +467,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const ring = poly[0]; if (!ring || ring.length < 4) continue;
         if (inB && !inB(ring[0][0], ring[0][1])) continue;
         if (zp && !pointInPolys(ring[0][0], ring[0][1], zp)) continue;
-        // hf = enveloppe convexe de l'emprise, précalculée → ombre projetée plus légère
-        out.push({ hf: convexHull(ring), h: hh, lat: ring[0][1] });
+        // hf = enveloppe convexe (ombre projetée légère) ; foot = emprise EXACTE (surlignage)
+        out.push({ hf: convexHull(ring), foot: ring, h: hh, lat: ring[0][1] });
       }
     }
     bldRef.current = out;
@@ -521,7 +521,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const hl = [];
       if (corridor) {
         const rc = routeMaskRef.current;
-        for (const bb of blds) { const ring = bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [[...ring, ring[0]]] } }); }
+        for (const bb of blds) { const ring = bb.foot || bb.hf; if (ring && ring.length >= 3 && ringNearRoute(ring, rc, CORRIDOR_M)) hl.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [ring] } }); }
       }
       hlSrc.setData({ type: "FeatureCollection", features: hl });
     }
@@ -1046,7 +1046,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
-      layout: { "icon-image": "oma-nav-arrow", "icon-size": 0.7, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+      layout: { "icon-image": "oma-nav-arrow", "icon-size": 1.15, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
     previewingRef.current = true; routeMaskRef.current = g.coords;   // couloir « ombres à ≤100 m du parcours »
     hideCanopyRef.current = !previewCanopyRef.current; computeRef.current?.();   // ombres bâtiments filtrées au couloir + canopée masquée (option)
@@ -1178,18 +1178,30 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
         const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
         const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
-        // pénalité d'ensoleillement forte → force le détour vers l'ombre proche
+        // arêtes empruntées par le trajet direct (clés orientées + inverse) → à ÉVITER
+        // pour le « plus ombragé » afin qu'il soit TOUJOURS un tracé distinct.
+        const directSet = new Set();
+        if (pDirect) for (let i = 0; i < pDirect.length - 1; i++) { const ka2 = nodeKey(pDirect[i]), kb2 = nodeKey(pDirect[i + 1]); directSet.add(ka2 + ">" + kb2); directSet.add(kb2 + ">" + ka2); }
+        // EXIGENCE : deux itinéraires DISTINCTS quel que soit l'horaire. On pondère par
+        // l'ensoleillement (préfère l'ombre) ET on pénalise fortement les arêtes du direct
+        // (× AVOID) → même la nuit / quand l'ombre est uniforme, on obtient un autre chemin.
         let pShade = null;
-        for (const K of [3, 8, 20, 45]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
-        const gShade = mkRoute(pShade);
-        // Détour MODÉRÉ pour aller chercher l'ombre proche : jusqu'à +150 m ou +35 %
-        // de longueur (petit détour, pas un grand contournement), et seulement si le
-        // gain d'ombre est net (≥ 5 pts) — évite un « plus ombragé » identique/absurde.
-        const maxLen = Math.max(direct.distance + 150, direct.distance * 1.35);
-        if (gShade && gShade.shade > shade.shade + 0.05 && gShade.distance <= maxLen) { shade = gShade; viaGraph = true; }
+        for (const K of [4, 10, 25, 60]) {
+          for (const AVOID of [3.5, 8]) {
+            const p = dijkstra(graph, ka, kb, (e, u) => e.len * (1 + K * (1 - e.shade)) * (directSet.has(u + ">" + e.to) ? AVOID : 1));
+            if (p && !samePath(p, pDirect)) { pShade = p; break; }
+          }
+          if (pShade) break;
+        }
+        const cand = mkRoute(pShade);
+        // On accepte ce détour distinct dans une limite de longueur généreuse (jusqu'à
+        // ×2 ou +600 m) : la distinction prime, mais on évite les contournements absurdes.
+        const maxLen = Math.max(direct.distance * 2, direct.distance + 600);
+        if (cand && !samePath(pShade, pDirect) && cand.distance <= maxLen) { shade = cand; viaGraph = true; }
       }
       const res = { shade, direct };
-      const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
+      // distinct garanti dès qu'on a pris un tracé du graphe (viaGraph)
+      const same = !viaGraph && (res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 2 && Math.abs(res.shade.shade - res.direct.shade) < 0.01));
       routeGeomRef.current = res;
       routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
