@@ -342,6 +342,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [previewCanopy, setPreviewCanopy] = useState(false); // canopée pendant la prévisualisation (défaut off)
   const [previewCorridor, setPreviewCorridor] = useState(true); // prévisu : n'afficher que les ombres à ≤100 m du parcours
   const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
+  const [maskPct, setMaskPct] = useState(80);        // intensité du voile hors couloir (0 = rien, 100 = tout masqué)
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
@@ -382,6 +383,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const lastViewRef = useRef("");        // dernière emprise ré-échantillonnée (idle)
   const tabRef = useRef("sim");          // onglet actif (sim | route | def)
   const treeModeRef = useRef("flat");    // mode d'affichage des arbres du couloir
+  const maskPctRef = useRef(80);         // intensité du voile hors couloir (0-100)
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
   const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
@@ -391,6 +393,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
   previewCorridorRef.current = previewCorridor;
   treeModeRef.current = treeMode;
+  maskPctRef.current = maskPct;
   tabRef.current = tab;
   playingRef.current = playing;
   // pendant la lecture, la boucle rAF fait autorité sur hourRef (pas d'écrasement).
@@ -444,8 +447,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // tracé ; rempli d'un blanc semi-opaque. Au-dessus des bâtiments/canopée, sous les labels.
     if (!map.getSource(MASK_SRC)) map.addSource(MASK_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(MASK_LYR)) map.addLayer({ id: MASK_LYR, type: "fill", source: MASK_SRC,
-      paint: { "fill-color": "#ffffff", "fill-opacity": 0.8, "fill-antialias": false } }, beforeLabels(map));
+      paint: { "fill-color": "#ffffff", "fill-opacity": maskPctRef.current / 100, "fill-antialias": false } }, beforeLabels(map));
   }, [opacity]);
+  // Remonte le voile AU-DESSUS de la canopée/bâti (pour masquer aussi les arbres hors
+  // couloir) et le trajet + repères AU-DESSUS du voile (toujours visibles).
+  const raiseMask = (map) => {
+    try {
+      if (map.getLayer(MASK_LYR)) map.moveLayer(MASK_LYR);
+      for (const id of [RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
+    } catch (_) {}
+  };
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
   const ensureCanopyLayers = useCallback((map, url, corners) => {
@@ -557,6 +568,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         }
       }
       maskSrc.setData({ type: "FeatureCollection", features: feats });
+      if (feats.length && !previewingRef.current) raiseMask(map);   // voile au-dessus des arbres/bâti (pas par frame en prévisu)
     }
 
     if (night) {
@@ -672,6 +684,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     setC3DVis(map, true);                            // maj visibilité extrusion (masquée si à plat)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeMode]);
+  // intensité du voile (0-100) → opacité en direct, sans recalculer la géométrie
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.();
+    if (map && map.getLayer(MASK_LYR)) { try { map.setPaintProperty(MASK_LYR, "fill-opacity", maskPct / 100); } catch (_) {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maskPct]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -748,6 +766,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const trunks = corridor ? (all.trunks || []).filter(keep) : (all.trunks || []);
     map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
     map.getSource(C3D_TSRC)?.setData({ type: "FeatureCollection", features: trunks });
+    if (corridor) raiseMask(map);   // garde le voile au-dessus de la canopée 3D fraîchement (re)posée
   }, []);
 
   const fetchCanopy3D = useCallback(async () => {
@@ -1207,48 +1226,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
         const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
         const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
-        // arêtes empruntées par le trajet direct (clés orientées + inverse) → à ÉVITER
-        // pour le « plus ombragé » afin qu'il soit TOUJOURS un tracé distinct.
-        const directSet = new Set();
-        if (pDirect) for (let i = 0; i < pDirect.length - 1; i++) { const ka2 = nodeKey(pDirect[i]), kb2 = nodeKey(pDirect[i + 1]); directSet.add(ka2 + ">" + kb2); directSet.add(kb2 + ">" + ka2); }
-        // EXIGENCE : deux itinéraires DISTINCTS quel que soit l'horaire. On pondère par
-        // l'ensoleillement (préfère l'ombre) ET on pénalise fortement les arêtes du direct
-        // (× AVOID) → même la nuit / quand l'ombre est uniforme, on obtient un autre chemin.
+        // « plus ombragé » = chemin le plus OMBRAGÉ du réseau (pondération ombre), NATUREL
+        // (pas de pénalité artificielle qui forçait un aller-retour bizarre).
         let pShade = null;
-        for (const K of [4, 10, 25, 60]) {
-          for (const AVOID of [3.5, 8]) {
-            const p = dijkstra(graph, ka, kb, (e, u) => e.len * (1 + K * (1 - e.shade)) * (directSet.has(u + ">" + e.to) ? AVOID : 1));
-            if (p && !samePath(p, pDirect)) { pShade = p; break; }
-          }
-          if (pShade) break;
-        }
+        for (const K of [3, 8, 20, 45]) { pShade = dijkstra(graph, ka, kb, (e) => e.len * (1 + K * (1 - e.shade))); if (!samePath(pShade, pDirect)) break; }
         const cand = mkRoute(pShade);
-        // On accepte ce détour distinct dans une limite de longueur généreuse (jusqu'à
-        // ×2 ou +600 m) : la distinction prime, mais on évite les contournements absurdes.
-        const maxLen = Math.max(direct.distance * 2, direct.distance + 600);
-        if (cand && !samePath(pShade, pDirect) && cand.distance <= maxLen) { shade = cand; viaGraph = true; }
-      }
-      // 3) GARANTIE de deux tracés distincts (exigence : quel que soit l'horaire) : si le
-      //    « plus ombragé » est encore identique au direct, on FORCE une alternative en
-      //    passant par un point décalé perpendiculairement au milieu A-B (gauche/droite)
-      //    et on garde la plus ombragée des deux.
-      const distinct = (r) => r && r !== direct && (Math.abs(r.distance - direct.distance) > 8 || (r.coords?.length || 0) !== (direct.coords?.length || 0));
-      if (!distinct(shade)) {
-        const distAB = haversine(a, b), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        const mx = 111320 * Math.cos(mid[1] * RAD), my = 111320;
-        const dx = (b[0] - a[0]) * mx, dy = (b[1] - a[1]) * my, len = Math.hypot(dx, dy) || 1;
-        const off = Math.min(Math.max(distAB * 0.25, 120), 450);   // décalage (m)
-        const ux = -dy / len, uy = dx / len;                       // perpendiculaire unitaire
-        const vias = [[mid[0] + (ux * off) / mx, mid[1] + (uy * off) / my], [mid[0] - (ux * off) / mx, mid[1] - (uy * off) / my]];
-        let best = null;
-        for (const v of vias) {
-          try { const r = await backendRoutes(map, a, b, sampler, v); const alt = r?.direct; if (distinct(alt) && (!best || alt.shade > best.shade)) best = alt; } catch (_) {}
-        }
-        if (best) { shade = best; viaGraph = true; }   // alternative distincte trouvée
+        // accepté seulement si NETTEMENT plus ombragé (≥ 4 pts) et détour raisonnable
+        // (≤ +250 m ou +40 %) → un vrai chemin plus ombragé, sans contournement absurde.
+        const maxLen = Math.max(direct.distance + 250, direct.distance * 1.4);
+        if (cand && !samePath(pShade, pDirect) && cand.shade > shade.shade + 0.04 && cand.distance <= maxLen) { shade = cand; viaGraph = true; }
       }
       const res = { shade, direct };
-      // distinct garanti dès qu'on a pris un tracé du graphe (viaGraph) ou une alternative forcée
-      const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.005);
+      const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
       routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
@@ -1487,6 +1476,11 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
                 🎯 N'afficher que les ombres à ≤ 100 m du parcours
               </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
+                <span style={{ whiteSpace: "nowrap" }}>🎭 Masque hors parcours</span>
+                <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
+                <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
                 {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
