@@ -184,7 +184,10 @@ function hexAround(c, rM) {
 }
 const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible borne déjà le nombre
-const MIN_SHADOW_ZOOM = 13;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
+const MIN_SHADOW_ZOOM = 14;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
+// opacité des ombres bâtiments atténuée à zoom moyen (bâtiments nombreux = lavis gris),
+// pleine au niveau rue → fondu progressif MIN_SHADOW_ZOOM → 16.
+const shadowOpacityExpr = (op) => ["interpolate", ["linear"], ["zoom"], MIN_SHADOW_ZOOM, op * 0.3, 16, op];
 
 /* Distance géodésique (m) entre deux [lng,lat]. */
 function haversine(a, b) {
@@ -399,18 +402,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // La vue « Canopée 3D » de l'onglet Ombrage force la 3D quand elle est active.
   const setC3DVis = (map, on) => {
     if (!map) return;
-    if (!on) { setVis(map, C3D_FLAT, false); setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); return; }
+    // « à plat » = raster canopée (géré par compute) ; le fill vectoriel n'est plus utilisé.
     const use3D = canopy3dRef.current || treeModeRef.current === "3d";
-    setVis(map, C3D_FLAT, !use3D);
-    setVis(map, C3D_CROWN, use3D);
-    setVis(map, C3D_TRUNK, use3D);
+    setVis(map, C3D_FLAT, false);
+    setVis(map, C3D_CROWN, on && use3D);
+    setVis(map, C3D_TRUNK, on && use3D);
   };
 
   const ensureShadowLayer = useCallback((map) => {
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
       map.addLayer({ id: LYR, type: "fill", source: SRC,
-        paint: { "fill-color": "#0e1630", "fill-opacity": opacity, "fill-antialias": false } }, beforeId(map));
+        paint: { "fill-color": "#0e1630", "fill-opacity": shadowOpacityExpr(opacity), "fill-antialias": false } }, beforeId(map));
     }
   }, [opacity]);
 
@@ -495,8 +498,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     // couloir actif = prévisualisation OU onglet Itinéraire avec un trajet
     const corridor = (previewingRef.current || onRouteTab) && previewCorridorRef.current && hasRoute;
-    const canOnDisp = canOn && !corridor;                     // canopée plate cachée en mode couloir
-    setVis(map, IMG_DISP, canOnDisp && !canopy3dRef.current); // canopée plate masquée si vue 3D active
+    // Arbres : « à plat » (défaut) = RASTER canopée nuancé + son ombre ; « 3D » = extrusion.
+    // Le raster est le rendu par défaut (y compris dans le couloir) ; la 3D le remplace.
+    const wantC3D = canopy3dRef.current || (corridor && treeModeRef.current === "3d");
+    const canOnDisp = canOn && !wantC3D;                      // raster canopée (à plat, avec ombre)
+    setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
     if (night) {
@@ -602,10 +608,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  // bascule arbres à plat ↔ 3D : ré-applique la visibilité si le couloir affiche des arbres
+  // bascule arbres à plat ↔ 3D : charge la donnée voulue (raster nuancé / patches 3D) + rerend
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
-    if (map && (previewingRef.current || (tabRef.current === "route" && routeMaskRef.current))) setC3DVis(map, true);
+    if (!map || !(previewingRef.current || (tabRef.current === "route" && routeMaskRef.current))) return;
+    if (treeMode === "3d") { if (!(c3dAllRef.current?.crowns || []).length) fetchCanopy3D(); else applyC3D(map); }
+    else if (treesRef.current) scheduleCanopy();   // à plat : (re)charge le raster canopée nuancé
+    computeRef.current?.();                          // maj visibilité raster (IMG_DISP + ombre)
+    setC3DVis(map, true);                            // maj visibilité extrusion (masquée si à plat)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeMode]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
@@ -749,7 +759,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
-    if (map && map.getLayer(LYR)) { try { map.setPaintProperty(LYR, "fill-opacity", Number(opacity)); } catch (_) {} }
+    if (map && map.getLayer(LYR)) { try { map.setPaintProperty(LYR, "fill-opacity", shadowOpacityExpr(Number(opacity))); } catch (_) {} }
   }, [opacity, mapRef]);
 
   // ── Emprise de calcul : vue / couche / ROI ────────────────────────────────
@@ -1160,15 +1170,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
       if (note) setRouteErr(note);
       drawRoutes(map, res);
-      computeRef.current?.();                     // onglet Itinéraire : n'affiche que le couloir
-      if (treesRef.current) fetchCanopy3D();      // arbres le long du parcours (3D, filtré au couloir)
-      else applyC3D(map);
+      computeRef.current?.();                     // onglet Itinéraire : bâtiments filtrés au couloir
+      // arbres du parcours : à plat = raster nuancé (+ ombre) ; 3D = extrusion filtrée
+      if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } }
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) fetchCanopy3D(); else applyC3D(map); setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else { scheduleCanopy(); setC3DVis(map, false); } } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
-  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, applyC3D]);
+  }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy]);
 
   useEffect(() => {
     const map = mapRef?.current?.getMap?.();
@@ -1198,7 +1208,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     try {
       map.setPaintProperty(LYR, "fill-opacity-transition", { duration: 700, delay: 0 });
       map.setPaintProperty(LYR, "fill-opacity", 0);
-      setTimeout(() => { try { if (map.getLayer(LYR)) map.setPaintProperty(LYR, "fill-opacity", Number(opacityRef.current)); } catch (_) {} }, 950);
+      setTimeout(() => { try { if (map.getLayer(LYR)) map.setPaintProperty(LYR, "fill-opacity", shadowOpacityExpr(Number(opacityRef.current))); } catch (_) {} }, 950);
     } catch (_) {}
   }, [mapRef]);
 
