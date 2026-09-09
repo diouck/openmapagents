@@ -165,6 +165,7 @@ const shadId = (i) => `oma-canopy-shad-${i}`;
 const ROI_SRC = "oma-roi-src", ROI_LYR = "oma-roi-line";
 const ZONE_SRC = "oma-zone-src", ZONE_FILL = "oma-zone-fill", ZONE_LINE = "oma-zone-line";
 const C3D_SRC = "oma-c3d-src", C3D_TSRC = "oma-c3d-tsrc", C3D_TRUNK = "oma-c3d-trunk", C3D_CROWN = "oma-c3d-crown"; // canopée 3D
+const C3D_FLAT = "oma-c3d-flat"; // canopée « à plat » (fill dégradé par hauteur, non extrudé)
 /* Aire d'un anneau [lng,lat] en m² (planaire local). */
 function polyAreaM2(ring) {
   if (!ring || ring.length < 3) return 0;
@@ -183,6 +184,7 @@ function hexAround(c, rM) {
 }
 const RT_SRC = "oma-route-src", RT_CASE = "oma-route-case", RT_LINE = "oma-route-line", RT_AB = "oma-route-ab", RT_MARK = "oma-route-mark";
 const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible borne déjà le nombre
+const MIN_SHADOW_ZOOM = 13;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
 
 /* Distance géodésique (m) entre deux [lng,lat]. */
 function haversine(a, b) {
@@ -315,6 +317,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [previewSpeed, setPreviewSpeed] = useState(1);
   const [previewCanopy, setPreviewCanopy] = useState(false); // canopée pendant la prévisualisation (défaut off)
   const [previewCorridor, setPreviewCorridor] = useState(true); // prévisu : n'afficher que les ombres à ≤100 m du parcours
+  const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
   const [sugg, setSugg] = useState({ a: [], b: [] });     // suggestions autocomplétion
 
@@ -354,6 +357,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const playingRef = useRef(false);      // lecture « Journée » en cours
   const lastViewRef = useRef("");        // dernière emprise ré-échantillonnée (idle)
   const tabRef = useRef("sim");          // onglet actif (sim | route | def)
+  const treeModeRef = useRef("flat");    // mode d'affichage des arbres du couloir
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
   const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
@@ -361,6 +365,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   canopy3dRef.current = canopy3d;
   tzModeRef.current = tzMode; navModeRef.current = navMode; previewCanopyRef.current = previewCanopy;
   previewCorridorRef.current = previewCorridor;
+  treeModeRef.current = treeMode;
   tabRef.current = tab;
   playingRef.current = playing;
   // pendant la lecture, la boucle rAF fait autorité sur hourRef (pas d'écrasement).
@@ -390,6 +395,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     return (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
   };
   const setVis = (map, id, on) => { try { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); } catch (_) {} };
+  // Affiche/masque les arbres du parcours selon le mode : à plat (dégradé, défaut) ou 3D.
+  // La vue « Canopée 3D » de l'onglet Ombrage force la 3D quand elle est active.
+  const setC3DVis = (map, on) => {
+    if (!map) return;
+    if (!on) { setVis(map, C3D_FLAT, false); setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); return; }
+    const use3D = canopy3dRef.current || treeModeRef.current === "3d";
+    setVis(map, C3D_FLAT, !use3D);
+    setVis(map, C3D_CROWN, use3D);
+    setVis(map, C3D_TRUNK, use3D);
+  };
 
   const ensureShadowLayer = useCallback((map) => {
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -474,7 +489,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       featsRef.current = [];
       setVis(map, IMG_DISP, false);
       for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
-      if (!canopy3dRef.current) { setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); }
+      if (!canopy3dRef.current) setC3DVis(map, false);
       setInfo({ night, alt: altDeg, count: 0, routeEmpty: true });
       return;
     }
@@ -496,9 +511,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const factor = 1 / Math.tan(alt);
     const cosN = Math.cos(th), sinE = Math.sin(th);
 
-    // ombres bâtiments (vecteur)
+    // ombres bâtiments (vecteur) — masquées quand trop dézoomé (hors couloir) : à petite
+    // échelle des milliers d'ombres se superposent → lavis gris illisible.
+    const tooFar = !corridor && map.getZoom() < MIN_SHADOW_ZOOM;
     const feats = [];
-    for (const b of blds) {
+    if (!tooFar) for (const b of blds) {
       const H = isFinite(b.h) ? b.h : Number(defH);
       if (!(H > 0)) continue;
       const d = H * factor;
@@ -520,7 +537,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // ombre de canopée : copies empilées de la base (0) au décalage plein
     // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
     //  s'appuie sur la canopée 3D filtrée pour les arbres proches du parcours).
-    if (canOnDisp && can.meanH > 0) {
+    if (canOnDisp && can.meanH > 0 && !tooFar) {
       const full = can.meanH * factor;
       for (let i = 0; i < SHAD_K; i++) {
         const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
@@ -531,7 +548,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (ss) { try { ss.setCoordinates(shad); } catch (_) {} setVis(map, shadId(i), true); }
       }
     }
-    setInfo({ night: false, alt: altDeg, factor, count: feats.length });
+    setInfo({ night: false, alt: altDeg, factor, count: feats.length, tooFar });
     // NB: `hour` n'est PAS une dépendance — compute lit hourRef ; le curseur et la
     // boucle de lecture déclenchent le rendu impérativement (évite les recalculs
     // redondants pendant la lecture).
@@ -578,13 +595,19 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       applyC3D(map);
       const hasC3D = (c3dAllRef.current?.crowns || []).length > 0;
       if (tab === "route") {
-        if (treesRef.current && hasC3D) { setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true); }
+        if (treesRef.current && hasC3D) setC3DVis(map, true);   // arbres du couloir (à plat ou 3D)
       } else if (!canopy3dRef.current) {
-        setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false);   // canopée 3D auto masquée hors Itinéraire
+        setC3DVis(map, false);   // canopée du parcours masquée hors Itinéraire
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+  // bascule arbres à plat ↔ 3D : ré-applique la visibilité si le couloir affiche des arbres
+  useEffect(() => {
+    const map = mapRef?.current?.getMap?.();
+    if (map && (previewingRef.current || (tabRef.current === "route" && routeMaskRef.current))) setC3DVis(map, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeMode]);
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -643,6 +666,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map.getLayer(C3D_CROWN)) map.addLayer({ id: C3D_CROWN, type: "fill-extrusion", source: C3D_SRC,
       paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["get", "height"], 2, "#d9f0a3", 5, "#addd8e", 8, "#78c679", 12, "#41ab5d", 16, "#238443", 22, "#006837"],
         "fill-extrusion-base": ["get", "base"], "fill-extrusion-height": ["get", "height"], "fill-extrusion-opacity": 0.92 } });
+    // canopée « à plat » : même contour, dégradé par hauteur, non extrudé (option prévisu)
+    if (!map.getLayer(C3D_FLAT)) map.addLayer({ id: C3D_FLAT, type: "fill", source: C3D_SRC, layout: { visibility: "none" },
+      paint: { "fill-color": ["interpolate", ["linear"], ["get", "height"], 2, "#d9f0a3", 5, "#addd8e", 8, "#78c679", 12, "#41ab5d", 16, "#238443", 22, "#006837"],
+        "fill-opacity": 0.82, "fill-outline-color": "#2f7d34" } });
   }, []);
 
   // (Ré)applique les patches canopée 3D aux sources, filtrés au couloir du parcours
@@ -686,7 +713,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       ensureC3DLayers(map);
       c3dAllRef.current = { crowns, trunks };
       applyC3D(map);                                    // filtré au couloir si prévisu
-      setVis(map, C3D_TRUNK, true); setVis(map, C3D_CROWN, true);
+      setC3DVis(map, true);                             // à plat (défaut) ou 3D
       setCanopyMsg({ ok: true, three: true, n: crowns.length, dataset: gj.dataset });
     } catch (e) { setCanopyMsg({ err: e.message || String(e), three: true }); }
   }, [mapRef, ensureC3DLayers, applyC3D]);
@@ -703,7 +730,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map && map.getPitch() < 20) { try { map.easeTo({ pitch: 55, duration: 700 }); } catch (_) {} }  // 3D → un peu d'inclinaison
       scheduleCanopy3D();
     } else if (map) {
-      setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false);
+      setC3DVis(map, false);
     }
     computeRef.current?.();   // maj visibilité de la canopée 2D plate
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -714,7 +741,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (trees) { scheduleCanopy(); if (canopy3dRef.current) scheduleCanopy3D(); }
     else {
       const map = mapRef?.current?.getMap?.();
-      if (map) { setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false); setVis(map, C3D_TRUNK, false); setVis(map, C3D_CROWN, false); }
+      if (map) { setVis(map, IMG_DISP, false); for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false); setC3DVis(map, false); }
       setCanopyMsg(null); compute();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1213,7 +1240,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
           const srcs = [SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
@@ -1365,6 +1392,16 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
                 <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
                 🎯 N'afficher que les ombres à ≤ 100 m du parcours
               </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
+                {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
+                  <button key={m} onClick={() => { setTreeMode(m); treeModeRef.current = m; }}
+                    style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
+                      border: `1px solid ${treeMode === m ? C.acc : C.bdr}`, background: treeMode === m ? C.acc + "18" : "transparent", color: treeMode === m ? C.acc : C.mut }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
                 <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
                 🌳 Afficher la canopée pendant la prévisualisation
@@ -1447,6 +1484,8 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
           <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", fontFamily: F, fontSize: 11.5, color: C.txt }}>
             {!info ? "Calcul…" : info.night ? (
               <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit, pas d'ombre.</span>
+            ) : info.tooFar ? (
+              <span>🔍 Trop dézoomé — ombres des bâtiments masquées (évite le lavis gris). Zoomez pour les afficher.</span>
             ) : (
               <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s).</span>
             )}
