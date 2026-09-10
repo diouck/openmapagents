@@ -235,6 +235,19 @@ function densify(coords, stepM) {
 }
 /* Distances cumulées le long d'une polyligne. */
 function cumDist(coords) { const c = [0]; for (let i = 1; i < coords.length; i++) c.push(c[i - 1] + haversine(coords[i - 1], coords[i])); return c; }
+/* Découpe un tracé en tronçons (~stepM) et attache à chacun sa PART D'OMBRE (0..1)
+   → rendu « analyse thématique » gradué le long de l'itinéraire (sampler.shadeAt). */
+function gradeSegments(coords, sampler, stepM = 16) {
+  const d = densify(coords, stepM), feats = [];
+  for (let i = 0; i < d.length - 1; i++) {
+    const a = d[i], b = d[i + 1], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    const s = (sampler.shadeAt(a[0], a[1]) + sampler.shadeAt(mx, my) + sampler.shadeAt(b[0], b[1])) / 3;
+    feats.push({ type: "Feature", properties: { shade: s }, geometry: { type: "LineString", coordinates: [a, b] } });
+  }
+  return feats;
+}
+/* Rampe de couleur thématique de la part d'ombre (0 % ensoleillé → 100 % ombragé). */
+const SHADE_RAMP = ["interpolate", ["linear"], ["get", "shade"], 0, "#f4a300", 0.35, "#e3c62b", 0.6, "#9cc23f", 0.85, "#3f9d51", 1, "#146c37"];
 /* Taux de « retour sur soi-même » (aller-retour) : fraction des points qui repassent
    à ≤ Rm d'un point non-adjacent du tracé. Élevé = le chemin se retrace. */
 function selfOverlap(coords, Rm = 22, minGap = 6) {
@@ -1202,9 +1215,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Basculer de carte sélectionne l'autre → seul l'autre s'affiche. Vert = ombragé.
     const sel = routeSelRef.current || "shade";
     const chosen = res?.[sel] || res?.shade || res?.direct;
-    const feats = chosen ? [{ type: "Feature", properties: { kind: sel }, geometry: { type: "LineString", coordinates: chosen.coords } }] : [];
-    const directColor = res?.balade ? "#2563eb" : "#e8590c";   // itinéraire = orange, balade = bleu
-    const colorExpr = sel === "shade" ? "#1b7a3e" : directColor;
+    // Rendu THÉMATIQUE gradué : chaque tronçon coloré selon sa part d'ombre (0..1).
+    // Repli (grade absent) : une seule ligne teintée par la part d'ombre globale.
+    const feats = chosen ? (chosen.grade && chosen.grade.length ? chosen.grade
+      : [{ type: "Feature", properties: { shade: chosen.shade ?? 0 }, geometry: { type: "LineString", coordinates: chosen.coords } }]) : [];
+    const colorExpr = SHADE_RAMP;
     const wExpr = 7.5, oExpr = 1, cwExpr = 11.5;               // tracé unique bien mis en avant
     if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
     else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
@@ -1437,6 +1452,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (cand && !samePath(pShade, pDirect) && cand.shade > shade.shade + 0.04 && cand.distance <= maxLen && selfOverlap(cand.coords) < 0.3) { shade = cand; viaGraph = true; }
       }
       const res = { shade, direct };
+      // tronçons gradués (part d'ombre) pour le rendu thématique
+      if (shade?.coords) shade.grade = gradeSegments(shade.coords, sampler);
+      if (direct && direct !== shade && direct.coords) direct.grade = gradeSegments(direct.coords, sampler);
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
       // Itinéraire 1 (« plus ombragé ») actif par défaut : UN SEUL tracé affiché à la fois.
@@ -1456,7 +1474,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade"); routeMaskRef.current = res.shade?.coords || res.direct?.coords || null; routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); if (res.shade?.coords) res.shade.grade = gradeSegments(res.shade.coords, sampler); if (res.direct && res.direct !== res.shade && res.direct.coords) res.direct.grade = gradeSegments(res.direct.coords, sampler); routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade"); routeMaskRef.current = res.shade?.coords || res.direct?.coords || null; routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
@@ -1517,6 +1535,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       for (const r of scored.slice(1)) { if (pick.length >= 2) break; if (haversine(midOf(pick[0]), midOf(r)) > 80 || Math.abs(r.distance - pick[0].distance) > 150) pick.push(r); }
       if (pick.length < 2 && scored[1]) pick.push(scored[1]);
       const res = { shade: pick[0], direct: pick[1] || pick[0], night: sampler.night, balade: true, same: pick.length < 2 };
+      if (res.shade?.coords) res.shade.grade = gradeSegments(res.shade.coords, sampler);
+      if (res.direct && res.direct !== res.shade && res.direct.coords) res.direct.grade = gradeSegments(res.direct.coords, sampler);
       routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade");   // balade 1 active par défaut
       routeMaskRef.current = res.shade?.coords || null; maskHolesRef.current = null;
       routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null;   // couloir autour de la seule balade active
@@ -1637,9 +1657,22 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const stepHour = (d) => { setPlaying(false); const v = Math.max(0, Math.min(24, Math.round((hourRef.current + d) / HOUR_STEP) * HOUR_STEP)); hourRef.current = v; setHour(v); computeRef.current?.(); };
   const stepBtn = { fontFamily: F, fontSize: 14, fontWeight: 700, lineHeight: 1, padding: "5px 9px", cursor: "pointer", background: "transparent", color: C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, flexShrink: 0 };
 
+  // Légende thématique : couleur du tracé = part d'ombre de chaque tronçon
+  const shadeLegend = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ fontFamily: F, fontSize: 10.5, color: C.mut }}>Part d'ombre par tronçon</div>
+      <div style={{ height: 10, borderRadius: 5, border: `0.5px solid ${C.bdr}`,
+        background: "linear-gradient(90deg, #f4a300 0%, #e3c62b 35%, #9cc23f 60%, #3f9d51 85%, #146c37 100%)" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 9, color: C.dim }}>
+        <span>0 % ☀️</span><span>50 %</span><span>100 % 🌳</span>
+      </div>
+    </div>
+  );
+
   // Contrôles de prévisualisation/affichage partagés par les onglets Itinéraire et Balade
   const previewControls = (
     <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+      {shadeLegend}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => (previewing ? stopPreview() : startPreview())}
           style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "6px 12px", cursor: "pointer",
