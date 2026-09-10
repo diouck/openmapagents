@@ -161,6 +161,7 @@ function dijkstra(graph, startKey, endKey, weightFn) {
 
 const SRC = "oma-shadow-src", LYR = "oma-shadow-fill";
 const MASK_SRC = "oma-route-mask-src", MASK_LYR = "oma-route-mask"; // voile estompant hors du couloir
+const CAN_VS_SRC = "oma-canopy-vshad-src", CAN_VS = "oma-canopy-vshad"; // ombre canopée par POLYGONE (patches 3D)
 // Végétation + eau mises en valeur depuis les tuiles (schéma OpenMapTiles, aucun téléchargement)
 const NAT_LC = "oma-nat-lc", NAT_LU = "oma-nat-lu", NAT_WATER = "oma-nat-water", NAT_WWAY = "oma-nat-wway";
 const IMG_DISP = "oma-canopy-img";
@@ -269,6 +270,35 @@ function navArrowImage(size = 64) {
   arrow(); ctx.lineWidth = size * 0.17; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.stroke();   // halo (contraste)
   arrow(); ctx.lineWidth = size * 0.10; ctx.strokeStyle = "#ffffff"; ctx.stroke();            // liseré blanc
   arrow(); ctx.fillStyle = "#2563eb"; ctx.fill();                                             // corps bleu
+  return ctx.getImageData(0, 0, size, size);
+}
+/* Bonhomme qui marche (emoji 🚶) sur pastille — repère de position pendant la prévisu. */
+function walkerImage(size = 60) {
+  const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
+  const ctx = cv.getContext("2d");
+  ctx.beginPath(); ctx.arc(size / 2, size / 2, size * 0.42, 0, Math.PI * 2);
+  ctx.fillStyle = "#2563eb"; ctx.fill(); ctx.lineWidth = size * 0.06; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+  ctx.font = `${Math.round(size * 0.5)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#ffffff";
+  ctx.fillText("🚶", size / 2, size / 2 + size * 0.04);
+  return ctx.getImageData(0, 0, size, size);
+}
+/* Drapeau de départ (vert) / d'arrivée (damier) — marqueurs A/B distincts. */
+function flagImage(kind, size = 44) {
+  const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
+  const ctx = cv.getContext("2d");
+  const poleX = size * 0.26, top = size * 0.1, bot = size * 0.94;
+  ctx.strokeStyle = "#374151"; ctx.lineWidth = size * 0.07; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(poleX, top); ctx.lineTo(poleX, bot); ctx.stroke();
+  const fx = poleX, fy = top, fw = size * 0.5, fh = size * 0.34;
+  if (kind === "finish") {
+    const n = 4, cw = fw / n, ch = fh / n;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { ctx.fillStyle = (r + c) % 2 ? "#111827" : "#ffffff"; ctx.fillRect(fx + c * cw, fy + r * ch, cw, ch); }
+    ctx.strokeStyle = "#111827"; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
+  } else {
+    ctx.fillStyle = "#16a34a"; ctx.fillRect(fx, fy, fw, fh);
+    ctx.strokeStyle = "#0f5132"; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
+  }
   return ctx.getImageData(0, 0, size, size);
 }
 
@@ -445,6 +475,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   };
 
   const ensureShadowLayer = useCallback((map) => {
+    // ombre de canopée par polygone (patches 3D) — SOUS l'ombre des bâtiments
+    if (!map.getSource(CAN_VS_SRC)) map.addSource(CAN_VS_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    if (!map.getLayer(CAN_VS)) map.addLayer({ id: CAN_VS, type: "fill", source: CAN_VS_SRC,
+      paint: { "fill-color": "#183a24", "fill-opacity": 0.22, "fill-antialias": false } }, beforeId(map));
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
       map.addLayer({ id: LYR, type: "fill", source: SRC,
@@ -558,6 +592,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (onRouteTab && !hasRoute) {
       src && src.setData({ type: "FeatureCollection", features: [] });
       map.getSource(MASK_SRC)?.setData({ type: "FeatureCollection", features: [] });
+      map.getSource(CAN_VS_SRC)?.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
       setVis(map, IMG_DISP, false);
       for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
@@ -609,6 +644,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
     if (night) {
       src && src.setData({ type: "FeatureCollection", features: [] });
+      map.getSource(CAN_VS_SRC)?.setData({ type: "FeatureCollection", features: [] });
       featsRef.current = [];
       setMask();   // voile : couloir clair même la nuit
       setInfo({ night: true, alt: altDeg, count: 0 });
@@ -644,10 +680,31 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     featsRef.current = outFeats;
     setMask();   // voile : couloir clair autour du parcours, le reste estompé
 
-    // ombre de canopée : copies empilées de la base (0) au décalage plein
-    // (masquée en mode couloir : une ombre raster ne se découpe pas au couloir → on
-    //  s'appuie sur la canopée 3D filtrée pour les arbres proches du parcours).
-    if (canOnDisp && can.meanH > 0 && !tooFar) {
+    // Ombre de canopée PAR POLYGONE dès qu'on a les patches 3D (chaque arbre a son ombre) ;
+    // sinon copies empilées du raster. Masquée trop dézoomé.
+    const crowns = c3dAllRef.current?.crowns || [];
+    const treesShown = trees && !hideCanopyRef.current;
+    const canVsSrc = map.getSource(CAN_VS_SRC);
+    if (canVsSrc) {
+      const vs = [];
+      if (treesShown && crowns.length && !tooFar) {
+        const rcs = corridor ? ((routeAllRef.current && routeAllRef.current.length) ? routeAllRef.current : (routeMaskRef.current ? [routeMaskRef.current] : [])) : null;
+        for (const cr of crowns) {
+          const ring = cr.geometry?.coordinates?.[0]; const h = cr.properties?.height;
+          if (!ring || ring.length < 4 || !(h > 0)) continue;
+          if (rcs && !rcs.some((rc) => ringNearRoute(ring, rc, CORRIDOR_M))) continue;
+          const d = h * factor, lat0 = ring[0][1];
+          const dLat = (d * cosN) / 111320, dLng = (d * sinE) / (111320 * Math.cos(lat0 * RAD));
+          const m = ring.length, pts = new Array(m * 2);
+          for (let i = 0; i < m; i++) { const q = ring[i]; pts[i] = q; pts[m + i] = [q[0] + dLng, q[1] + dLat]; }
+          const hull = convexHull(pts); if (hull.length < 3) continue; hull.push(hull[0]);
+          vs.push({ type: "Feature", properties: null, geometry: { type: "Polygon", coordinates: [hull] } });
+        }
+      }
+      canVsSrc.setData({ type: "FeatureCollection", features: vs });
+    }
+    // ombre de canopée RASTER (copies empilées) — seulement si pas de patches 3D
+    if (canOnDisp && can.meanH > 0 && !tooFar && !crowns.length) {
       const full = can.meanH * factor;
       for (let i = 0; i < SHAD_K; i++) {
         const frac = SHAD_K > 1 ? i / (SHAD_K - 1) : 1;
@@ -658,6 +715,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (ss) { try { ss.setCoordinates(shad); } catch (_) {} setVis(map, shadId(i), true); }
       }
     }
+    // l'ombre des BÂTIMENTS passe AU-DESSUS de la canopée (raster + ombre canopée)
+    if (!previewingRef.current) { try { const bext = beforeId(map); if (bext) for (const id of [CAN_VS, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i)), IMG_DISP, LYR]) if (map.getLayer(id)) map.moveLayer(id, bext); } catch (_) {} }
     setInfo({ night: false, alt: altDeg, factor, count: feats.length, tooFar });
     // NB: `hour` n'est PAS une dépendance — compute lit hourRef ; le curseur et la
     // boucle de lecture déclenchent le rendu impérativement (évite les recalculs
@@ -1125,9 +1184,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       paint: { "line-color": colorExpr, "line-width": wExpr, "line-opacity": oExpr } });
     else { map.setPaintProperty(RT_LINE, "line-color", colorExpr); map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
     const ab = routeABRef.current || [];
-    const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
+    // marqueurs distincts : départ = drapeau vert, arrivée = drapeau à damier
+    const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { flag: i === 0 ? "start" : "finish" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
+    try { if (!map.hasImage("oma-flag-start")) map.addImage("oma-flag-start", flagImage("start"), { pixelRatio: 2 }); } catch (_) {}
+    try { if (!map.hasImage("oma-flag-finish")) map.addImage("oma-flag-finish", flagImage("finish"), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
-    if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "circle", source: RT_AB, paint: { "circle-radius": 6, "circle-color": "#111827", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "symbol", source: RT_AB,
+      layout: { "icon-image": ["match", ["get", "flag"], "finish", "oma-flag-finish", "oma-flag-start"], "icon-size": 0.9, "icon-anchor": "bottom",
+        "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-pitch-alignment": "viewport" } });
   }, []);
 
   const restoreCam = useCallback((map) => {
@@ -1152,10 +1216,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     const g = routeGeomRef.current?.[routeSelRef.current]; if (!g) return;
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
-    try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
+    try { if (!map.hasImage("oma-walker")) map.addImage("oma-walker", walkerImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
-      layout: { "icon-image": "oma-nav-arrow", "icon-size": 1.25, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map",
+      layout: { "icon-image": "oma-walker", "icon-size": 0.9, "icon-rotation-alignment": "viewport",
         "icon-pitch-alignment": "viewport", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
     previewingRef.current = true; routeMaskRef.current = g.coords;   // couloir « ombres à ≤100 m du parcours »
@@ -1499,9 +1563,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
-          const ids = [MASK_LYR, LYR, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, NAT_LC, NAT_LU, NAT_WATER, NAT_WWAY, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const ids = [MASK_LYR, LYR, CAN_VS, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, NAT_LC, NAT_LU, NAT_WATER, NAT_WWAY, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, MASK_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          const srcs = [SRC, MASK_SRC, CAN_VS_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
         }
       } catch (_) {}
