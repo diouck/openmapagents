@@ -234,6 +234,17 @@ function densify(coords, stepM) {
 }
 /* Distances cumulées le long d'une polyligne. */
 function cumDist(coords) { const c = [0]; for (let i = 1; i < coords.length; i++) c.push(c[i - 1] + haversine(coords[i - 1], coords[i])); return c; }
+/* Taux de « retour sur soi-même » (aller-retour) : fraction des points qui repassent
+   à ≤ Rm d'un point non-adjacent du tracé. Élevé = le chemin se retrace. */
+function selfOverlap(coords, Rm = 22, minGap = 6) {
+  const d = densify(coords, 12);
+  const n = d.length; if (n < 8) return 0;
+  let hit = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + minGap; j < n; j++) { if (haversine(d[i], d[j]) < Rm) { hit++; break; } }
+  }
+  return hit / n;
+}
 /* Position à la fraction f (0..1) de la longueur. */
 function alongRoute(coords, cum, f) {
   const total = cum[cum.length - 1] || 1, target = f * total;
@@ -1302,7 +1313,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         // accepté seulement si NETTEMENT plus ombragé (≥ 4 pts) et détour raisonnable
         // (≤ +250 m ou +40 %) → un vrai chemin plus ombragé, sans contournement absurde.
         const maxLen = Math.max(direct.distance + 250, direct.distance * 1.4);
-        if (cand && !samePath(pShade, pDirect) && cand.shade > shade.shade + 0.04 && cand.distance <= maxLen) { shade = cand; viaGraph = true; }
+        // + refuse un « plus ombragé » qui se retrace (aller-retour) : selfOverlap trop élevé
+        if (cand && !samePath(pShade, pDirect) && cand.shade > shade.shade + 0.04 && cand.distance <= maxLen && selfOverlap(cand.coords) < 0.3) { shade = cand; viaGraph = true; }
       }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
@@ -1368,9 +1380,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
       const raw = (await rr.json()).routes || [];
       if (!raw.length) throw new Error("Aucune boucle trouvée.");
-      const scored = raw.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 14); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration || rt.distance / 1.35, shade: dense.length ? sh / dense.length : 0 }; })
-        .filter((r) => r.coords.length > 3 && r.distance > 200)
-        .sort((a, b) => b.shade - a.shade);
+      let scored = raw.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 14); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration || rt.distance / 1.35, shade: dense.length ? sh / dense.length : 0, overlap: selfOverlap(coords) }; })
+        .filter((r) => r.coords.length > 3 && r.distance > 200);
+      // écarte les boucles en aller-retour (se retracent) ; si tout est écarté, on garde le moins pire
+      const clean = scored.filter((r) => r.overlap < 0.3);
+      scored = (clean.length ? clean : scored.sort((a, b) => a.overlap - b.overlap).slice(0, 3)).sort((a, b) => b.shade - a.shade);
       if (!scored.length) throw new Error("Boucles invalides.");
       const midOf = (r) => alongRoute(r.coords, r.cum, 0.5);
       const pick = [scored[0]];
