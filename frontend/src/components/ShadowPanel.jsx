@@ -393,7 +393,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const maskPctRef = useRef(80);         // intensité du voile hors couloir (0-100)
   const previewingRef = useRef(false);   // prévisualisation d'itinéraire en cours
   const previewCorridorRef = useRef(true); // couloir « ombres proches du parcours » actif
-  const routeMaskRef = useRef(null);     // coords du parcours sélectionné (couloir de prévisu)
+  const routeMaskRef = useRef(null);     // coords du parcours sélectionné (prévisu qui suit)
+  const routeAllRef = useRef(null);      // [coords des DEUX tracés] → couloir/masque couvrent les deux
   const maskHolesRef = useRef(null);     // { rc, holes } trous du masque (empreintes bâti + arbres)
   const c3dAllRef = useRef({ crowns: [], trunks: [] }); // patches canopée 3D complets (avant filtre couloir)
   canopy3dRef.current = canopy3d;
@@ -580,16 +581,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const maskSrc = map.getSource(MASK_SRC);
       if (!maskSrc) return;
       let maskFeats = [];
-      const rc = routeMaskRef.current;
-      if (corridor && rc && rc.length >= 2) {
-        if (!maskHolesRef.current || maskHolesRef.current.rc !== rc) {
+      const routes = (routeAllRef.current && routeAllRef.current.length) ? routeAllRef.current : (routeMaskRef.current ? [routeMaskRef.current] : []);
+      const key = routes;   // même identité tant que l'itinéraire ne change pas
+      if (corridor && routes.length) {
+        if (!maskHolesRef.current || maskHolesRef.current.rc !== key) {
           const holes = [];
-          try {
-            const bg = turf.buffer(turf.lineString(rc), CORRIDOR_M / 1000, { units: "kilometers" })?.geometry;
-            if (bg?.type === "Polygon") holes.push(bg.coordinates[0]);
-            else if (bg?.type === "MultiPolygon") for (const p of bg.coordinates) holes.push(p[0]);
-          } catch (_) {}
-          maskHolesRef.current = { rc, holes };
+          for (const rc of routes) {
+            if (!rc || rc.length < 2) continue;
+            try {
+              const bg = turf.buffer(turf.lineString(rc), CORRIDOR_M / 1000, { units: "kilometers" })?.geometry;
+              if (bg?.type === "Polygon") holes.push(bg.coordinates[0]);
+              else if (bg?.type === "MultiPolygon") for (const p of bg.coordinates) holes.push(p[0]);
+            } catch (_) {}
+          }
+          maskHolesRef.current = { rc: key, holes };
         }
         const holes = maskHolesRef.current.holes;
         if (holes.length) {
@@ -634,7 +639,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Couloir (prévisu ou onglet Itinéraire avec trajet) : ne garder que les ombres de
     // bâtiments qui passent à ≤ CORRIDOR_M du parcours (le reste sans ombre).
     let outFeats = feats;
-    if (corridor) { const rc = routeMaskRef.current; outFeats = feats.filter((f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M)); }
+    if (corridor) { const routes = (routeAllRef.current && routeAllRef.current.length) ? routeAllRef.current : (routeMaskRef.current ? [routeMaskRef.current] : []); outFeats = feats.filter((f) => { const ring = f.geometry.coordinates[0]; return routes.some((rc) => ringNearRoute(ring, rc, CORRIDOR_M)); }); }
     src && src.setData({ type: "FeatureCollection", features: outFeats });
     featsRef.current = outFeats;
     setMask();   // voile : couloir clair autour du parcours, le reste estompé
@@ -807,8 +812,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!map) return;
     const all = c3dAllRef.current || { crowns: [], trunks: [] };
     const corridor = (previewingRef.current || tabRef.current === "route" || tabRef.current === "balade") && previewCorridorRef.current && routeMaskRef.current;
-    const rc = routeMaskRef.current;
-    const keep = (f) => ringNearRoute(f.geometry.coordinates[0], rc, CORRIDOR_M);
+    const routes = (routeAllRef.current && routeAllRef.current.length) ? routeAllRef.current : (routeMaskRef.current ? [routeMaskRef.current] : []);
+    const keep = (f) => { const ring = f.geometry.coordinates[0]; return routes.some((rc) => ringNearRoute(ring, rc, CORRIDOR_M)); };
     const crowns = corridor ? (all.crowns || []).filter(keep) : (all.crowns || []);
     const trunks = corridor ? (all.trunks || []).filter(keep) : (all.trunks || []);
     map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
@@ -1096,23 +1101,29 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [mapRef, date, hour, defH, trees]);
 
   const drawRoutes = useCallback((map, res) => {
-    // On n'affiche QUE l'itinéraire sélectionné (évite la « duplication » quand les deux
-    // tracés se superposent) ; le choix ombragé/direct se fait via les 2 cartes du panneau.
+    // Affiche LES DEUX tracés en même temps ; le sélectionné est mis en avant (plus large,
+    // opaque), l'autre reste visible en secondaire. Couleurs distinctes (vert = ombragé).
     const sel = routeSelRef.current;
-    const kind = res && res[sel] ? sel : (res && res.shade ? "shade" : res && res.direct ? "direct" : null);
-    const chosen = kind && res[kind];
-    const feats = chosen ? [{ type: "Feature", properties: { kind }, geometry: { type: "LineString", coordinates: chosen.coords } }] : [];
-    const color = kind === "direct" ? "#e8590c" : "#1b7a3e";
+    const feats = [];
+    if (res?.shade) feats.push({ type: "Feature", properties: { kind: "shade" }, geometry: { type: "LineString", coordinates: res.shade.coords } });
+    if (res?.direct && res.direct !== res.shade) feats.push({ type: "Feature", properties: { kind: "direct" }, geometry: { type: "LineString", coordinates: res.direct.coords } });
+    const directColor = res?.balade ? "#2563eb" : "#e8590c";   // itinéraire = orange, balade = bleu
+    const colorExpr = ["case", ["==", ["get", "kind"], "shade"], "#1b7a3e", directColor];
+    // sans sélection : les deux à égalité ; après sélection : le choisi mis en avant
+    const wExpr = sel ? ["case", ["==", ["get", "kind"], sel], 7.5, 4.5] : 6;
+    const oExpr = sel ? ["case", ["==", ["get", "kind"], sel], 1, 0.55] : 0.9;
+    const cwExpr = sel ? ["case", ["==", ["get", "kind"], sel], 11.5, 8] : 10;
     if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
     else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
-    // liseré blanc dessous → tracé bien visible sur un fond chargé
+    // liseré blanc dessous → tracés bien visibles sur un fond chargé
     if (!map.getLayer(RT_CASE)) map.addLayer({ id: RT_CASE, type: "line", source: RT_SRC,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#ffffff", "line-width": 11, "line-opacity": 0.95 } });
+      paint: { "line-color": "#ffffff", "line-width": cwExpr, "line-opacity": 0.92 } });
+    else map.setPaintProperty(RT_CASE, "line-width", cwExpr);
     if (!map.getLayer(RT_LINE)) map.addLayer({ id: RT_LINE, type: "line", source: RT_SRC,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": color, "line-width": 7, "line-opacity": 1 } });
-    else map.setPaintProperty(RT_LINE, "line-color", color);
+      paint: { "line-color": colorExpr, "line-width": wExpr, "line-opacity": oExpr } });
+    else { map.setPaintProperty(RT_LINE, "line-color", colorExpr); map.setPaintProperty(RT_LINE, "line-width", wExpr); map.setPaintProperty(RT_LINE, "line-opacity", oExpr); }
     const ab = routeABRef.current || [];
     const abfc = { type: "FeatureCollection", features: ab.map((p, i) => (p ? { type: "Feature", properties: { label: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } } : null)).filter(Boolean) };
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
@@ -1181,11 +1192,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const selectRoute = useCallback((kind) => {
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
-    // le couloir suit l'itinéraire choisi (bâtiments/arbres le long du tracé sélectionné)
+    // la prévisu suit le tracé choisi ; les DEUX restent affichés (le choisi mis en avant)
     routeMaskRef.current = routeGeomRef.current?.[kind]?.coords || routeMaskRef.current;
     const map = mapRef?.current?.getMap?.();
-    if (map && routeGeomRef.current) drawRoutes(map, routeGeomRef.current);   // ne redessine QUE le tracé choisi
-    computeRef.current?.(); if (map) applyC3D(map);   // re-filtre au couloir du nouvel itinéraire
+    if (map && routeGeomRef.current) drawRoutes(map, routeGeomRef.current);   // redessine les 2, met en avant le choisi
+    computeRef.current?.(); if (map) applyC3D(map);
   }, [mapRef, stopPreview, applyC3D, drawRoutes]);
 
   // Efface l'itinéraire (A/B, tracés, voile) et revient à la carte nue
@@ -1193,7 +1204,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     stopPreview();
     routeABRef.current = []; setRouteAB([]); setAddr({ a: "", b: "" }); setSugg({ a: [], b: [] });
     setBaladeStart(null); baladeStartRef.current = null; setBaladeAddr(""); setBaladeSugg([]);
-    routeGeomRef.current = null; routeMaskRef.current = null; maskHolesRef.current = null;
+    routeGeomRef.current = null; routeMaskRef.current = null; routeAllRef.current = null; maskHolesRef.current = null;
     setRouteResult(null); setRouteErr(null);
     const map = mapRef?.current?.getMap?.();
     if (map) {
@@ -1319,7 +1330,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
-      routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null;
+      routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean);
+      routeSelRef.current = null; setRouteSel(null);   // aucun tracé sélectionné → préviz masquée jusqu'au choix
+      routeMaskRef.current = res.shade?.coords || res.direct?.coords || null;
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
       if (note) setRouteErr(note);
       drawRoutes(map, res);
@@ -1333,7 +1346,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean); routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
@@ -1391,7 +1404,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       for (const r of scored.slice(1)) { if (pick.length >= 2) break; if (haversine(midOf(pick[0]), midOf(r)) > 80 || Math.abs(r.distance - pick[0].distance) > 150) pick.push(r); }
       if (pick.length < 2 && scored[1]) pick.push(scored[1]);
       const res = { shade: pick[0], direct: pick[1] || pick[0], night: sampler.night, balade: true, same: pick.length < 2 };
-      routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade");
+      routeGeomRef.current = res; routeSelRef.current = null; setRouteSel(null);   // aucun choix initial → préviz après sélection
+      routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean);
       routeMaskRef.current = res.shade?.coords || null; maskHolesRef.current = null;
       setRouteResult(res);
       drawRoutes(map, res);
@@ -1677,7 +1691,8 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             </div>
           )}
 
-          {routeResult && !routeResult.balade && previewControls}
+          {routeResult && !routeResult.balade && !routeSel && <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>👆 Sélectionnez un trajet ci-dessus pour la prévisualisation.</div>}
+          {routeResult && !routeResult.balade && routeSel && previewControls}
         </div>
       ) : tab === "balade" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
@@ -1741,7 +1756,8 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
               {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Une seule boucle distincte trouvée — essayez une autre durée ou un autre départ.</div>}
             </div>
           )}
-          {routeResult && routeResult.balade && previewControls}
+          {routeResult && routeResult.balade && !routeSel && <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>👆 Sélectionnez une balade ci-dessus pour la prévisualisation.</div>}
+          {routeResult && routeResult.balade && routeSel && previewControls}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
