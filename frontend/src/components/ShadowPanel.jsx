@@ -1639,10 +1639,16 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (map) { try { map.getCanvas().style.cursor = ""; } catch (_) {} }
       try {
         if (map) {
+          // a. coupe le relief 3D (terrain) AVANT de retirer sa source
+          try { map.setTerrain(null); } catch (_) {}
+          // b. retire TOUTES les couches ajoutées par l'outil : ombres, canopée, masque, routes, nature…
           const ids = [MASK_LYR, LYR, CAN_VS, IMG_DISP, ROI_LYR, ZONE_FILL, ZONE_LINE, RT_CASE, RT_LINE, RT_AB, RT_MARK, NAT_LC, NAT_LU, NAT_WATER, NAT_WWAY, C3D_FLAT, C3D_TRUNK, C3D_CROWN, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           ids.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          const srcs = [SRC, MASK_SRC, CAN_VS_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
+          // c. puis leurs sources, relief-dem compris
+          const srcs = [SRC, MASK_SRC, CAN_VS_SRC, IMG_DISP, ROI_SRC, ZONE_SRC, RT_SRC, RT_AB, RT_MARK, C3D_SRC, C3D_TSRC, "terrain-dem", ...Array.from({ length: SHAD_K }, (_, i) => shadId(i))];
           srcs.forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
+          // d. revient à une vue MapLibre normale : à plat, plein nord
+          try { map.easeTo({ pitch: 0, bearing: 0, duration: 300 }); } catch (_) {}
         }
       } catch (_) {}
     };
