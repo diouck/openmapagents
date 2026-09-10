@@ -1632,6 +1632,11 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         borderBottom: `2px solid ${tab === id ? C.acc : "transparent"}`, marginBottom: -1 }}>{label}</button>
   );
 
+  // Avance/recule l'heure d'un pas (prévisu « étape par étape » manuelle de l'ombre)
+  const HOUR_STEP = 0.5;   // 30 min
+  const stepHour = (d) => { setPlaying(false); const v = Math.max(0, Math.min(24, Math.round((hourRef.current + d) / HOUR_STEP) * HOUR_STEP)); hourRef.current = v; setHour(v); computeRef.current?.(); };
+  const stepBtn = { fontFamily: F, fontSize: 14, fontWeight: 700, lineHeight: 1, padding: "5px 9px", cursor: "pointer", background: "transparent", color: C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, flexShrink: 0 };
+
   // Contrôles de prévisualisation/affichage partagés par les onglets Itinéraire et Balade
   const previewControls = (
     <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1925,15 +1930,19 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
           </div>
 
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <button onClick={() => setPlaying((p) => !p)}
                 style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
                   background: playing ? C.acc : "transparent", color: playing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, flexShrink: 0 }}>
                 {playing ? "❚❚ Pause" : "▶ Journée"}
               </button>
+              {/* pas à pas manuel : recule / avance l'ombre de 30 min */}
+              <button onClick={() => stepHour(-HOUR_STEP)} title="Étape précédente (−30 min)" style={stepBtn}>◀</button>
+              <button onClick={() => stepHour(HOUR_STEP)} title="Étape suivante (+30 min)" style={stepBtn}>▶</button>
               <input type="range" min={0} max={24} step={0.25} value={hour}
                 onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ flex: 1 }} />
             </div>
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>▶ Journée = lecture auto (lever→coucher) · ◀ ▶ = pas à pas manuel (30 min).</div>
             <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 9, color: C.dim, marginTop: 2 }}>
               <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
             </div>
