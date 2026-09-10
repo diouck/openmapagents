@@ -1341,9 +1341,19 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const exportRoute = useCallback(() => {
     const g = routeGeomRef.current; if (!g) { setRouteErr("Calculez d'abord un itinéraire."); return; }
     const feats = [];
+    const seen = new Set();
     for (const kind of ["shade", "direct"]) {
       const r = g[kind];
-      if (r?.coords) feats.push({ type: "Feature", properties: { type: kind === "shade" ? "plus_ombrage" : "plus_direct", distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100) }, geometry: { type: "LineString", coordinates: r.coords } });
+      if (!r?.coords || seen.has(r)) continue;   // évite le doublon quand plus_ombragé = plus_direct
+      seen.add(r);
+      const label = kind === "shade" ? "plus_ombrage" : "plus_direct";
+      // tracé complet (attributs de synthèse)
+      feats.push({ type: "Feature", properties: { type: label, distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100) }, geometry: { type: "LineString", coordinates: r.coords } });
+      // découpage en TRONÇONS avec la part d'ombre de chacun (analyse thématique)
+      (r.grade || []).forEach((sfeat, i) => {
+        const cc = sfeat.geometry.coordinates, sh = sfeat.properties.shade || 0;
+        feats.push({ type: "Feature", properties: { type: "troncon_" + label, troncon: i + 1, ombre_pct: Math.round(sh * 100), ombre_part: Math.round(sh * 1000) / 1000, longueur_m: Math.round(haversine(cc[0], cc[1])) }, geometry: { type: "LineString", coordinates: cc } });
+      });
     }
     (routeABRef.current || []).filter(Boolean).forEach((p, i) => feats.push({ type: "Feature", properties: { point: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } }));
     try {
