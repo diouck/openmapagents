@@ -339,7 +339,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [tab, setTab] = useState("sim");
   const [date, setDate] = useState(today);
   const [hour, setHour] = useState(14);
-  const [opacity, setOpacity] = useState(0.35);
+  const [opacity, setOpacity] = useState(0.8);
   const [defH, setDefH] = useState(9);
   const [trees, setTrees] = useState(true);
   const [canopy3d, setCanopy3d] = useState(false);   // canopée en 3D (fill-extrusion, contour exact)
@@ -413,7 +413,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const hideCanopyRef = useRef(false);   // masque la canopée (pendant une prévisualisation)
   const computeRef = useRef(null);       // dernier compute (appelable depuis les callbacks)
   const hourRef = useRef(14);
-  const opacityRef = useRef(0.35);
+  const opacityRef = useRef(0.8);
   const canopy3dRef = useRef(false);
   const canopy3dTimer = useRef(null);
   const playingRef = useRef(false);      // lecture « Journée » en cours
@@ -478,7 +478,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // ombre de canopée par polygone (patches 3D) — SOUS l'ombre des bâtiments
     if (!map.getSource(CAN_VS_SRC)) map.addSource(CAN_VS_SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(CAN_VS)) map.addLayer({ id: CAN_VS, type: "fill", source: CAN_VS_SRC,
-      paint: { "fill-color": "#183a24", "fill-opacity": 0.22, "fill-antialias": false } }, beforeId(map));
+      paint: { "fill-color": "#183a24", "fill-opacity": 0.42, "fill-antialias": false } }, beforeId(map));
     if (!map.getSource(SRC)) map.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(LYR)) {
       map.addLayer({ id: LYR, type: "fill", source: SRC,
@@ -493,10 +493,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [opacity]);
   // Remonte le voile AU-DESSUS de la canopée/bâti (pour masquer aussi les arbres hors
   // couloir) et le trajet + repères AU-DESSUS du voile (toujours visibles).
+  // Ordonne la pile : SOUS les bâtiments 3D → canopée/ombre-canopée < arbres 3D < OMBRE
+  // BÂTIMENTS (donc au-dessus des arbres plats ET 3D, mais sous les bâtiments = pas de
+  // bâtiment assombri). Voile + tracé AU-DESSUS de tout.
   const raiseMask = (map) => {
     try {
-      if (map.getLayer(MASK_LYR)) map.moveLayer(MASK_LYR);
-      for (const id of [RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
+      const bext = beforeId(map);   // 1er fill-extrusion (bâtiments 3D) ou 1er label
+      if (bext) for (const id of [CAN_VS, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i)), IMG_DISP, C3D_FLAT, C3D_CROWN, C3D_TRUNK, LYR]) if (map.getLayer(id)) map.moveLayer(id, bext);
+      for (const id of [MASK_LYR, RT_CASE, RT_LINE, RT_AB, RT_MARK]) if (map.getLayer(id)) map.moveLayer(id);
     } catch (_) {}
   };
   // Végétation (landcover/landuse) + eau (water/waterway) mises en valeur, lues des TUILES
@@ -715,8 +719,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         if (ss) { try { ss.setCoordinates(shad); } catch (_) {} setVis(map, shadId(i), true); }
       }
     }
-    // l'ombre des BÂTIMENTS passe AU-DESSUS de la canopée (raster + ombre canopée)
-    if (!previewingRef.current) { try { const bext = beforeId(map); if (bext) for (const id of [CAN_VS, ...Array.from({ length: SHAD_K }, (_, i) => shadId(i)), IMG_DISP, LYR]) if (map.getLayer(id)) map.moveLayer(id, bext); } catch (_) {} }
+    // ordonne la pile : ombre des BÂTIMENTS au-dessus de la canopée (plate + 3D)
+    if (!previewingRef.current) raiseMask(map);
     setInfo({ night: false, alt: altDeg, factor, count: feats.length, tooFar });
     // NB: `hour` n'est PAS une dépendance — compute lit hourRef ; le curseur et la
     // boucle de lecture déclenchent le rendu impérativement (évite les recalculs
