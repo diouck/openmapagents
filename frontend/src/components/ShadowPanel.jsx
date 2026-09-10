@@ -1337,27 +1337,29 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     clearRoute();                             // A/B, tracés, voile effacés → carte nue
   }, [tab, clearRoute]);
 
-  // Exporte l'itinéraire (les 2 tracés + A/B) en GeoJSON téléchargeable
+  // Exporte UNIQUEMENT le tracé affiché (sélectionné), en LineStrings découpés par tronçon
+  // (part d'ombre) — pas de point A/B, conforme à ce qui est à l'écran.
   const exportRoute = useCallback(() => {
     const g = routeGeomRef.current; if (!g) { setRouteErr("Calculez d'abord un itinéraire."); return; }
+    const sel = routeSelRef.current || "shade";
+    const r = g[sel] || g.shade || g.direct;
+    if (!r?.coords) { setRouteErr("Aucun tracé à exporter."); return; }
+    const label = sel === "direct" ? "plus_direct" : "plus_ombrage";
     const feats = [];
-    const seen = new Set();
-    for (const kind of ["shade", "direct"]) {
-      const r = g[kind];
-      if (!r?.coords || seen.has(r)) continue;   // évite le doublon quand plus_ombragé = plus_direct
-      seen.add(r);
-      const label = kind === "shade" ? "plus_ombrage" : "plus_direct";
-      // tracé complet (attributs de synthèse)
-      feats.push({ type: "Feature", properties: { type: label, distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100) }, geometry: { type: "LineString", coordinates: r.coords } });
-      // découpage en TRONÇONS avec la part d'ombre de chacun (analyse thématique)
-      (r.grade || []).forEach((sfeat, i) => {
+    const segs = r.grade;
+    if (segs && segs.length) {
+      // découpage en TRONÇONS avec la part d'ombre de chacun (données affichées)
+      segs.forEach((sfeat, i) => {
         const cc = sfeat.geometry.coordinates, sh = sfeat.properties.shade || 0;
         feats.push({ type: "Feature", properties: { type: "troncon_" + label, troncon: i + 1, ombre_pct: Math.round(sh * 100), ombre_part: Math.round(sh * 1000) / 1000, longueur_m: Math.round(haversine(cc[0], cc[1])) }, geometry: { type: "LineString", coordinates: cc } });
       });
+    } else {
+      // repli : tracé complet en une seule LineString
+      feats.push({ type: "Feature", properties: { type: label, distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100) }, geometry: { type: "LineString", coordinates: r.coords } });
     }
-    (routeABRef.current || []).filter(Boolean).forEach((p, i) => feats.push({ type: "Feature", properties: { point: i === 0 ? "A" : "B" }, geometry: { type: "Point", coordinates: p } }));
     try {
-      const blob = new Blob([JSON.stringify({ type: "FeatureCollection", features: feats }, null, 2)], { type: "application/geo+json" });
+      const fc = { type: "FeatureCollection", properties: { itineraire: label, distance_m: Math.round(r.distance), duree_min: Math.round((r.duration || 0) / 60), ombre_pct: Math.round((r.shade || 0) * 100), troncons: segs ? segs.length : 1 }, features: feats };
+      const blob = new Blob([JSON.stringify(fc, null, 2)], { type: "application/geo+json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "itineraire-ombrage.geojson"; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
