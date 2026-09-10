@@ -134,7 +134,7 @@ function buildGraph(segments, sampler) {
   const nodes = new Map(), adj = new Map();
   const addNode = (p) => { const k = nodeKey(p); if (!nodes.has(k)) { nodes.set(k, p); adj.set(k, []); } return k; };
   // fraction d'ombre de l'arête = moyenne sur plusieurs points (0..1)
-  const edgeShade = (a, b) => { let c = 0; const fr = [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]; for (const f of fr) if (sampler.shaded(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)) c++; return c / fr.length; };
+  const edgeShade = (a, b) => { let c = 0; const fr = [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]; for (const f of fr) c += sampler.shadeAt(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f); return c / fr.length; };
   for (const seg of segments) {
     for (let i = 0; i < seg.length - 1; i++) {
       const a = seg[i], b = seg[i + 1], len = haversine(a, b); if (!(len > 0)) continue;
@@ -288,7 +288,7 @@ function flagImage(kind, size = 64) {
   const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
   const ctx = cv.getContext("2d");
   const poleX = size * 0.26, top = size * 0.1, bot = size * 0.94;
-  ctx.strokeStyle = "#374151"; ctx.lineWidth = size * 0.07; ctx.lineCap = "round";
+  ctx.strokeStyle = "#374151"; ctx.lineWidth = size * 0.13; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(poleX, top); ctx.lineTo(poleX, bot); ctx.stroke();
   const fx = poleX, fy = top, fw = size * 0.5, fh = size * 0.34;
   if (kind === "finish") {
@@ -296,8 +296,8 @@ function flagImage(kind, size = 64) {
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { ctx.fillStyle = (r + c) % 2 ? "#111827" : "#ffffff"; ctx.fillRect(fx + c * cw, fy + r * ch, cw, ch); }
     ctx.strokeStyle = "#111827"; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
   } else {
-    ctx.fillStyle = "#16a34a"; ctx.fillRect(fx, fy, fw, fh);
-    ctx.strokeStyle = "#0f5132"; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
+    ctx.fillStyle = "#dc2626"; ctx.fillRect(fx, fy, fw, fh);          // départ = drapeau rouge
+    ctx.strokeStyle = "#7f1d1d"; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
   }
   return ctx.getImageData(0, 0, size, size);
 }
@@ -1117,15 +1117,50 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // ── Itinéraire ombragé ────────────────────────────────────────────────────
   // Échantillonneur d'ombre (bâtiments + canopée) à l'heure courante sur une bbox.
   const buildSampler = useCallback(async (bbox) => {
-    const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false };
+    const map = mapRef?.current?.getMap?.(); if (!map) return { shaded: () => false, shadeAt: () => 0 };
     const c = map.getCenter();
     const { alt, az } = sunPosition(localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current, date)), c.lat, c.lng);
-    // Nuit → PAS d'ombre exploitable pour l'itinéraire (0 %), pas « ombragé partout »
-    // (renvoyer true faussait le calcul à 100 %).
-    if (alt <= 0.02) return { shaded: () => false, night: true };
     const [w, s, e, n] = bbox;
     const W = 600, Hh = Math.max(1, Math.min(1400, Math.round(W * (n - s) / (e - w))));
     const X = (lng) => (lng - w) / (e - w) * W, Y = (lat) => (n - lat) / (n - s) * Hh;
+
+    // ── COUVERT ARBORÉ (indépendant du soleil) ────────────────────────────────
+    // Règle métier : un piéton PROCHE d'un arbre profite de son ombre quelle que soit
+    // la position du soleil. On construit une carte de présence de canopée dilatée
+    // (~rayon de proximité) → tout tronçon proche d'un arbre est « au moins à 50 % ».
+    let treeNear = null;
+    if (canopyRef.current) {
+      if (!canImgRef.current || canImgRef.current.url !== canopyRef.current.url) {
+        const img = await loadImage(canopyRef.current.url).catch(() => null);
+        canImgRef.current = { url: canopyRef.current.url, img };
+      }
+      const img = canImgRef.current?.img, cc = canopyRef.current.corners;
+      if (img && cc) {
+        const cw = cc[0][0], cn = cc[0][1], ce = cc[1][0], cs = cc[2][1];
+        const tv = document.createElement("canvas"); tv.width = W; tv.height = Hh;
+        const tctx = tv.getContext("2d");
+        tctx.drawImage(img, X(cw), Y(cn), (ce - cw) / (e - w) * W, (cn - cs) / (n - s) * Hh);
+        const td = tctx.getImageData(0, 0, W, Hh).data;
+        const mPerPxX = Math.max(0.5, (e - w) * 111320 * Math.cos(c.lat * RAD) / W);
+        const rad = Math.max(1, Math.round(12 / mPerPxX));   // ~12 m de proximité
+        const pres = new Uint8Array(W * Hh);
+        for (let i = 0; i < W * Hh; i++) pres[i] = td[i * 4 + 3] > 10 ? 1 : 0;
+        // dilatation séparable (max-filter) : « à moins de ~12 m d'un arbre »
+        const rowM = new Uint8Array(W * Hh);
+        for (let y = 0; y < Hh; y++) { const off = y * W; for (let x = 0; x < W; x++) { let v = 0; for (let dx = -rad; dx <= rad && !v; dx++) { const xx = x + dx; if (xx >= 0 && xx < W && pres[off + xx]) v = 1; } rowM[off + x] = v; } }
+        treeNear = new Uint8Array(W * Hh);
+        for (let x = 0; x < W; x++) { for (let y = 0; y < Hh; y++) { let v = 0; for (let dy = -rad; dy <= rad && !v; dy++) { const yy = y + dy; if (yy >= 0 && yy < Hh && rowM[yy * W + x]) v = 1; } treeNear[y * W + x] = v; } }
+      }
+    }
+    const nearTree = (lng, lat) => { if (!treeNear) return false; const x = Math.floor(X(lng)), y = Math.floor(Y(lat)); if (x < 0 || y < 0 || x >= W || y >= Hh) return false; return treeNear[y * W + x] === 1; };
+
+    // ── NUIT : pas d'ombre portée exploitable, mais le couvert arboré compte ───
+    if (alt <= 0.02) {
+      const shadeAt = (lng, lat) => nearTree(lng, lat) ? 0.5 : 0;
+      return { shadeAt, shaded: (lng, lat) => nearTree(lng, lat), night: true };
+    }
+
+    // ── OMBRES PORTÉES (bâtiments + canopée) ──────────────────────────────────
     const cv = document.createElement("canvas"); cv.width = W; cv.height = Hh;
     const ctx = cv.getContext("2d"); ctx.fillStyle = "#fff";
     const bearing = ((az / RAD) % 360 + 360) % 360, th = bearing * RAD, factor = 1 / Math.tan(alt);
@@ -1142,13 +1177,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const hull = convexHull(pts); if (hull.length < 3) continue;
       ctx.beginPath(); hull.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill();
     }
-    if (trees && canopyRef.current) {
-      if (!canImgRef.current || canImgRef.current.url !== canopyRef.current.url) {
-        const img = await loadImage(canopyRef.current.url).catch(() => null);
-        canImgRef.current = { url: canopyRef.current.url, img };
-      }
-      const img = canImgRef.current?.img, cc = canopyRef.current.corners;
-      if (img && cc) {
+    if (trees && canopyRef.current && canImgRef.current?.img) {
+      const img = canImgRef.current.img, cc = canopyRef.current.corners;
+      if (cc) {
         const cw = cc[0][0], cn = cc[0][1], ce = cc[1][0], cs = cc[2][1];
         const dx0 = X(cw), dy0 = Y(cn), dw = (ce - cw) / (e - w) * W, dh = (cn - cs) / (n - s) * Hh;
         const full = Math.min((canopyRef.current.meanH || 0) * factor, SAMP_CAP), midlat = ((s + n) / 2) * RAD;
@@ -1160,22 +1191,21 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       }
     }
     const data = ctx.getImageData(0, 0, W, Hh).data;
-    return { shaded: (lng, lat) => { const x = Math.floor(X(lng)), y = Math.floor(Y(lat)); if (x < 0 || y < 0 || x >= W || y >= Hh) return false; return data[(y * W + x) * 4 + 3] > 10; } };
+    const castShaded = (lng, lat) => { const x = Math.floor(X(lng)), y = Math.floor(Y(lat)); if (x < 0 || y < 0 || x >= W || y >= Hh) return false; return data[(y * W + x) * 4 + 3] > 10; };
+    // ombre portée (bâti/arbre) = 100 % ; simple proximité d'un arbre = plancher 50 %
+    const shadeAt = (lng, lat) => Math.max(castShaded(lng, lat) ? 1 : 0, nearTree(lng, lat) ? 0.5 : 0);
+    return { shadeAt, shaded: (lng, lat) => shadeAt(lng, lat) > 0, night: false };
   }, [mapRef, date, hour, defH, trees]);
 
   const drawRoutes = useCallback((map, res) => {
-    // Affiche LES DEUX tracés en même temps ; le sélectionné est mis en avant (plus large,
-    // opaque), l'autre reste visible en secondaire. Couleurs distinctes (vert = ombragé).
-    const sel = routeSelRef.current;
-    const feats = [];
-    if (res?.shade) feats.push({ type: "Feature", properties: { kind: "shade" }, geometry: { type: "LineString", coordinates: res.shade.coords } });
-    if (res?.direct && res.direct !== res.shade) feats.push({ type: "Feature", properties: { kind: "direct" }, geometry: { type: "LineString", coordinates: res.direct.coords } });
+    // UN SEUL tracé à la fois : on n'affiche que le tracé sélectionné (déf. « plus ombragé »).
+    // Basculer de carte sélectionne l'autre → seul l'autre s'affiche. Vert = ombragé.
+    const sel = routeSelRef.current || "shade";
+    const chosen = res?.[sel] || res?.shade || res?.direct;
+    const feats = chosen ? [{ type: "Feature", properties: { kind: sel }, geometry: { type: "LineString", coordinates: chosen.coords } }] : [];
     const directColor = res?.balade ? "#2563eb" : "#e8590c";   // itinéraire = orange, balade = bleu
-    const colorExpr = ["case", ["==", ["get", "kind"], "shade"], "#1b7a3e", directColor];
-    // sans sélection : les deux à égalité ; après sélection : le choisi mis en avant
-    const wExpr = sel ? ["case", ["==", ["get", "kind"], sel], 7.5, 4.5] : 6;
-    const oExpr = sel ? ["case", ["==", ["get", "kind"], sel], 1, 0.55] : 0.9;
-    const cwExpr = sel ? ["case", ["==", ["get", "kind"], sel], 11.5, 8] : 10;
+    const colorExpr = sel === "shade" ? "#1b7a3e" : directColor;
+    const wExpr = 7.5, oExpr = 1, cwExpr = 11.5;               // tracé unique bien mis en avant
     if (!map.getSource(RT_SRC)) map.addSource(RT_SRC, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
     else map.getSource(RT_SRC).setData({ type: "FeatureCollection", features: feats });
     // liseré blanc dessous → tracés bien visibles sur un fond chargé
@@ -1260,10 +1290,13 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const selectRoute = useCallback((kind) => {
     setRouteSel(kind); routeSelRef.current = kind; stopPreview();
-    // la prévisu suit le tracé choisi ; les DEUX restent affichés (le choisi mis en avant)
-    routeMaskRef.current = routeGeomRef.current?.[kind]?.coords || routeMaskRef.current;
+    // UN SEUL tracé affiché à la fois : on n'affiche que le choisi, sa préviz suit.
+    const g = routeGeomRef.current;
+    const coords = g?.[kind]?.coords || null;
+    routeMaskRef.current = coords;
+    routeAllRef.current = coords ? [coords] : null;   // couloir/masque autour du seul tracé affiché
     const map = mapRef?.current?.getMap?.();
-    if (map && routeGeomRef.current) drawRoutes(map, routeGeomRef.current);   // redessine les 2, met en avant le choisi
+    if (map && g) drawRoutes(map, g);                 // ne redessine que le tracé choisi
     computeRef.current?.(); if (map) applyC3D(map);
   }, [mapRef, stopPreview, applyC3D, drawRoutes]);
 
@@ -1280,6 +1313,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       computeRef.current?.();
     }
   }, [mapRef, stopPreview]);
+
+  // Changement d'onglet → carte réinitialisée (vide) : on efface l'itinéraire/balade en cours.
+  const prevTabRef = useRef(tab);
+  useEffect(() => {
+    if (prevTabRef.current === tab) return;   // pas de nettoyage au montage
+    prevTabRef.current = tab;
+    clearRoute();                             // A/B, tracés, voile effacés → carte nue
+  }, [tab, clearRoute]);
 
   // Exporte l'itinéraire (les 2 tracés + A/B) en GeoJSON téléchargeable
   const exportRoute = useCallback(() => {
@@ -1338,7 +1379,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
     const routes = (await rr.json()).routes || [];
     if (!routes.length) throw new Error("Aucun itinéraire trouvé.");
-    const scored = routes.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 }; });
+    const scored = routes.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 12); let sh = 0; for (const p of dense) sh += sampler.shadeAt(p[0], p[1]); return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration, shade: dense.length ? sh / dense.length : 0 }; });
     return { scored, shade: scored.reduce((x, y) => (y.shade > x.shade ? y : x)), direct: scored.reduce((x, y) => (y.distance < x.distance ? y : x)) };
   }, []);
 
@@ -1381,7 +1422,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const graph = buildGraph(segs, sampler);
         const snap = (p) => { let bk = null, bd = Infinity; for (const [k, q] of graph.nodes) { const dd = haversine(p, q); if (dd < bd) { bd = dd; bk = k; } } return bk; };
         const ka = snap(a), kb = snap(b);
-        const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
+        const mkRoute = (path) => { if (!path || path.length < 1) return null; const coords = [a, ...path, b]; const cum = cumDist(coords); const dist = cum[cum.length - 1]; const dense = densify(coords, 12); let sh = 0; for (const p of dense) sh += sampler.shadeAt(p[0], p[1]); return { coords, cum, distance: dist, duration: dist / 1.35, shade: dense.length ? sh / dense.length : 0 }; };
         const samePath = (p, q) => !!p && !!q && p.length === q.length && p.every((pt, i) => pt[0] === q[i][0] && pt[1] === q[i][1]);
         const pDirect = dijkstra(graph, ka, kb, (e) => e.len);
         // « plus ombragé » = chemin le plus OMBRAGÉ du réseau (pondération ombre), NATUREL
@@ -1398,9 +1439,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       const res = { shade, direct };
       const same = res.shade === res.direct || (Math.abs(res.shade.distance - res.direct.distance) < 8 && Math.abs(res.shade.shade - res.direct.shade) < 0.01);
       routeGeomRef.current = res;
-      routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean);
-      routeSelRef.current = null; setRouteSel(null);   // aucun tracé sélectionné → préviz masquée jusqu'au choix
+      // Itinéraire 1 (« plus ombragé ») actif par défaut : UN SEUL tracé affiché à la fois.
+      routeSelRef.current = "shade"; setRouteSel("shade");
       routeMaskRef.current = res.shade?.coords || res.direct?.coords || null;
+      routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null;   // couloir autour du seul tracé actif
       setRouteResult({ ...res, night: sampler.night, same, graph: viaGraph });
       if (note) setRouteErr(note);
       drawRoutes(map, res);
@@ -1414,7 +1456,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); }
     } catch (e) {
       // dernier recours : backend seul
-      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean); routeMaskRef.current = res[routeSelRef.current]?.coords || res.shade?.coords || res.direct?.coords || null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
+      try { const sampler = await buildSampler(bbox); const res = await backendRoutes(map, a, b, sampler); routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade"); routeMaskRef.current = res.shade?.coords || res.direct?.coords || null; routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null; setRouteResult({ ...res, night: sampler.night, same: res.shade === res.direct, graph: false }); drawRoutes(map, res); computeRef.current?.(); if (treesRef.current) { if (treeModeRef.current === "3d") fetchCanopy3D(); else setC3DVis(map, false); } setRouteErr("Optimisation locale impossible — itinéraire du moteur. " + (e.message || "")); }
       catch (e2) { setRouteErr(e.message || String(e)); }
     } finally { setRouteBusy(false); }
   }, [mapRef, buildSampler, drawRoutes, stopPreview, refreshBuildings, backendRoutes, fetchCanopy3D, scheduleCanopy, fetchCanopy]);
@@ -1461,7 +1503,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
       const raw = (await rr.json()).routes || [];
       if (!raw.length) throw new Error("Aucune boucle trouvée.");
-      let scored = raw.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 14); let sh = 0; for (const p of dense) if (sampler.shaded(p[0], p[1])) sh++; return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration || rt.distance / 1.35, shade: dense.length ? sh / dense.length : 0, overlap: selfOverlap(coords) }; })
+      let scored = raw.map((rt) => { const coords = rt.coordinates, dense = densify(coords, 14); let sh = 0; for (const p of dense) sh += sampler.shadeAt(p[0], p[1]); return { coords, cum: cumDist(coords), distance: rt.distance, duration: rt.duration || rt.distance / 1.35, shade: dense.length ? sh / dense.length : 0, overlap: selfOverlap(coords) }; })
         .filter((r) => r.coords.length > 3 && r.distance > 200);
       // écarte les boucles en aller-retour (se retracent) ; si tout est écarté, on garde le moins pire
       const clean = scored.filter((r) => r.overlap < 0.3);
@@ -1475,9 +1517,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       for (const r of scored.slice(1)) { if (pick.length >= 2) break; if (haversine(midOf(pick[0]), midOf(r)) > 80 || Math.abs(r.distance - pick[0].distance) > 150) pick.push(r); }
       if (pick.length < 2 && scored[1]) pick.push(scored[1]);
       const res = { shade: pick[0], direct: pick[1] || pick[0], night: sampler.night, balade: true, same: pick.length < 2 };
-      routeGeomRef.current = res; routeSelRef.current = null; setRouteSel(null);   // aucun choix initial → préviz après sélection
-      routeAllRef.current = (res.direct && res.direct !== res.shade ? [res.shade?.coords, res.direct?.coords] : [res.shade?.coords]).filter(Boolean);
+      routeGeomRef.current = res; routeSelRef.current = "shade"; setRouteSel("shade");   // balade 1 active par défaut
       routeMaskRef.current = res.shade?.coords || null; maskHolesRef.current = null;
+      routeAllRef.current = routeMaskRef.current ? [routeMaskRef.current] : null;   // couloir autour de la seule balade active
       setRouteResult(res);
       drawRoutes(map, res);
       try { const cc = res.shade.coords; let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity; for (const p of cc) { w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]); } map.fitBounds([[w, s], [e, n]], { padding: 70, duration: 700, maxZoom: 17.5 }); } catch (_) {}
@@ -1746,7 +1788,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
 
           {routeResult && !routeResult.balade && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit à cette heure — tout est « à l'ombre ». Choisissez une heure de jour pour comparer.</div>}
+              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit — pas d'ombre portée ; seul le couvert arboré est compté. Choisissez une heure de jour pour comparer.</div>}
               {[["shade", "🌳 Plus ombragé", "#2e7d4f", routeResult.shade], ["direct", "➡ Plus direct", "#e8590c", routeResult.direct]].map(([kind, label, col, r]) => (
                 <button key={kind} onClick={() => selectRoute(kind)}
                   style={{ textAlign: "left", fontFamily: F, cursor: "pointer", padding: "9px 11px", borderRadius: 8,
@@ -1815,7 +1857,7 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
           {routeErr && <div style={{ fontFamily: M, fontSize: 11.5, color: "#e11d1d", background: "#e11d1d14", border: "0.5px solid #e11d1d55", borderRadius: 6, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{routeErr}</div>}
           {routeResult && routeResult.balade && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit à cette heure — tout est « à l'ombre ». Choisissez une heure de jour.</div>}
+              {routeResult.night && <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>🌙 Nuit — pas d'ombre portée ; seul le couvert arboré est compté. Choisissez une heure de jour.</div>}
               {[["shade", "🌳 Balade la plus ombragée", "#2e7d4f", routeResult.shade], ["direct", "🌿 Autre balade", "#2563eb", routeResult.direct]].map(([kind, label, col, r]) => (r ? (
                 <button key={kind} onClick={() => selectRoute(kind)}
                   style={{ textAlign: "left", fontFamily: F, cursor: "pointer", padding: "9px 11px", borderRadius: 8,
