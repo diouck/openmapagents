@@ -8,6 +8,36 @@
 [![Voir la démo](./images/map.png)](https://openmapagents.geoafrica.fr/)
 ---
 
+## ⚡ Démarrage rapide (local)
+
+Trois terminaux, cinq minutes. Prérequis : **Python 3.10+**, **Node.js 18+**, **Git**.
+
+```bash
+# 1. Cloner
+git clone https://github.com/diouck/openmapagents.git
+cd openmapagents
+
+# 2. Backend (terminal 1)
+cd backend
+python3 -m venv venv && source venv/bin/activate      # Windows : venv\Scripts\activate
+pip install --upgrade pip && pip install -r requirements.txt -r requirements_agent.txt
+cp .env.example .env        # puis renseignez au moins une clé LLM dans backend/.env
+python agent.py             # → http://localhost:8000  (API + /docs)
+
+# 3. Frontend (terminal 2)
+cd ../frontend
+npm install
+npm run dev                 # → http://localhost:5173
+```
+
+Ouvrez **http://localhost:5173**. Vite proxifie déjà `/api` vers `localhost:8000` (voir `vite.config.js`) — rien d'autre à configurer pour le mode dev.
+
+- **Sous Linux**, tout ceci est automatisé par [`./install.sh`](install.sh) (voir plus bas).
+- **La carte, les fonds OpenFreeMap, l'analyse spatiale et les ombres fonctionnent sans aucune clé API.** Les clés ne servent qu'aux modules optionnels (agent LLM, GEE, DB externe, Mapbox).
+- Pour la **production** (build statique + nginx), voir [Déploiement en production](#déploiement-en-production).
+
+---
+
 ## Architecture réelle du projet
 
 ```
@@ -310,84 +340,47 @@ lsof -i :8000         # trouver le processus
 ```
 
 
+## Déploiement en production
 
-
-
-
-Crée un script de démarrage :
+En production, le frontend est **compilé en statique** et servi par **nginx** ; seul le backend tourne en arrière-plan. Chemin type : `/var/www/openmapagents`.
 
 ```bash
-cat > /var/www/openmapagents/start.sh << 'EOF'
-#!/bin/bash
-
-echo "=== Arrêt des processus existants ==="
-pkill -f "agent.py" 2>/dev/null
-pkill -f "vite" 2>/dev/null
-sleep 2
-fuser -k 8000/tcp 2>/dev/null
-fuser -k 5173/tcp 2>/dev/null
-sleep 1
-
-echo "=== Démarrage du backend ==="
-cd /var/www/openmapagents/backend
-source venv/bin/activate
-nohup python agent.py > /var/log/openmapagents-backend.log 2>&1 &
-echo "Backend PID: $!"
-
-sleep 3
-
-echo "=== Démarrage du frontend ==="
+# 1. Build du frontend → frontend/dist/ (servi par nginx)
 cd /var/www/openmapagents/frontend
-nohup npm run dev -- --host 0.0.0.0 > /var/log/openmapagents-frontend.log 2>&1 &
-echo "Frontend PID: $!"
+npm install
+npm run build
 
-echo "=== Terminé ==="
-echo "Logs backend  : tail -f /var/log/openmapagents-backend.log"
-echo "Logs frontend : tail -f /var/log/openmapagents-frontend.log"
-EOF
-
-chmod +x /var/www/openmapagents/start.sh
+# 2. Backend en service systemd (redémarre au reboot)
+sudo systemctl enable openmapagents
+sudo systemctl start openmapagents
+sudo systemctl status openmapagents      # vérifier
 ```
 
-Lance avec :
+Nginx sert directement `frontend/dist/` et proxifie `/api` vers `http://localhost:8000` (le backend). Un éventuel token Mapbox est injecté **au build** via `VITE_MAPBOX_TOKEN` : après avoir changé une clé `VITE_*`, relancez `npm run build`.
+
+> Pas encore de service systemd ? Lancer le backend seul à la main :
+> ```bash
+> cd /var/www/openmapagents/backend && source venv/bin/activate
+> nohup python agent.py > /var/log/openmapagents-backend.log 2>&1 &
+> ```
+
+---
+
+## Mise à jour / redéploiement
+
+Déployer la dernière version. L'historique distant pouvant être réécrit, utilisez `reset --hard` (**pas** `git pull`) :
 
 ```bash
-bash /var/www/openmapagents/start.sh
+cd /var/www/openmapagents
+git fetch origin
+git reset --hard origin/main
+
+# Frontend : reconstruire le statique servi par nginx
+cd frontend && npm install && npm run build
+
+# Backend : redémarrer le service
+sudo systemctl restart openmapagents
 ```
-
-Mais comme tu as nginx avec le build statique, **tu n'as pas besoin du frontend Vite** en production. Juste le backend suffit :
-
-```bash
-cat > /var/www/openmapagents/start.sh << 'EOF'
-#!/bin/bash
-
-echo "=== Arrêt des processus existants ==="
-pkill -f "agent.py" 2>/dev/null
-sleep 2
-fuser -k 8000/tcp 2>/dev/null
-sleep 1
-
-echo "=== Démarrage du backend ==="
-cd /var/www/openmapagents/backend
-source venv/bin/activate
-nohup python agent.py > /var/log/openmapagents-backend.log 2>&1 &
-echo "Backend PID: $!"
-
-echo "Backend démarré — https://openmapagents.geoafrica.fr"
-EOF
-
-chmod +x /var/www/openmapagents/start.sh
-bash /var/www/openmapagents/start.sh
-```
-
-Nginx sert les fichiers statiques du `dist/` directement — pas besoin de Vite en prod. Et pour que le backend redémarre automatiquement au reboot :
-
-```bash
-systemctl enable openmapagents
-systemctl start openmapagents
-```
-
-
 
 ---
 
