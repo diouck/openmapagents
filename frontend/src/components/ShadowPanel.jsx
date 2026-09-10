@@ -284,7 +284,7 @@ function walkerImage(size = 60) {
   return ctx.getImageData(0, 0, size, size);
 }
 /* Drapeau de départ (vert) / d'arrivée (damier) — marqueurs A/B distincts. */
-function flagImage(kind, size = 44) {
+function flagImage(kind, size = 64) {
   const cv = document.createElement("canvas"); cv.width = size; cv.height = size;
   const ctx = cv.getContext("2d");
   const poleX = size * 0.26, top = size * 0.1, bot = size * 0.94;
@@ -1194,7 +1194,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     try { if (!map.hasImage("oma-flag-finish")) map.addImage("oma-flag-finish", flagImage("finish"), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_AB)) map.addSource(RT_AB, { type: "geojson", data: abfc }); else map.getSource(RT_AB).setData(abfc);
     if (!map.getLayer(RT_AB)) map.addLayer({ id: RT_AB, type: "symbol", source: RT_AB,
-      layout: { "icon-image": ["match", ["get", "flag"], "finish", "oma-flag-finish", "oma-flag-start"], "icon-size": 0.9, "icon-anchor": "bottom",
+      layout: { "icon-image": ["match", ["get", "flag"], "finish", "oma-flag-finish", "oma-flag-start"], "icon-size": 1.4, "icon-anchor": "bottom",
         "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-pitch-alignment": "viewport" } });
   }, []);
 
@@ -1220,10 +1220,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const map = mapRef?.current?.getMap?.(); if (!map) return;
     const g = routeGeomRef.current?.[routeSelRef.current]; if (!g) return;
     if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf);
-    try { if (!map.hasImage("oma-walker")) map.addImage("oma-walker", walkerImage(), { pixelRatio: 2 }); } catch (_) {}
+    try { if (!map.hasImage("oma-nav-arrow")) map.addImage("oma-nav-arrow", navArrowImage(), { pixelRatio: 2 }); } catch (_) {}
     if (!map.getSource(RT_MARK)) map.addSource(RT_MARK, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     if (!map.getLayer(RT_MARK)) map.addLayer({ id: RT_MARK, type: "symbol", source: RT_MARK,
-      layout: { "icon-image": "oma-walker", "icon-size": 0.9, "icon-rotation-alignment": "viewport",
+      layout: { "icon-image": "oma-nav-arrow", "icon-size": 1.3, "icon-rotate": ["get", "hdg"], "icon-rotation-alignment": "map",
         "icon-pitch-alignment": "viewport", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     if (!preCamRef.current) preCamRef.current = { center: map.getCenter().toArray(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
     previewingRef.current = true; routeMaskRef.current = g.coords;   // couloir « ombres à ≤100 m du parcours »
