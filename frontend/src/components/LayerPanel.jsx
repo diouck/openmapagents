@@ -877,6 +877,18 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <span style={{ color: C.dim, fontFamily: M }}>{l.strokeWidth ?? 1.5}px</span>
                 </div>
 
+                {/* Forme des marqueurs ponctuels (comme QGIS : rond / carré / triangle / losange) */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                  <span style={{ color: C.dim }}>Marqueur (points)</span>
+                  <select value={l.markerShape || "circle"} onChange={e => onStyle(l.id, { markerShape: e.target.value })}
+                    style={{ fontFamily: F, fontSize: 11, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 }}>
+                    <option value="circle">● Rond</option>
+                    <option value="square">■ Carré</option>
+                    <option value="triangle">▲ Triangle</option>
+                    <option value="diamond">◆ Losange</option>
+                  </select>
+                </div>
+
                 {/* Calculateur de champ : en amont de la classification, puisqu'il
                     sert justement à fabriquer la variable qu'on va classer. */}
                 <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />
