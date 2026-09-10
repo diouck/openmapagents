@@ -1389,7 +1389,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
       refreshBuildings(map, bbox);
       if (treesRef.current) { try { await fetchCanopy(); } catch (_) {} }
       const sampler = await buildSampler(bbox);
-      const rr = await fetch(`${API}/shadow/loop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point: start, length_m: lengthM, count: 6 }) });
+      const rr = await fetch(`${API}/shadow/loop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point: start, length_m: lengthM * 0.82, count: 6 }) });   // ORS déborde la longueur → on demande un peu moins
       if (!rr.ok) { let m = `Erreur ${rr.status}`; try { m = (await rr.json()).detail || m; } catch (_) {} throw new Error(m); }
       const raw = (await rr.json()).routes || [];
       if (!raw.length) throw new Error("Aucune boucle trouvée.");
@@ -1397,7 +1397,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         .filter((r) => r.coords.length > 3 && r.distance > 200);
       // écarte les boucles en aller-retour (se retracent) ; si tout est écarté, on garde le moins pire
       const clean = scored.filter((r) => r.overlap < 0.3);
-      scored = (clean.length ? clean : scored.sort((a, b) => a.overlap - b.overlap).slice(0, 3)).sort((a, b) => b.shade - a.shade);
+      let cand = clean.length ? clean : scored.slice().sort((a, b) => a.overlap - b.overlap).slice(0, 3);
+      // préfère les boucles proches de la durée demandée (ORS déborde souvent la longueur cible)
+      const near = cand.filter((r) => r.distance >= lengthM * 0.6 && r.distance <= lengthM * 1.5);
+      scored = (near.length ? near : cand).sort((a, b) => b.shade - a.shade);
       if (!scored.length) throw new Error("Boucles invalides.");
       const midOf = (r) => alongRoute(r.coords, r.cum, 0.5);
       const pick = [scored[0]];
