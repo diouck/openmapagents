@@ -677,6 +677,7 @@ export default function App() {
   const { user } = useAuth();
   const [timelapse,     setTimelapse]     = useState(null); // données timelapse pour modale
   const [mapSt,  setMapSt]  = useState("positron");
+  const [mapReloadNonce, setMapReloadNonce] = useState(0); // force le rechargement du fond (carte vierge)
   const [vs,     setVs]     = useState({ longitude: -1.55, latitude: 47.22, zoom: 12, pitch: 0, bearing: 0 });
   const [popup,  setPopup]  = useState(null);
 
@@ -910,7 +911,7 @@ export default function App() {
         refreshSky(map);
       });
     } catch (_) {}
-  }, [mapSt, refreshSky]);
+  }, [mapSt, mapReloadNonce, refreshSky]);
 
   // ── Restauration viewport différée (après fermeture Dashboard) ────
   useEffect(() => {
@@ -1054,6 +1055,20 @@ export default function App() {
       } catch(_) {}
     }
   }, [mapRef]);
+
+  // Fermeture de l'outil « Ombres » → carte vierge : on repasse en mode pointeur,
+  // on déverrouille les fonds et on RECHARGE le style MapLibre (retire toute ombre /
+  // couche résiduelle ajoutée par l'outil). Les couches de données déclaratives sont
+  // ré-ajoutées automatiquement au rechargement du fond.
+  const shadowWasOpenRef = useRef(false);
+  useEffect(() => {
+    const open = openPanels.has("shadow");
+    if (shadowWasOpenRef.current && !open) {
+      setActiveTool(a => (a === "shadow" ? "pointer" : a));
+      setMapReloadNonce(n => n + 1);
+    }
+    shadowWasOpenRef.current = open;
+  }, [openPanels]);
 
   // ── Helpers couches ───────────────────────────────────────
   const moveLayerUp   = id => setLayers(p => { const i = p.findIndex(l => l.id === id); if (i <= 0) return p; const n = [...p]; [n[i-1], n[i]] = [n[i], n[i-1]]; return n; });
@@ -1904,7 +1919,9 @@ export default function App() {
   const getPaint = useCallback((layer, gt) => {
     const cr = layer.classResult; const ce = cr?.expression || layer.color;
     if (gt==="fill") return {"fill-color":ce,"fill-opacity":layer.opacity*0.4};
-    if (gt==="line") { if (cr?.type==="proportional_line"&&cr.widthExpression) return {"line-color":layer.color,"line-width":cr.widthExpression,"line-opacity":layer.opacity}; return {"line-color":ce,"line-width":1.5,"line-opacity":layer.opacity}; }
+    // contour de POLYGONE : couleur + épaisseur variables (symbologie type QGIS, ex. aplat vert + contour noir)
+    if (gt==="outline") return {"line-color":layer.outlineColor||ce,"line-width":layer.strokeWidth??1.5,"line-opacity":layer.opacity};
+    if (gt==="line") { if (cr?.type==="proportional_line"&&cr.widthExpression) return {"line-color":layer.color,"line-width":cr.widthExpression,"line-opacity":layer.opacity}; return {"line-color":ce,"line-width":layer.strokeWidth??1.5,"line-opacity":layer.opacity}; }
     if (gt==="circle") { if (cr?.type==="symbol"&&cr.symbolMode==="maki") { const _map=mapRef.current?.getMap?.(); const _mkSz=parseInt(cr.makiSize)||30; const _imgId=cr.makiImageId||(`maki_${cr.makiName}_${(cr.makiColor||"#ffffff").replace("#","").toLowerCase()}_${_mkSz}`); const _imgReady=_imgId&&_map&&_map.isStyleLoaded()&&_map.hasImage(_imgId); if(_imgReady) return {"circle-radius":0,"circle-opacity":0}; return {"circle-radius":Math.max(4,_mkSz/6),"circle-color":cr.makiColor||layer.color,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}; } if(cr?.type==="symbol"&&cr.symbolMode==="image") return {"circle-radius":0,"circle-opacity":0}; if (cr?.type==="proportional"&&cr.radiusExpression) return {"circle-radius":cr.radiusExpression,"circle-color":cr.expression||layer.color,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.4}; return {"circle-radius":layer.radius||5,"circle-color":ce,"circle-opacity":layer.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}; }
     return {};
   }, []);
@@ -2537,7 +2554,7 @@ export default function App() {
         <div style={{display:"flex",gap:3,alignItems:"center"}}>
           {!isMobile&&<>
           {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>{
-            const lock = activeTool==="shadow" && k!=="liberty";   // ombrage → Liberty imposé (bâtiments)
+            const lock = openPanels.has("shadow") && k!=="liberty";   // ombrage OUVERT → Liberty imposé (bâtiments) ; déverrouillé à la fermeture
             return (
             <button key={k} onClick={()=>{ if(!lock) setMapSt(k); }} disabled={lock} className="rib"
               title={lock ? "Ombrage : fond Liberty requis (bâtiments)" : undefined}
@@ -2980,7 +2997,7 @@ export default function App() {
             )}
 
             {layers.map(l=>{if(!l.isRaster)return null;if(l.kind==="image")return(<Source key={`${l.id}-${l.styleV||0}`} id={l.id} type="image" url={l.imageUrl} coordinates={l.coordinates}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:l.visible?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85,"raster-fade-duration":0}}/></Source>);if(l.theme==="vector")return(<Source key={l.id} id={l.id} type="vector" tiles={[l.tileUrl]} minzoom={0} maxzoom={22}><Layer id={`${l.id}-fill`} type="fill" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":l.color||C.acc,"fill-opacity":l.opacity??0.3}}/><Layer id={`${l.id}-line`} type="line" layout={{visibility:l.visible?"visible":"none"}} filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":l.color||C.acc,"line-width":1.5,"line-opacity":l.opacity??1}}/><Layer id={`${l.id}-circle`} type="circle" layout={{visibility:l.visible?"visible":"none"}} filter={["==",["geometry-type"],"Point"]} paint={{"circle-color":l.color||C.acc,"circle-radius":4,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-opacity":l.opacity??1}}/></Source>);return(<Source key={l.id} id={l.id} type="raster" tiles={[l.tileUrl]} tileSize={256}><Layer id={`${l.id}-layer`} type="raster" layout={{visibility:(l.visible&&l.id!==tlLayerId)?"visible":"none"}} paint={{"raster-opacity":l.opacity??0.85}}/></Source>);})}
-            {layers.map(l=>l.visible&&!l.isRaster&&l.geojson&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const _mkSize=parseInt(cr.makiSize)||30;void makiTick;const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",_mkSize);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
+            {layers.map(l=>l.visible&&!l.isRaster&&l.geojson&&!l.heatmap&&!l.extrude&&!l.cluster&&(<Source key={l.id} id={l.id} type="geojson" data={l.geojson}><Layer id={`${l.id}-fill`} type="fill" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"fill")}/><Layer id={`${l.id}-outline`} type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={getPaint(l,"outline")}/><Layer id={`${l.id}-road`} type="line" filter={["==",["geometry-type"],"LineString"]} paint={getPaint(l,"line")}/><Layer id={`${l.id}-circle`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={getPaint(l,"circle")}/>{l.labels&&<Layer id={`${l.id}-label`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":11,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":10}} paint={{"text-color":l.color,"text-halo-color":"#fff","text-halo-width":1}}/>}{l.classResult?.type==="symbol"&&(()=>{const cr=l.classResult;const map=mapRef.current?.getMap?.();if(cr.symbolMode==="image"&&cr.customImage?.id)return<Layer id={`${l.id}-icon`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":cr.customImage.id,"icon-size":cr.imageSize||1,"icon-allow-overlap":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;if(cr.symbolMode==="maki"&&cr.makiName&&map){const _mkSize=parseInt(cr.makiSize)||30;void makiTick;const imgId=loadMakiIcon(map,cr.makiName,cr.makiColor||"#ffffff",_mkSize);if(!imgId)return<Layer id={`${l.id}-sym-fb`} type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":cr.makiColor||l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff"}}/>;return<Layer id={`${l.id}-sym`} type="symbol" filter={["==",["geometry-type"],"Point"]} layout={{"icon-image":imgId,"icon-size":1,"icon-allow-overlap":true,"icon-ignore-placement":true,"icon-anchor":"center"}} paint={{"icon-opacity":l.opacity}}/>;}return null;})()}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.extrude&&(<Source key={`${l.id}-3d`} id={`${l.id}-3d`} type="geojson" data={l.geojson}><Layer id={`${l.id}-extrude`} type="fill-extrusion" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"MultiPolygon"]]} paint={{"fill-extrusion-color":l.classResult?.expression||l.color,"fill-extrusion-height":l.extrudeAttr?["*",["to-number",["get",l.extrudeAttr],5],l.extrudeScale||1]:["*",["to-number",["get","height"],5],l.extrudeScale||1],"fill-extrusion-base":0,"fill-extrusion-opacity":l.opacity*0.85}}/>{l.labels&&<Layer id={`${l.id}-3dlabel`} type="symbol" layout={{"text-field":["get",l.labelAttr||"name"],"text-size":10,"text-anchor":"center"}} paint={{"text-color":"#fff","text-halo-color":"#000","text-halo-width":1}}/>}</Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.cluster&&(<Source key={`${l.id}-cl`} id={`${l.id}-cl`} type="geojson" data={l.geojson} cluster={true} clusterMaxZoom={14} clusterRadius={l.clusterRadius||50}><Layer id={`${l.id}-clusters`} type="circle" filter={["has","point_count"]} paint={{"circle-color":["step",["get","point_count"],l.color,10,C.amb,50,C.red],"circle-radius":["step",["get","point_count"],18,10,24,50,32],"circle-opacity":0.85,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id={`${l.id}-cluster-count`} type="symbol" filter={["has","point_count"]} layout={{"text-field":"{point_count_abbreviated}","text-size":12}} paint={{"text-color":"#fff"}}/><Layer id={`${l.id}-unclustered`} type="circle" filter={["!",["has","point_count"]]} paint={{"circle-radius":l.radius||5,"circle-color":l.color,"circle-opacity":l.opacity,"circle-stroke-width":1,"circle-stroke-color":"#fff","circle-stroke-opacity":0.3}}/></Source>))}
             {layers.map(l=>l.visible&&!l.isRaster&&l.heatmap&&(<Source key={`${l.id}-hm`} id={`${l.id}-hm`} type="geojson" data={l.geojson}><Layer id={`${l.id}-heat`} type="heatmap" paint={{"heatmap-weight":l.heatmapField?["max",0,["to-number",["get",l.heatmapField],1]]:1,"heatmap-intensity":["interpolate",["linear"],["zoom"],0,1,15,l.heatmapIntensity||3],"heatmap-color":["interpolate",["linear"],["heatmap-density"],0,"rgba(0,0,0,0)",.2,C.acc,.4,C.amb,.6,"#D85A30",.8,C.red,1,"#fff"],"heatmap-radius":["interpolate",["linear"],["zoom"],0,4,15,l.heatmapRadius||30],"heatmap-opacity":l.opacity}}/></Source>))}

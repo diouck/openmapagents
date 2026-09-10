@@ -859,10 +859,22 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                   <span style={{ color: C.dim }}>Couleur</span>
                   <input type="color" value={l.color} onChange={e => onStyle(l.id, { color: e.target.value })}
                     style={{ width: 24, height: 18, border: "none", borderRadius: 3, cursor: "pointer", background: "none" }} />
-                  <span style={{ color: C.dim }}>Taille</span>
+                  <span style={{ color: C.dim }}>Taille pt</span>
                   <input type="range" min="2" max="15" step="1" value={l.radius || 5}
                     onChange={e => onStyle(l.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
                   <span style={{ color: C.dim, fontFamily: M }}>{l.radius || 5}px</span>
+                </div>
+
+                {/* Contour + épaisseur : s'appliquent aux LIGNES et au CONTOUR des polygones
+                    (aplat = « Couleur » ci-dessus). Symbologie type QGIS. */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                  <span style={{ color: C.dim }}>Contour</span>
+                  <input type="color" value={l.outlineColor || l.color || "#000000"} onChange={e => onStyle(l.id, { outlineColor: e.target.value })}
+                    style={{ width: 24, height: 18, border: "none", borderRadius: 3, cursor: "pointer", background: "none" }} />
+                  <span style={{ color: C.dim }}>Épaisseur</span>
+                  <input type="range" min="0" max="10" step="0.5" value={l.strokeWidth ?? 1.5}
+                    onChange={e => onStyle(l.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+                  <span style={{ color: C.dim, fontFamily: M }}>{l.strokeWidth ?? 1.5}px</span>
                 </div>
 
                 {/* Calculateur de champ : en amont de la classification, puisqu'il
