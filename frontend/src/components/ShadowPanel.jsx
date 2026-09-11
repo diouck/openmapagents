@@ -368,6 +368,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [zoneName, setZoneName] = useState(null);   // nom du GeoJSON importé
   const [dashData, setDashData] = useState(null);   // {data, meta} du tableau de bord
   const [dashBusy, setDashBusy] = useState(false);
+  // agencement du panneau (repliables + aide contextuelle)
+  const [showHelp, setShowHelp] = useState(false);
+  const [showDisplay, setShowDisplay] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // itinéraire ombragé
   const [routeAB, setRouteAB] = useState([]);       // points A/B (affichage)
   const [routePick, setRoutePick] = useState(false);
@@ -1675,6 +1679,23 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const stepHour = (d) => { setPlaying(false); const v = Math.max(0, Math.min(24, Math.round((hourRef.current + d) / HOUR_STEP) * HOUR_STEP)); hourRef.current = v; setHour(v); computeRef.current?.(); };
   const stepBtn = { fontFamily: F, fontSize: 14, fontWeight: 700, lineHeight: 1, padding: "5px 9px", cursor: "pointer", background: "transparent", color: C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, flexShrink: 0 };
 
+  // Affichage des arbres unifié : « À plat » ⇔ raster 2D partout ; « 3D » ⇔ extrusion partout.
+  const is3D = canopy3d || treeMode === "3d";
+  const setTreeDisplay = (m) => {
+    const three = m === "3d";
+    setTreeMode(m); treeModeRef.current = m;
+    setCanopy3d(three); canopy3dRef.current = three;
+  };
+  const routeCtx = tab === "route" || tab === "balade";   // masque/couloir pertinents en trajet
+  // en-tête d'une section repliable
+  const secHead = (label, open, toggle) => (
+    <button onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", fontFamily: F, fontSize: 11.5, fontWeight: 600, color: C.txt, background: "transparent", border: "none", padding: "8px 10px", cursor: "pointer" }}>
+      <span>{label}</span><span style={{ color: C.dim }}>{open ? "▾" : "▸"}</span>
+    </button>
+  );
+  const pill = (active) => ({ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6, border: `1px solid ${active ? C.acc : C.bdr}`, background: active ? C.acc + "18" : "transparent", color: active ? C.acc : C.mut });
+  const actionBtn = { fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.bdr}`, background: "transparent", color: C.mut };
+
   // Légende thématique : couleur du tracé = part d'ombre de chaque tronçon
   const shadeLegend = (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1687,7 +1708,8 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     </div>
   );
 
-  // Contrôles de prévisualisation/affichage partagés par les onglets Itinéraire et Balade
+  // Prévisualisation = LECTURE seulement (légende + play + vitesse + vue).
+  // Les réglages d'affichage (relief, canopée, masque…) sont dans la section « Affichage ».
   const previewControls = (
     <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
       {shadeLegend}
@@ -1699,115 +1721,166 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         </button>
         <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vitesse</span>
         {[1, 2, 4, 8].map((sp) => (
-          <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
-            style={{ fontFamily: M, fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6,
-              border: `1px solid ${previewSpeed === sp ? C.acc : C.bdr}`, background: previewSpeed === sp ? C.acc + "18" : "transparent", color: previewSpeed === sp ? C.acc : C.mut }}>
-            ×{sp}
-          </button>
+          <button key={sp} onClick={() => { setPreviewSpeed(sp); previewSpeedRef.current = sp; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }} style={pill(previewSpeed === sp)}>×{sp}</button>
         ))}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>Vue</span>
         {[["top", "De dessus"], ["immersive", "Immersive 3D"], ["follow", "Suivi"]].map(([m, label]) => (
-          <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }}
-            style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
-              border: `1px solid ${navMode === m ? C.acc : C.bdr}`, background: navMode === m ? C.acc + "18" : "transparent", color: navMode === m ? C.acc : C.mut }}>
-            {label}
-          </button>
+          <button key={m} onClick={() => { setNavMode(m); navModeRef.current = m; if (previewing) { if (animRef.current?.raf) cancelAnimationFrame(animRef.current.raf); startPreview(); } }} style={pill(navMode === m)}>{label}</button>
         ))}
       </div>
-      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-        <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} />
-        🎯 N'afficher que les ombres à ≤ 100 m du parcours
-      </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
-        <span style={{ whiteSpace: "nowrap" }}>🎭 Masque hors parcours</span>
-        <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
-        <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
+      <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). La vue est restaurée à la fin. Réglages d'affichage → section <b>Affichage</b>.</div>
+    </div>
+  );
+
+  // Actions sur le tracé (compactes) — affichées avec les résultats
+  const resultActions = (
+    <div style={{ display: "flex", gap: 8 }}>
+      <button onClick={exportRoute} title="Exporter le tracé (GeoJSON)" style={{ ...actionBtn, color: C.acc, border: `1px solid ${C.acc}66` }}>⬇ Exporter</button>
+      <button onClick={clearRoute} title="Effacer l'itinéraire et repartir de zéro" style={actionBtn}>🗑 Effacer</button>
+    </div>
+  );
+
+  // Barre TEMPS — commune aux 3 modes (le « moment de l'ombre » est global).
+  const timeBar = (
+    <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, flex: 1 }} />
+        <div style={{ fontFamily: M, fontSize: 15, fontWeight: 600, color: C.txt, minWidth: 50, textAlign: "center" }}>{clock}</div>
+        <select value={tzMode} onChange={(e) => setTzMode(e.target.value)} title="Fuseau horaire (détails dans Options avancées)" style={{ ...inp, width: 92 }}>
+          <option value="browser">Local{sunTimes && sunTimes.off != null ? ` ${fmtOffset(sunTimes.off)}` : ""}</option>
+          <option value="auto">Solaire</option>
+          <option value="utc">UTC</option>
+        </select>
       </div>
-      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-        <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} />
-        ⛰️ Relief 3D (terrain)
-      </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-        <input type="checkbox" checked={showNature} onChange={(e) => setShowNature(e.target.checked)} />
-        🌿 Végétation & eau le long du parcours
-      </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>🌳 Arbres</span>
-        {[["flat", "À plat (dégradé)"], ["3d", "3D"]].map(([m, label]) => (
-          <button key={m} onClick={() => { setTreeMode(m); treeModeRef.current = m; }}
-            style={{ fontFamily: F, fontSize: 11, padding: "3px 9px", cursor: "pointer", borderRadius: 6,
-              border: `1px solid ${treeMode === m ? C.acc : C.bdr}`, background: treeMode === m ? C.acc + "18" : "transparent", color: treeMode === m ? C.acc : C.mut }}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
-        <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
-        🌳 Afficher la canopée pendant la prévisualisation
-      </label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={exportRoute}
-          style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.acc}66`, background: "transparent", color: C.acc }}>
-          ⬇ Exporter la couche (GeoJSON)
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => setPlaying((p) => !p)} title="Lecture de la journée (lever → coucher)"
+          style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "5px 11px", cursor: "pointer", flexShrink: 0,
+            background: playing ? C.acc : "transparent", color: playing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7 }}>
+          {playing ? "❚❚" : "▶"} Journée
         </button>
-        <button onClick={clearRoute}
-          style={{ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: "6px 11px", cursor: "pointer", borderRadius: 7, border: `1px solid ${C.bdr}`, background: "transparent", color: C.mut }}>
-          🗑 Effacer
-        </button>
+        <button onClick={() => stepHour(-HOUR_STEP)} title="Étape précédente (−30 min)" style={stepBtn}>◀</button>
+        <button onClick={() => stepHour(HOUR_STEP)} title="Étape suivante (+30 min)" style={stepBtn}>▶</button>
+        <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ flex: 1 }} />
       </div>
-      <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Immersive 3D / Suivi : la carte tourne et suit la flèche (façon GPS). De dessus : vue d'ensemble stable. La vue est restaurée à la fin.</div>
+      <div style={{ fontFamily: F, fontSize: 10.5, color: C.mut }}>
+        {!info ? "Calcul…" : info.night ? <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit.</span>
+          : info.tooFar ? <span>🔍 Trop dézoomé — zoomez pour afficher les ombres.</span>
+          : <span>☀️ Soleil <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> · {info.count} bât.</span>}
+        {sunTimes && (sunTimes.polar
+          ? <span style={{ color: C.dim }}> · jour/nuit polaire</span>
+          : <span style={{ color: C.dim }}> · 🌅 {sunTimes.riseStr} · 🌇 {sunTimes.setStr}</span>)}
+      </div>
+    </div>
+  );
+
+  // Section AFFICHAGE (repliable) — commune : comment les choses sont dessinées.
+  const displaySection = (
+    <div style={{ border: `0.5px solid ${C.bdr}`, borderRadius: 8 }}>
+      {secHead("🎨 Affichage", showDisplay, () => setShowDisplay((v) => !v))}
+      {showDisplay && (
+        <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 9 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
+            <span style={{ color: C.dim, whiteSpace: "nowrap" }}>Opacité ombre</span>
+            <input type="range" min={0.1} max={0.8} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} style={{ flex: 1 }} />
+            <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{Math.round(opacity * 100)}%</span>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
+            <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
+            🌳 Canopée <span style={{ color: C.dim }}>(Meta ~1 m)</span>
+          </label>
+          {trees && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingLeft: 22 }}>
+              <button onClick={() => setTreeDisplay("flat")} style={pill(!is3D)}>À plat</button>
+              <button onClick={() => setTreeDisplay("3d")} style={pill(is3D)}>3D</button>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: F, fontSize: 10.5, color: C.mut, cursor: "pointer", marginLeft: 4 }}>
+                <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} /> pendant la lecture
+              </label>
+            </div>
+          )}
+          {trees && canopyMsg && (
+            <div style={{ fontFamily: F, fontSize: 10, paddingLeft: 22, color: canopyMsg.err ? C.dim : "#2e7d4f" }}>
+              {canopyMsg.busy ? <span style={{ color: C.mut }}>⏳ Chargement canopée{canopyMsg.three ? " 3D" : ""}…</span>
+                : canopyMsg.err ? <span>Canopée indisponible — {canopyMsg.err}</span>
+                : canopyMsg.ok ? <span>Canopée chargée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span> : null}
+            </div>
+          )}
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+            <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} /> ⛰️ Relief 3D (terrain)
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+            <input type="checkbox" checked={showNature} onChange={(e) => setShowNature(e.target.checked)} /> 🌿 Végétation & eau
+          </label>
+          {routeCtx && (
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+              <input type="checkbox" checked={previewCorridor} onChange={(e) => setPreviewCorridor(e.target.checked)} /> 🎯 Ombres à ≤ 100 m du parcours
+            </label>
+          )}
+          {routeCtx && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
+              <span style={{ whiteSpace: "nowrap" }}>🎭 Masque hors parcours</span>
+              <input type="range" min={0} max={100} step={5} value={maskPct} onChange={(e) => setMaskPct(Number(e.target.value))} style={{ flex: 1 }} />
+              <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{maskPct}%</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // Section OPTIONS AVANCÉES (repliable) — commune.
+  const advancedSection = (
+    <div style={{ border: `0.5px solid ${C.bdr}`, borderRadius: 8 }}>
+      {secHead("⚙ Options avancées", showAdvanced, () => setShowAdvanced((v) => !v))}
+      {showAdvanced && (
+        <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 9 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: F, fontSize: 11, color: C.txt }}>
+            <span style={{ color: C.dim, whiteSpace: "nowrap" }}>Hauteur bâtiment défaut</span>
+            <input type="number" min={2} max={200} value={defH} onChange={(e) => setDefH(Number(e.target.value))} style={{ ...inp, width: 70 }} />
+            <span style={{ color: C.dim }}>m</span>
+          </div>
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Fuseau : <b>Local</b> = heure civile du navigateur (heure d'été gérée). <b>Solaire</b> = heure du soleil selon la longitude (~1–2 h d'écart en Europe). Pour un lieu d'un autre fuseau, choisissez <b>UTC</b>.</div>
+          {tab === "sim" && (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={startRoi} style={{ ...actionBtn, color: roiDrawing ? "#fff" : C.acc, background: roiDrawing ? C.acc : "transparent", border: `1px solid ${C.acc}66`, flex: 1 }}>{roiDrawing ? "Annuler ROI" : "Dessiner un ROI (2 clics)"}</button>
+              <button onClick={() => fileRef.current?.click()} style={{ ...actionBtn, color: C.acc, border: `1px dashed ${C.acc}66`, flex: 1 }}>⭱ Importer une zone</button>
+            </div>
+          )}
+          {tab === "sim" && roiDrawing && <div style={{ fontFamily: F, fontSize: 10.5, color: C.acc }}>Cliquez 2 coins sur la carte pour définir le ROI.</div>}
+        </div>
+      )}
+    </div>
+  );
+
+  // Aide contextuelle (remplace l'onglet Définition)
+  const helpPanel = (
+    <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontFamily: F, fontSize: 11.5, lineHeight: 1.5, color: C.txt }}>
+      <p style={{ margin: 0 }}>Simule l'<b>ombre portée au sol</b> des <b>bâtiments</b> (tuiles, <Code>render_height</Code>) et de la <b>canopée</b> (modèle WRI/Meta ~1 m via Earth Engine), à une date/heure, avec défilement sur la journée.</p>
+      <p style={{ margin: 0, color: C.mut }}><b>Itinéraire</b> : deux trajets piétons A→B (plus ombragé / plus direct) optimisés sur le réseau des tuiles (Dijkstra pondéré par l'ombre). <b>Balade</b> : boucles ombragées depuis un point. Chaque tronçon est coloré selon sa part d'ombre.</p>
+      <p style={{ margin: 0, color: C.dim }}>Sol plat, ombre au sol seulement, bâtiments limités aux tuiles de la vue. Un tronçon proche d'un arbre est compté au minimum à 50 % d'ombre.</p>
     </div>
   );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
-      <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}` }}>
+      <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}`, alignItems: "center" }}>
         {tabBtn("sim", "Ombrage")}
         {tabBtn("route", "Itinéraire")}
         {tabBtn("balade", "Balade")}
-        {tabBtn("def", "Définition")}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowHelp((v) => !v)} title="Aide / définition"
+          style={{ fontFamily: F, fontSize: 13, fontWeight: 700, width: 26, height: 22, cursor: "pointer", background: "transparent", color: showHelp ? C.acc : C.dim, border: "none" }}>ⓘ</button>
       </div>
 
-      {tab === "def" ? (
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 12, fontFamily: F, fontSize: 12.5, lineHeight: 1.55, color: C.txt, paddingRight: 4 }}>
-          <p style={{ margin: 0 }}>Simule l'<b>ombre portée au sol</b> des <b>bâtiments</b> et de la <b>canopée</b>, à une date et une heure, et la fait défiler sur la journée.</p>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Bâtiments — sans téléchargement</div>
-            <p style={{ margin: 0, color: C.mut }}>Lus des <b>tuiles</b> (couche <Code>building</Code>, <Code>render_height</Code>). Ombre = <i>H / tan(soleil)</i>, direction opposée au soleil (SunCalc). Sol plat.</p>
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Canopée — Meta ~1 m</div>
-            <p style={{ margin: 0, color: C.mut }}>Modèle <b>WRI/Meta 2020</b> (Earth Engine) en aperçu raster lissé (vraie emprise, vert) ; son ombre = plusieurs copies sombres empilées de la base au décalage plein (sans trou).</p>
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Emprise & statistiques</div>
-            <p style={{ margin: 0, color: C.mut }}>Calcul sur la vue, l'emprise d'une couche, ou un <b>ROI</b> dessiné (2 clics). Le bouton <b>Statistiques</b> (actif une fois la canopée chargée) donne les surfaces ombragées de la zone.</p>
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Itinéraire ombragé</div>
-            <p style={{ margin: 0, color: C.mut }}>Onglet <b>Itinéraire</b> : deux trajets piétons A → B — <b>plus ombragé</b> ou <b>plus direct</b> — évalués selon l'ombre à l'heure choisie, avec prévisualisation animée (accélérée).</p>
-          </div>
-        </div>
-      ) : tab === "route" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
-          <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijkstra pondéré par l'ombre, 100 % local) : <b>plus ombragé</b> vs <b>plus direct</b>, à la date/heure ci-dessous. Prévisualisez le parcours (vue immersive ou de dessus).
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+        {showHelp && helpPanel}
+        {timeBar}
 
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <div style={lbl}>Date de l'ombre</div>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, width: "100%" }} />
-            </div>
-            <div style={{ width: 150 }}>
-              <div style={lbl}>Heure · {clock}</div>
-              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ width: "100%" }} />
-            </div>
-          </div>
-          <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: -4 }}>
-            {sunTimes && sunTimes.off != null ? fmtOffset(sunTimes.off) : "heure locale"} · fuseau réglable dans l'onglet Ombrage.
+        {tab === "route" ? (
+        <>
+          <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
+            Deux trajets piétons A → B — <b>plus ombragé</b> vs <b>plus direct</b> — optimisés sur le réseau des tuiles (Dijkstra pondéré par l'ombre). L'ombre est évaluée à l'heure de la barre <b>Temps</b> ci-dessus.
           </div>
 
           {[["a", "Départ (A)"], ["b", "Arrivée (B)"]].map(([which, label]) => (
@@ -1860,23 +1933,14 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
             </div>
           )}
 
+          {routeResult && !routeResult.balade && resultActions}
           {routeResult && !routeResult.balade && !routeSel && <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>👆 Sélectionnez un trajet ci-dessus pour la prévisualisation.</div>}
           {routeResult && !routeResult.balade && routeSel && previewControls}
-        </div>
-      ) : tab === "balade" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+        </>
+        ) : tab === "balade" ? (
+        <>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Deux <b>balades en boucle</b> parmi les plus <b>ombragées</b> depuis un point, d'une <b>durée cible</b>, à l'heure de départ choisie (départ = arrivée).
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <div style={lbl}>Date</div>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, width: "100%" }} />
-            </div>
-            <div style={{ width: 150 }}>
-              <div style={lbl}>Départ · {clock}</div>
-              <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ width: "100%" }} />
-            </div>
+            Deux <b>balades en boucle</b> parmi les plus <b>ombragées</b> depuis un point, d'une <b>durée cible</b>, à l'heure de départ de la barre <b>Temps</b> (départ = arrivée).
           </div>
           <div>
             <div style={lbl}>Point de départ</div>
@@ -1925,145 +1989,44 @@ Itinéraires piétons A → B <b>optimisés sur le réseau des tuiles</b> (Dijks
               {routeResult.same && <div style={{ fontFamily: F, fontSize: 10, color: C.dim }}>Une seule boucle distincte trouvée — essayez une autre durée ou un autre départ.</div>}
             </div>
           )}
+          {routeResult && routeResult.balade && resultActions}
           {routeResult && routeResult.balade && !routeSel && <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>👆 Sélectionnez une balade ci-dessus pour la prévisualisation.</div>}
           {routeResult && routeResult.balade && routeSel && previewControls}
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+        </>
+        ) : (
+        <>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.mut, lineHeight: 1.5 }}>
-            Ombre des <b>bâtiments</b> + <b>canopée réelle</b> (Meta). Fond <b>Liberty</b>, <b>3D</b> et zoom réglés automatiquement — déplacez-vous sur une ville.
+            Ombre des <b>bâtiments</b> + <b>canopée réelle</b> (Meta) sur l'emprise choisie, à l'heure de la barre <b>Temps</b>.
           </div>
 
           <div>
             <div style={lbl}>Emprise du calcul</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <select value={scope} onChange={(e) => changeScope(e.target.value)} style={{ ...inp, flex: 1 }}>
-                <option value="view">Vue courante de la carte</option>
-                {zoneName && <option value="import">Zone importée : {zoneName}</option>}
-                {roiReady && <option value="roi">ROI dessiné</option>}
-                {layerOptions.map((o) => <option key={o.id} value={o.id}>Couche : {o.name}</option>)}
-              </select>
-              <button onClick={startRoi}
-                style={{ fontFamily: F, fontSize: 11, fontWeight: 500, padding: "0 10px", cursor: "pointer",
-                  background: roiDrawing ? C.acc : "transparent", color: roiDrawing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, whiteSpace: "nowrap" }}>
-                {roiDrawing ? "Annuler" : "ROI"}
-              </button>
-            </div>
-            <input ref={fileRef} type="file" accept=".geojson,.json" style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onImportZone(f); }} />
-            <button onClick={() => fileRef.current?.click()}
-              style={{ fontFamily: F, fontSize: 11, fontWeight: 500, padding: "6px 10px", marginTop: 6, width: "100%", cursor: "pointer",
-                background: "transparent", color: C.acc, border: `1px dashed ${C.acc}66`, borderRadius: 7 }}>
-              ⭱ Importer une zone (GeoJSON)
-            </button>
-            {roiDrawing && <div style={{ fontFamily: F, fontSize: 10.5, color: C.acc, marginTop: 3 }}>Cliquez 2 coins sur la carte pour définir le ROI.</div>}
-          </div>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={lbl}>Date</div>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inp, width: "100%" }} />
-            </div>
-            <div style={{ width: 96 }}>
-              <div style={lbl}>Heure</div>
-              <div style={{ fontFamily: M, fontSize: 15, fontWeight: 600, color: C.txt, padding: "5px 0", textAlign: "center" }}>{clock}</div>
-            </div>
-          </div>
-
-          <div>
-            <div style={lbl}>Fuseau horaire</div>
-            <select value={tzMode} onChange={(e) => setTzMode(e.target.value)} style={{ ...inp, width: "100%" }}>
-              <option value="browser">Fuseau local (heure civile){sunTimes && sunTimes.off != null ? ` · ${fmtOffset(sunTimes.off)}` : ""}</option>
-              <option value="auto">Heure solaire du lieu (longitude)</option>
-              <option value="utc">UTC</option>
+            <select value={scope} onChange={(e) => changeScope(e.target.value)} style={{ ...inp, width: "100%" }}>
+              <option value="view">Vue courante de la carte</option>
+              {zoneName && <option value="import">Zone importée : {zoneName}</option>}
+              {roiReady && <option value="roi">ROI dessiné</option>}
+              {layerOptions.map((o) => <option key={o.id} value={o.id}>Couche : {o.name}</option>)}
             </select>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>Défaut = <b>fuseau civil du navigateur</b> (heure d'été/hiver gérée) — correct pour votre région (Paris → UTC+2 l'été). « Heure solaire » = décalage selon la longitude (heure du soleil, décalée de ~1–2 h par rapport à l'heure civile en Europe). Pour un lieu dans un autre fuseau que le vôtre, choisissez UTC.</div>
+            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>Dessiner un ROI / importer une zone → <b>Options avancées</b>.</div>
           </div>
 
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button onClick={() => setPlaying((p) => !p)}
-                style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
-                  background: playing ? C.acc : "transparent", color: playing ? "#fff" : C.acc, border: `1px solid ${C.acc}66`, borderRadius: 7, flexShrink: 0 }}>
-                {playing ? "❚❚ Pause" : "▶ Journée"}
-              </button>
-              {/* pas à pas manuel : recule / avance l'ombre de 30 min */}
-              <button onClick={() => stepHour(-HOUR_STEP)} title="Étape précédente (−30 min)" style={stepBtn}>◀</button>
-              <button onClick={() => stepHour(HOUR_STEP)} title="Étape suivante (+30 min)" style={stepBtn}>▶</button>
-              <input type="range" min={0} max={24} step={0.25} value={hour}
-                onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ flex: 1 }} />
-            </div>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 3 }}>▶ Journée = lecture auto (lever→coucher) · ◀ ▶ = pas à pas manuel (30 min).</div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 9, color: C.dim, marginTop: 2 }}>
-              <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 10.5, color: C.mut, cursor: "pointer", marginTop: 4 }}>
-              <input type="checkbox" checked={previewCanopy} onChange={(e) => setPreviewCanopy(e.target.checked)} />
-              🌳 Canopée pendant la lecture « Journée »
-            </label>
-          </div>
+          <button onClick={computeDaily} disabled={statsLocked || dashBusy}
+            style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "9px 14px", width: "100%",
+              cursor: (statsLocked || dashBusy) ? "not-allowed" : "pointer",
+              background: (statsLocked || dashBusy) ? C.bg2 || C.bg : C.acc, color: (statsLocked || dashBusy) ? C.dim : "#fff",
+              border: `1px solid ${statsLocked ? C.bdr : C.acc}`, borderRadius: 8 }}>
+            {dashBusy ? "Calcul de la journée…" : statsLocked ? "Tableau de bord (attente canopée…)" : "📊 Tableau de bord — ombrage sur la journée"}
+          </button>
+          <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: -6 }}>% de la zone à l'ombre heure par heure, sur l'emprise choisie.</div>
+        </>
+        )}
 
-          <div style={{ background: C.bg2 || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: "8px 10px", fontFamily: F, fontSize: 11.5, color: C.txt }}>
-            {!info ? "Calcul…" : info.night ? (
-              <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit, pas d'ombre.</span>
-            ) : info.tooFar ? (
-              <span>🔍 Trop dézoomé — ombres des bâtiments masquées (évite le lavis gris). Zoomez pour les afficher.</span>
-            ) : (
-              <span>☀️ Soleil à <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> la hauteur · <b>{info.count}</b> bâtiment(s).</span>
-            )}
-            {sunTimes && (sunTimes.polar
-              ? <div style={{ marginTop: 4, color: C.dim }}>☀️ Jour/nuit polaire ce jour-là (pas de lever/coucher).</div>
-              : <div style={{ marginTop: 4, color: C.mut }}>🌅 Lever <b>{sunTimes.riseStr}</b> · 🌇 Coucher <b>{sunTimes.setStr}</b> <span style={{ color: C.dim }}>({sunTimes.off != null ? fmtOffset(sunTimes.off) : "heure locale"})</span></div>)}
-          </div>
+        {displaySection}
+        {advancedSection}
+      </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={lbl}>Opacité ombre · {Math.round(opacity * 100)}%</div>
-              <input type="range" min={0.1} max={0.8} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} style={{ width: "100%" }} />
-            </div>
-            <div style={{ width: 110 }}>
-              <div style={lbl}>Haut. défaut · m</div>
-              <input type="number" min={2} max={200} value={defH} onChange={(e) => setDefH(Number(e.target.value))} style={{ ...inp, width: "100%" }} />
-            </div>
-          </div>
-
-          <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
-              <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
-              🌳 Canopée <span style={{ color: C.dim }}>(Meta ~1 m, vraie emprise)</span>
-            </label>
-            {trees && (
-              <div style={{ fontFamily: F, fontSize: 10.5, marginTop: 4 }}>
-                {canopyMsg?.busy ? <span style={{ color: C.mut }}>⏳ Chargement de la canopée{canopyMsg.three ? " 3D" : " Meta"}…</span>
-                  : canopyMsg?.err ? <span style={{ color: C.dim }}>Canopée indisponible — {canopyMsg.err}</span>
-                  : canopyMsg?.ok && canopyMsg.three ? <span style={{ color: "#2e7d4f" }}>Canopée 3D : <b>{canopyMsg.n}</b> tache(s) extrudée(s).</span>
-                  : canopyMsg?.ok ? <span style={{ color: "#2e7d4f" }}>Canopée {String(canopyMsg.dataset || "").includes("Meta") ? "Meta ~1 m" : "ETH 10 m"} affichée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span>
-                  : <span style={{ color: C.dim }}>Vraie emprise des arbres (raster) + son ombre.</span>}
-              </div>
-            )}
-            {trees && (
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer", marginTop: 6 }}>
-                <input type="checkbox" checked={canopy3d} onChange={(e) => setCanopy3d(e.target.checked)} />
-                🌲 Canopée en 3D <span style={{ color: C.dim }}>(tronc + houppier extrudés, ≥ 2 m)</span>
-              </label>
-            )}
-          </div>
-
-          <div style={{ borderTop: `0.5px solid ${C.bdr}`, paddingTop: 10 }}>
-            <button onClick={computeDaily} disabled={statsLocked || dashBusy}
-              style={{ fontFamily: F, fontSize: 12.5, fontWeight: 600, padding: "9px 14px", width: "100%",
-                cursor: (statsLocked || dashBusy) ? "not-allowed" : "pointer",
-                background: (statsLocked || dashBusy) ? C.bg2 || C.bg : C.acc, color: (statsLocked || dashBusy) ? C.dim : "#fff",
-                border: `1px solid ${statsLocked ? C.bdr : C.acc}`, borderRadius: 8 }}>
-              {dashBusy ? "Calcul de la journée…" : statsLocked ? "Tableau de bord (attente canopée…)" : "📊 Tableau de bord — ombrage sur la journée"}
-            </button>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.dim, marginTop: 4 }}>
-              Ouvre un tableau de bord (graphiques + tableau) : % de la zone à l'ombre heure par heure, sur l'emprise choisie.
-            </div>
-          </div>
-        </div>
-      )}
-
+      <input ref={fileRef} type="file" accept=".geojson,.json" style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onImportZone(f); }} />
       {dashData && <ShadowDashboard data={dashData.data} meta={dashData.meta} onClose={() => setDashData(null)} />}
     </div>
   );
