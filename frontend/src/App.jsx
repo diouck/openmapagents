@@ -2586,13 +2586,14 @@ export default function App() {
           })}
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
           {/* Sélecteur de planète (liste déroulante) : une planète se voit en globe */}
-          <select value={currentPlanet} onChange={e=>selectPlanet(e.target.value)} className="rib"
-            title="Choisir un corps céleste (vue globe)"
+          <select value={currentPlanet} onChange={e=>{ const v=e.target.value; if(v==="__more__") activateItem("solarsystem"); else selectPlanet(v); }} className="rib"
+            title="Choisir un corps céleste (vue globe) — ou ouvrir le système solaire complet"
             style={{fontFamily:F,fontSize:10,padding:"3px 6px",borderRadius:5,cursor:"pointer",
               border:`0.5px solid ${currentPlanet!=="earth"?C.acc+"55":C.bdr}`,
               background:currentPlanet!=="earth"?C.acc+"12":"transparent",
               color:currentPlanet!=="earth"?C.acc:C.dim,outline:"none"}}>
             {PLANETS.map(p=>(<option key={p.key} value={p.key}>{p.icon} {p.label}</option>))}
+            <option value="__more__">🪐 Plus de planètes… (système solaire 3D)</option>
           </select>
           <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
           {/* Sélecteur de projection de la carte live : seuls Plan (Mercator) et Globe sont possibles sous MapLibre */}
