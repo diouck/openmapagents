@@ -1765,9 +1765,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         <input type="range" min={0} max={24} step={0.25} value={hour} onChange={(e) => { const v = Number(e.target.value); setPlaying(false); hourRef.current = v; setHour(v); computeRef.current?.(); }} style={{ flex: 1 }} />
       </div>
       <div style={{ fontFamily: F, fontSize: 10.5, color: C.mut }}>
-        {!info ? "Calcul…" : info.night ? <span>🌙 Soleil sous l'horizon ({info.alt.toFixed(0)}°) — nuit.</span>
+        {!info ? "Calcul…" : info.night ? <span>🌙 Soleil sous l'horizon ({Number(info.alt || 0).toFixed(0)}°) — nuit.</span>
           : info.tooFar ? <span>🔍 Trop dézoomé — zoomez pour afficher les ombres.</span>
-          : <span>☀️ Soleil <b>{info.alt.toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> · {info.count} bât.</span>}
+          : info.factor == null ? <span>☀️ Soleil <b>{Number(info.alt || 0).toFixed(0)}°</b> — placez un parcours pour le calcul.</span>
+          : <span>☀️ Soleil <b>{Number(info.alt || 0).toFixed(0)}°</b> · ombre ≈ <b>{info.factor.toFixed(1)}×</b> · {info.count} bât.</span>}
         {sunTimes && (sunTimes.polar
           ? <span style={{ color: C.dim }}> · jour/nuit polaire</span>
           : <span style={{ color: C.dim }}> · 🌅 {sunTimes.riseStr} · 🌇 {sunTimes.setStr}</span>)}
@@ -1864,17 +1865,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, padding: 12, boxSizing: "border-box" }}>
-      <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}`, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.bdr}` }}>
         {tabBtn("sim", "Ombrage")}
         {tabBtn("route", "Itinéraire")}
         {tabBtn("balade", "Balade")}
-        <div style={{ flex: 1 }} />
-        <button onClick={() => setShowHelp((v) => !v)} title="Aide / définition"
-          style={{ fontFamily: F, fontSize: 13, fontWeight: 700, width: 26, height: 22, cursor: "pointer", background: "transparent", color: showHelp ? C.acc : C.dim, border: "none" }}>ⓘ</button>
+        {tabBtn("def", "Définition")}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
-        {showHelp && helpPanel}
+        {tab === "def" ? helpPanel : (<>
         {timeBar}
 
         {tab === "route" ? (
@@ -2023,6 +2022,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
         {displaySection}
         {advancedSection}
+        </>)}
       </div>
 
       <input ref={fileRef} type="file" accept=".geojson,.json" style={{ display: "none" }}
