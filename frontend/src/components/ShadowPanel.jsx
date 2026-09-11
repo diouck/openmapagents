@@ -475,7 +475,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const beforeId = (map) => {
     const sl = map.getStyle().layers || [];
-    return (sl.find((l) => l.type === "fill-extrusion") || sl.find((l) => l.type === "symbol"))?.id;
+    // ANCRE = 1er fill-extrusion du FOND (bâtiments 3D), jamais nos propres couches « oma- »
+    // (la canopée 3D est aussi un fill-extrusion → sinon l'ombre du bâti passait dessous 1×/2).
+    const ours = (id) => typeof id === "string" && id.indexOf("oma-") === 0;
+    return (sl.find((l) => l.type === "fill-extrusion" && !ours(l.id)) || sl.find((l) => l.type === "symbol"))?.id;
   };
   // avant le 1er label uniquement (au-dessus des bâtiments 3D) → le voile estompe aussi le bâti
   const beforeLabels = (map) => { const sl = map.getStyle().layers || []; return sl.find((l) => l.type === "symbol")?.id; };
@@ -898,7 +901,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     const trunks = corridor ? (all.trunks || []).filter(keep) : (all.trunks || []);
     map.getSource(C3D_SRC)?.setData({ type: "FeatureCollection", features: crowns });
     map.getSource(C3D_TSRC)?.setData({ type: "FeatureCollection", features: trunks });
-    if (corridor) raiseMask(map);   // garde le voile au-dessus de la canopée 3D fraîchement (re)posée
+    // TOUJOURS réordonner : l'ombre des bâtiments (LYR) doit rester AU-DESSUS de la canopée 3D
+    // qui vient d'être (re)posée (sans ça : ombre sous les arbres 1 fois sur 2). Voile + tracé au-dessus.
+    raiseMask(map);
   }, []);
 
   const fetchCanopy3D = useCallback(async () => {
