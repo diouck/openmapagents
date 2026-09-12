@@ -683,6 +683,10 @@ export default function App() {
 
   // ── Sidebar gauche ────────────────────────────────────────
   const [activeTool,   setActiveTool]   = useState("pointer");
+  // Ouverture de la symbologie d'une couche depuis la légende sur la carte :
+  // on bascule sur le panneau Couches puis on demande l'ouverture de sa fenêtre.
+  const [pendingSymbol, setPendingSymbol] = useState(null);
+  const openLayerSymbology = useCallback((id) => { setActiveTool("layers"); setPendingSymbol(id); }, []);
   const [sidebarOpen,  setSidebarOpen]  = useState(false); // conservé pour compat (tools sans panel)
   const [openPanels,   setOpenPanels]   = useState(new Set()); // ids des panneaux ouverts
   const [openGroup,    setOpenGroup]    = useState(() => new Set(RAIL_GROUPS.filter(g => g.label).map(g => g.id))); // tous les groupes ouverts par défaut
@@ -2223,6 +2227,7 @@ export default function App() {
           onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown} onReorder={reorderLayer}
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
           onFilter={filterL} onUpdateGeojson={updateGeojson}
+          pendingOpen={pendingSymbol} onConsumePending={() => setPendingSymbol(null)}
         />
       </Embed>
     );
@@ -3089,7 +3094,7 @@ export default function App() {
               légende et les panneaux pour rester dessous. */}
           {terrain3D && weather !== "none" && <PrecipLayer type={weather} />}
 
-          <Legend layers={layers}/>
+          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer}/>
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(

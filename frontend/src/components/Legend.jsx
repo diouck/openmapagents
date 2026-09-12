@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useThemeContext } from "../theme";
 import { M, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
+import { IcPalette, IcMove } from "../icons";
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -260,20 +262,27 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers }) {
+export default function Legend({ layers, onOpenSymbology, onReorder }) {
   const C = useThemeContext();
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
   const visible = layers.filter(l => l.visible);
   if (!visible.length) return null;
 
   return (
     <div style={{
-      position: "absolute", bottom: 30, left: 10, zIndex: 10, maxWidth: 240,
-      borderRadius: 8, padding: "8px 10px", maxHeight: "45vh", overflowY: "auto",
+      position: "absolute", bottom: 30, left: 10, zIndex: 10, width: 244, maxWidth: "calc(100vw - 20px)",
+      borderRadius: 12, padding: "8px 10px 9px", maxHeight: "48vh", overflowY: "auto",
       background: C.card,
-      border: `1px solid ${C.bdr}`,
-      boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+      border: `0.5px solid ${C.bdr}`,
+      boxShadow: "0 16px 48px rgba(0,0,0,.4)",
       backdropFilter: "blur(8px)",
     }}>
+      {/* En-tête */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingBottom: 6, borderBottom: `0.5px solid ${C.bdr}` }}>
+        <span style={{ display: "flex", color: C.acc }}><IcPalette size={12} /></span>
+        <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.dim, fontWeight: 600 }}>Légende</span>
+      </div>
       {visible.map(layer => {
         const cr = layer.classResult;
         const isBivariate  = layer.isRaster && layer.bivariate?.palette?.length >= 9;
@@ -285,10 +294,23 @@ export default function Legend({ layers }) {
                               && (layer.visParams || _inferGeeDefaults(layer.name));
 
         return (
-          <div key={layer.id} style={{ marginBottom: 8 }}>
+          <div key={layer.id}
+            onDragOver={e => { if (dragId && dragId !== layer.id) { e.preventDefault(); if (overId !== layer.id) setOverId(layer.id); } }}
+            onDragLeave={() => setOverId(o => (o === layer.id ? null : o))}
+            onDrop={e => { e.preventDefault(); if (dragId && dragId !== layer.id) onReorder?.(dragId, layer.id); setDragId(null); setOverId(null); }}
+            style={{ marginBottom: 8, borderRadius: 5, opacity: dragId === layer.id ? 0.45 : 1,
+              boxShadow: overId === layer.id ? `inset 0 2px 0 ${C.acc}` : "none" }}>
 
-            {/* Nom couche + pastille */}
+            {/* Nom couche + poignée + bouton palette */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: (cr || showGeeLegend || isBivariate || hasClasses) ? 4 : 0 }}>
+              {/* Poignée de réordonnancement */}
+              <span draggable
+                onDragStart={e => { setDragId(layer.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", layer.id); } catch (_) {} }}
+                onDragEnd={() => { setDragId(null); setOverId(null); }}
+                title="Glisser pour réordonner"
+                style={{ cursor: "grab", color: C.dim, lineHeight: 0, flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
+                <IcMove size={11} />
+              </span>
               {/* Pastille adaptée au type de couche */}
               {layer.theme === "isochrone" ? (
                 <div style={{ width: 14, height: 10, borderRadius: 3, border: `2px solid ${layer.color}`, background: layer.color + "55", flexShrink: 0 }} />
@@ -299,8 +321,13 @@ export default function Legend({ layers }) {
               ) : (
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: layer.color, flexShrink: 0 }} />
               )}
-              <span style={{ fontSize: 11, fontWeight: 500, color: C.txt }}>{layer.name}</span>
-              <span style={{ fontSize: 9, color: C.dim, fontFamily: M, marginLeft: "auto" }}>{layer.featureCount}</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{layer.name}</span>
+              <span style={{ fontSize: 9, color: C.dim, fontFamily: M, flexShrink: 0 }}>{layer.featureCount}</span>
+              {/* Bouton symbologie (ouvre la fenêtre de la couche) */}
+              <button onClick={() => onOpenSymbology?.(layer.id)} title="Symbologie de la couche"
+                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                <IcPalette size={12} />
+              </button>
             </div>
 
             {/* ── Légende raster GEE (palettes continues / WorldCover) ── */}

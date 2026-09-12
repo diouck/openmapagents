@@ -4,7 +4,7 @@ import { useThemeContext } from "../theme";
 import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
 import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX,
-  IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck } from "../icons";
+  IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck, IcEdit } from "../icons";
 import ClassPanel from "./ClassPanel";
 import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
@@ -601,13 +601,13 @@ function PropsWindow({ title, isRaster, badge, onClose, children }) {
   }, []);
   const headDown = (e) => { if (e.target.closest("[data-nodrag]")) return; drag.current = { mode: "move", sx: e.clientX, sy: e.clientY, x: pos.x, y: pos.y }; document.body.style.userSelect = "none"; e.preventDefault(); };
   const resizeDown = (e) => { drag.current = { mode: "resize", sx: e.clientX, sy: e.clientY, w: size.w, h: size.h }; document.body.style.userSelect = "none"; e.preventDefault(); e.stopPropagation(); };
-  const hbtn = { background: "none", border: "none", cursor: "pointer", color: C.mut, lineHeight: 0, padding: "3px 5px", borderRadius: 5, display: "flex", alignItems: "center" };
+  const hbtn = { background: "none", border: "none", cursor: "pointer", color: C.dim, lineHeight: 0, padding: "3px 5px", borderRadius: 5, display: "flex", alignItems: "center" };
   return createPortal(
     <div style={{ position: "fixed", left: pos.x, top: pos.y, width: size.w, maxWidth: "calc(100vw - 16px)", zIndex: 1400,
-      background: C.card || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 11,
-      boxShadow: "0 22px 60px -16px rgba(0,0,0,.5), 0 6px 16px -6px rgba(0,0,0,.35)", display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "calc(100vh - 16px)" }}>
-      <div onMouseDown={headDown} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px",
-        borderBottom: `1px solid ${C.bdr}`, cursor: "move", userSelect: "none", background: C.bg2 || C.hover }}>
+      background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 14,
+      boxShadow: "0 16px 48px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "calc(100vh - 16px)" }}>
+      <div onMouseDown={headDown} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px",
+        borderBottom: `0.5px solid ${C.bdr}`, cursor: "move", userSelect: "none" }}>
         <span style={{ display: "flex", color: isRaster ? "#a06bd6" : C.acc, flexShrink: 0 }}><IcPalette size={14} /></span>
         <span style={{ fontFamily: M, fontSize: 8.5, fontWeight: 700, letterSpacing: ".03em", padding: "2px 5px", borderRadius: 5,
           color: isRaster ? "#a06bd6" : C.acc, border: `1px solid ${isRaster ? "#a06bd655" : C.acc + "55"}`, background: (isRaster ? "#a06bd6" : C.acc) + "18", flexShrink: 0 }}>{badge || (isRaster ? "RASTER" : "VECTEUR")}</span>
@@ -624,6 +624,48 @@ function PropsWindow({ title, isRaster, badge, onClose, children }) {
   );
 }
 
+// ── Table attributaire (onglet Attributs) : colonnes = champs, lignes = entités ──
+function AttributeTable({ layer, C }) {
+  const [q, setQ] = useState("");
+  const feats = layer.geojson?.features || [];
+  if (!feats.length) return <div style={{ fontSize: 11, color: C.dim }}>Aucune entité.</div>;
+  const cols = [], seen = new Set();
+  feats.slice(0, 300).forEach(f => Object.keys(f.properties || {}).forEach(k => {
+    if (!seen.has(k) && !["geom_json", "geom_wkt"].includes(k)) { seen.add(k); cols.push(k); }
+  }));
+  const ql = q.trim().toLowerCase();
+  const rows = (ql ? feats.filter(f => Object.values(f.properties || {}).some(v => String(v).toLowerCase().includes(ql))) : feats).slice(0, 1000);
+  const th = { position: "sticky", top: 0, background: C.hover, color: C.dim, fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".04em", fontWeight: 600, textAlign: "left", padding: "5px 8px", borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap" };
+  const td = { padding: "4px 8px", fontSize: 10.5, color: C.txt, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7, minHeight: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher dans les attributs…"
+          style={{ flex: 1, fontFamily: F, fontSize: 11, padding: "5px 8px", borderRadius: 6, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none" }} />
+        <span style={{ fontSize: 10, color: C.dim, fontFamily: M, whiteSpace: "nowrap" }}>{rows.length}/{feats.length}</span>
+      </div>
+      <div style={{ overflow: "auto", border: `0.5px solid ${C.bdr}`, borderRadius: 8, maxHeight: 380 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: M }}>
+          <thead><tr><th style={{ ...th, width: 34, textAlign: "right" }}>#</th>{cols.map(c => <th key={c} style={th}>{c}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((f, i) => (
+              <tr key={i}>
+                <td style={{ ...td, color: C.dim, textAlign: "right" }}>{i + 1}</td>
+                {cols.map(c => { const v = f.properties?.[c]; return (
+                  <td key={c} style={{ ...td, textAlign: typeof v === "number" ? "right" : "left" }}>
+                    {v == null ? "" : typeof v === "number" ? v.toLocaleString("fr") : String(v)}
+                  </td>
+                ); })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {feats.length > 1000 && <div style={{ fontSize: 9.5, color: C.dim }}>Affichage limité à 1000 entités sur {feats.length}.</div>}
+    </div>
+  );
+}
+
 // ── Contenu de la fenêtre Symbologie : structure à ONGLETS (façon QGIS / maquette
 //    validée), qui réutilise les vrais composants de style existants. ─────────────
 function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
@@ -631,7 +673,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
   const isR = l.isRaster, isVec = !l.isRaster && !!l.geojson;
   const TABS = isR
     ? [["sym", "Symbologie", IcPalette], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]]
-    : [["sym", "Symbologie", IcPalette], ["lab", "Étiquettes", IcHash], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]];
+    : [["sym", "Symbologie", IcPalette], ["lab", "Étiquettes", IcHash], ["attr", "Attributs", IcTable], ["render", "Rendu", IcSliders], ["fields", "Champs", IcEdit], ["info", "Infos", IcInfo]];
   const [tab, setTab] = useState("sym");
   const [expMenu, setExpMenu] = useState(false);
   const [, force] = useState(0);
@@ -667,8 +709,8 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
           {TABS.map(([k, la, Icon]) => (
             <button key={k} onClick={() => setTab(k)} style={{
               display: "flex", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 7, border: "none",
-              cursor: "pointer", width: "100%", textAlign: "left", fontFamily: F, fontSize: 11.5, fontWeight: tab === k ? 600 : 500,
-              background: tab === k ? (C.card || C.bg) : "transparent", color: tab === k ? C.txt : C.mut,
+              cursor: "pointer", width: "100%", textAlign: "left", fontFamily: F, fontSize: 11.5, fontWeight: tab === k ? 600 : 400,
+              background: tab === k ? C.card : "transparent", color: tab === k ? C.acc : C.dim,
               boxShadow: tab === k ? `inset 2px 0 0 ${C.acc}` : "none",
             }}>
               <span style={{ display: "flex", color: tab === k ? C.acc : C.dim, flexShrink: 0 }}><Icon size={14} /></span> {la}
@@ -733,6 +775,8 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
           )}
         </>)}
 
+        {tab === "attr" && isVec && <AttributeTable layer={l} C={C} />}
+
         {tab === "fields" && (<>
           {isVec && <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />}
           {isVec && <div style={{ fontSize: 10.5, color: C.dim }}>{numAttrs.size} champ(s) numérique(s) · {txtAttrs.size} champ(s) texte.</div>}
@@ -750,8 +794,8 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
       </div>
 
       {/* barre d'actions façon maquette : Copier · Coller · Exporter ▾ · Réinit. · Supprimer · OK */}
-      <div style={{ position: "relative", borderTop: `1px solid ${C.bdr}`, padding: "9px 12px", display: "flex",
-        gap: 6, flexWrap: "wrap", alignItems: "center", background: C.bg2 || C.hover }}>
+      <div style={{ position: "relative", borderTop: `0.5px solid ${C.bdr}`, padding: "9px 12px", display: "flex",
+        gap: 6, flexWrap: "wrap", alignItems: "center", background: C.card }}>
         {footBtn(IcCopy, "Copier", copyStyle, { disabled: !isVec })}
         {footBtn(IcClipboard, "Coller", pasteStyle, { disabled: !isVec || !STYLE_CLIP })}
         <div style={{ position: "relative" }}>
@@ -779,9 +823,16 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
 }
 
 // ── Composant principal ────────────────────────────────────────
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson, pendingOpen, onConsumePending }) {
   const C = useThemeContext();
   const [exp,      setExp]      = useState(null);
+
+  // Ouverture demandée depuis la légende sur la carte (bouton palette d'une couche)
+  useEffect(() => {
+    if (pendingOpen == null) return;
+    if (layers.some(l => l.id === pendingOpen)) setExp(pendingOpen);
+    onConsumePending?.();
+  }, [pendingOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [editName, setEditName] = useState(null);
   const [dragId,   setDragId]   = useState(null);   // glisser-déposer : couche saisie
   const [overId,   setOverId]   = useState(null);   // couche survolée (indicateur de dépôt)
