@@ -11,7 +11,7 @@ import { encodePermalink, decodePermalink, importFile, computeBounds, getPopupFi
 import { executeSpatialOp } from "./utils/spatial";
 import { computeRoute, computeIsochrone } from "./utils/routing";
 import Legend from "./components/Legend";
-import LayerPanel from "./components/LayerPanel";
+import LayerPanel, { SymbologyWindow } from "./components/LayerPanel";
 import ChatPanel    from "./components/ChatPanel";
 import AuthModal    from "./components/AuthModal";
 import SaveMapModal from "./components/SaveMapModal";
@@ -685,14 +685,10 @@ export default function App() {
   const [activeTool,   setActiveTool]   = useState("pointer");
   // Ouverture de la symbologie d'une couche depuis la légende sur la carte :
   // on bascule sur le panneau Couches puis on demande l'ouverture de sa fenêtre.
-  const [pendingSymbol, setPendingSymbol] = useState(null);
-  const openLayerSymbology = useCallback((id) => {
-    // Le panneau Couches n'est monté que s'il est dans openPanels → il faut l'ouvrir
-    // (sans le refermer s'il l'est déjà), sinon la fenêtre de symbologie n'apparaît pas.
-    setOpenPanels(prev => (prev.has("layers") ? prev : new Set(prev).add("layers")));
-    setActiveTool("layers");
-    setPendingSymbol(id);
-  }, []);
+  // Fenêtre de symbologie AUTONOME (montée ici, pas dans le panneau Couches) : elle
+  // reste ouverte même si l'on ferme le panneau et passe au-dessus au clic (z partagé).
+  const [symbolLayerId, setSymbolLayerId] = useState(null);
+  const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
   const [sidebarOpen,  setSidebarOpen]  = useState(false); // conservé pour compat (tools sans panel)
   const [openPanels,   setOpenPanels]   = useState(new Set()); // ids des panneaux ouverts
   const [openGroup,    setOpenGroup]    = useState(() => new Set(RAIL_GROUPS.filter(g => g.label).map(g => g.id))); // tous les groupes ouverts par défaut
@@ -2233,7 +2229,7 @@ export default function App() {
           onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown} onReorder={reorderLayer}
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
           onFilter={filterL} onUpdateGeojson={updateGeojson}
-          pendingOpen={pendingSymbol} onConsumePending={() => setPendingSymbol(null)}
+          onOpenSymbology={openLayerSymbology} openId={symbolLayerId}
         />
       </Embed>
     );
@@ -2930,6 +2926,17 @@ export default function App() {
                 onFocus={() => focusModal(m.id)} onClose={() => closeModal(m.id)}
               />
             ))}
+
+            {/* ── Fenêtre Symbologie autonome (indépendante du panneau Couches, z partagé) ── */}
+            {layers.some(l => l.id === symbolLayerId) && (
+              <SymbologyWindow
+                layer={layers.find(l => l.id === symbolLayerId)}
+                onClose={() => setSymbolLayerId(null)}
+                onStyle={styleL} onClassify={classifyL} onExport={exportL} onExportFmt={exportFmt}
+                onRemove={(id) => { removeL(id); setSymbolLayerId(null); }}
+                onUpdateRasterLayer={updateRasterLayer} onUpdateGeojson={updateGeojson} mapRef={mapRef}
+              />
+            )}
 
             {/* ── Sauvegarder ── */}
             {showSave && (

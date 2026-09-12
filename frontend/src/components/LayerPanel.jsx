@@ -10,6 +10,7 @@ import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
 import FilterModal, { FunnelIcon, applyFilter } from "./FilterModal";
 import { getPC, applyPCStyle, ASPRS_CLASSES } from "../utils/lidarStyle";
+import { nextZ, bumpZ } from "../utils/zorder";
 
 // ── Palettes prédéfinies pour rasters GEE ────────────────────
 const PALETTES = {
@@ -583,7 +584,7 @@ function geomLabel(l) {
 
 // ── Fenêtre « Symbologie » flottante : déplaçable (par le bandeau, dans toutes les
 //    directions) + redimensionnable (poignée en bas à droite) + réductible. ────────
-function PropsWindow({ title, isRaster, badge, onClose, children }) {
+function PropsWindow({ title, isRaster, badge, z, onFocus, onClose, children }) {
   const C = useThemeContext();
   const [pos, setPos] = useState(() => ({ x: Math.max(12, Math.min((window.innerWidth || 1200) - 494, 260)), y: 84 }));
   const [size, setSize] = useState({ w: 470, h: 520 });
@@ -603,7 +604,7 @@ function PropsWindow({ title, isRaster, badge, onClose, children }) {
   const resizeDown = (e) => { drag.current = { mode: "resize", sx: e.clientX, sy: e.clientY, w: size.w, h: size.h }; document.body.style.userSelect = "none"; e.preventDefault(); e.stopPropagation(); };
   const hbtn = { background: "none", border: "none", cursor: "pointer", color: C.dim, lineHeight: 0, padding: "3px 5px", borderRadius: 5, display: "flex", alignItems: "center" };
   return createPortal(
-    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: size.w, maxWidth: "calc(100vw - 16px)", zIndex: 1400,
+    <div onMouseDown={onFocus} style={{ position: "fixed", left: pos.x, top: pos.y, width: size.w, maxWidth: "calc(100vw - 16px)", zIndex: z || 1400,
       background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 14,
       boxShadow: "0 16px 48px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "calc(100vh - 16px)" }}>
       <div onMouseDown={headDown} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px",
@@ -770,7 +771,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
               <span style={val}>{l.extrudeScale || 1}x</span>
             </div>
           )}
-          {isR && l._geeParams?.dataset && l._geeParams?.index && (
+          {isR && openStats && l._geeParams?.dataset && l._geeParams?.index && (
             <button onClick={e => openStats(e, l)} style={{ fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, width: "100%", background: "transparent", border: `0.5px solid ${C.acc}`, color: C.acc, cursor: "pointer", fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><IcBarChart size={13} /> Statistiques de la zone</button>
           )}
         </>)}
@@ -807,7 +808,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
               {isVec ? EXPORT_FORMATS.map(fmt => (
                 <button key={fmt} onClick={() => { setExpMenu(false); fmt === "GeoJSON" ? onExport(l.id) : onExportFmt(l.id, fmt); }}
                   style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{fmt}</button>
-              )) : (l.kind === "image" && l.imageUrl && l.coordinates)
+              )) : (exportImageTiff && l.kind === "image" && l.imageUrl && l.coordinates)
                 ? <button onClick={() => { setExpMenu(false); exportImageTiff(l); }} style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{tiffBusy === l.id ? "Export…" : "GeoTIFF (.tif)"}</button>
                 : <div style={{ fontSize: 11, color: C.dim, padding: "6px 9px" }}>Export indisponible</div>}
             </div>
@@ -822,17 +823,26 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
   );
 }
 
-// ── Composant principal ────────────────────────────────────────
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson, pendingOpen, onConsumePending }) {
-  const C = useThemeContext();
-  const [exp,      setExp]      = useState(null);
+// ── Fenêtre Symbologie AUTONOME (montée au niveau App) : survit à la fermeture du
+//    panneau Couches et participe à l'ordre d'empilement partagé (clic = au 1er plan).
+export function SymbologyWindow({ layer, onClose, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
+  const [z, setZ] = useState(() => nextZ());
+  if (!layer) return null;
+  return (
+    <PropsWindow title={layer.name} isRaster={layer.isRaster} badge={geomLabel(layer)}
+      z={z} onFocus={() => setZ(v => bumpZ(v))} onClose={onClose}>
+      <LayerSymbology l={layer} geomLabel={geomLabel(layer)} onClose={onClose}
+        onStyle={onStyle} onClassify={onClassify} onExport={onExport} onExportFmt={onExportFmt}
+        onRemove={onRemove} onUpdateRasterLayer={onUpdateRasterLayer} onUpdateGeojson={onUpdateGeojson}
+        mapRef={mapRef} openStats={openStats} exportImageTiff={exportImageTiff} tiffBusy={tiffBusy} />
+    </PropsWindow>
+  );
+}
 
-  // Ouverture demandée depuis la légende sur la carte (bouton palette d'une couche)
-  useEffect(() => {
-    if (pendingOpen == null) return;
-    if (layers.some(l => l.id === pendingOpen)) setExp(pendingOpen);
-    onConsumePending?.();
-  }, [pendingOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
+// ── Composant principal ────────────────────────────────────────
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson, onOpenSymbology, openId }) {
+  const C = useThemeContext();
+  const exp = openId;   // couche dont la fenêtre de symbologie est ouverte (état porté par App)
   const [editName, setEditName] = useState(null);
   const [dragId,   setDragId]   = useState(null);   // glisser-déposer : couche saisie
   const [overId,   setOverId]   = useState(null);   // couche survolée (indicateur de dépôt)
@@ -929,7 +939,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
                 cursor: "pointer", background: exp === l.id ? C.hover : "transparent",
               }}
-              onClick={() => setExp(exp === l.id ? null : l.id)}
+              onClick={() => onOpenSymbology?.(exp === l.id ? null : l.id)}
             >
               <span
                 draggable
@@ -973,7 +983,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               )}
 
               {/* Actions compactes */}
-              <button onClick={e => { e.stopPropagation(); setExp(exp === l.id ? null : l.id); }} title="Symbologie / propriétés"
+              <button onClick={e => { e.stopPropagation(); onOpenSymbology?.(exp === l.id ? null : l.id); }} title="Symbologie / propriétés"
                 style={{ background: exp === l.id ? C.acc + "22" : "none", border:`0.5px solid ${exp === l.id ? C.acc : C.bdr}`, borderRadius:4, cursor:"pointer", padding:"2px 4px", color: exp === l.id ? C.acc : C.dim, lineHeight:0, flexShrink:0, display:"flex", alignItems:"center" }}><IcPalette size={13} /></button>
               <button onClick={e => { e.stopPropagation(); onZoomExtent?.(l.id); }} title="Zoomer"
                 style={{ background:"none",border:"none",cursor:"pointer",fontSize:11,padding:"0 2px",color:C.dim,lineHeight:1,flexShrink:0 }}>🔍</button>
@@ -1074,16 +1084,8 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 )}
               </div>
             )}
-
-            {/* Fenêtre Symbologie flottante (déplaçable + redimensionnable) */}
-            {exp === l.id && (
-              <PropsWindow title={l.name} isRaster={l.isRaster} badge={geomLabel(l)} onClose={() => setExp(null)}>
-              <LayerSymbology l={l} geomLabel={geomLabel(l)} onClose={() => setExp(null)}
-                onStyle={onStyle} onClassify={onClassify} onExport={onExport} onExportFmt={onExportFmt}
-                onRemove={onRemove} onUpdateRasterLayer={onUpdateRasterLayer} onUpdateGeojson={onUpdateGeojson} mapRef={mapRef}
-                openStats={openStats} exportImageTiff={exportImageTiff} tiffBusy={tiffBusy} />
-              </PropsWindow>
-            )}
+            {/* La fenêtre Symbologie est désormais montée au niveau App (autonome),
+                ouverte via onOpenSymbology → elle survit à la fermeture du panneau. */}
           </div>
         ))}
       </div>
