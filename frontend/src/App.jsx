@@ -686,7 +686,13 @@ export default function App() {
   // Ouverture de la symbologie d'une couche depuis la légende sur la carte :
   // on bascule sur le panneau Couches puis on demande l'ouverture de sa fenêtre.
   const [pendingSymbol, setPendingSymbol] = useState(null);
-  const openLayerSymbology = useCallback((id) => { setActiveTool("layers"); setPendingSymbol(id); }, []);
+  const openLayerSymbology = useCallback((id) => {
+    // Le panneau Couches n'est monté que s'il est dans openPanels → il faut l'ouvrir
+    // (sans le refermer s'il l'est déjà), sinon la fenêtre de symbologie n'apparaît pas.
+    setOpenPanels(prev => (prev.has("layers") ? prev : new Set(prev).add("layers")));
+    setActiveTool("layers");
+    setPendingSymbol(id);
+  }, []);
   const [sidebarOpen,  setSidebarOpen]  = useState(false); // conservé pour compat (tools sans panel)
   const [openPanels,   setOpenPanels]   = useState(new Set()); // ids des panneaux ouverts
   const [openGroup,    setOpenGroup]    = useState(() => new Set(RAIL_GROUPS.filter(g => g.label).map(g => g.id))); // tous les groupes ouverts par défaut

@@ -295,10 +295,12 @@ export default function Legend({ layers, onOpenSymbology, onReorder }) {
 
         return (
           <div key={layer.id}
+            onDoubleClick={() => onOpenSymbology?.(layer.id)}
+            title="Double-clic : ouvrir la symbologie"
             onDragOver={e => { if (dragId && dragId !== layer.id) { e.preventDefault(); if (overId !== layer.id) setOverId(layer.id); } }}
             onDragLeave={() => setOverId(o => (o === layer.id ? null : o))}
             onDrop={e => { e.preventDefault(); if (dragId && dragId !== layer.id) onReorder?.(dragId, layer.id); setDragId(null); setOverId(null); }}
-            style={{ marginBottom: 8, borderRadius: 5, opacity: dragId === layer.id ? 0.45 : 1,
+            style={{ marginBottom: 8, borderRadius: 5, cursor: "default", opacity: dragId === layer.id ? 0.45 : 1,
               boxShadow: overId === layer.id ? `inset 0 2px 0 ${C.acc}` : "none" }}>
 
             {/* Nom couche + poignée + bouton palette */}
