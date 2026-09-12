@@ -610,6 +610,143 @@ function PropsWindow({ title, isRaster, onClose, children }) {
   );
 }
 
+// ── Contenu de la fenêtre Symbologie : structure à ONGLETS (façon QGIS / maquette
+//    validée), qui réutilise les vrais composants de style existants. ─────────────
+function LayerSymbology({ l, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
+  const C = useThemeContext();
+  const isR = l.isRaster, isVec = !l.isRaster && !!l.geojson;
+  const tabs = isR
+    ? [["sym", "Symbologie"], ["render", "Rendu"], ["fields", "Champs"], ["info", "Infos"]]
+    : [["sym", "Symbologie"], ["lab", "Étiquettes"], ["render", "Rendu"], ["fields", "Champs"], ["info", "Infos"]];
+  const [tab, setTab] = useState("sym");
+  const numAttrs = new Set(), txtAttrs = new Set();
+  (l.geojson?.features || []).slice(0, 20).forEach(f => Object.entries(f.properties || {}).forEach(([k, v]) => {
+    if (typeof v === "number" && !["id"].includes(k)) numAttrs.add(k);
+    if (v != null && v !== "" && !["id", "geom_json"].includes(k)) txtAttrs.add(k);
+  }));
+  const sub = { fontSize: 10, textTransform: "uppercase", letterSpacing: ".05em", color: C.dim, fontWeight: 600, margin: "2px 0 2px" };
+  const selSt = { fontFamily: F, fontSize: 11, padding: "4px 6px", borderRadius: 5, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 };
+  const rowSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 11 };
+  const dim = { color: C.dim }, val = { color: C.dim, fontFamily: M };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 2, display: "flex", gap: 1, flexWrap: "wrap", padding: "0 8px",
+        borderBottom: `1px solid ${C.bdr}`, background: C.card || C.bg }}>
+        {tabs.map(([k, la]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ fontFamily: F, fontSize: 11.5, fontWeight: tab === k ? 600 : 500,
+            padding: "8px 8px", cursor: "pointer", background: "transparent", color: tab === k ? C.acc : C.mut,
+            border: "none", borderBottom: `2px solid ${tab === k ? C.acc : "transparent"}`, marginBottom: -1 }}>{la}</button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, padding: "12px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {tab === "sym" && (<>
+          {isR && l.visParams && <RasterStylePanel layer={l} onUpdateLayer={(id, u) => onUpdateRasterLayer?.(id, u)} />}
+          {l.kind === "pointcloud" && <PointcloudStylePanel layer={l} mapRef={mapRef} />}
+          {l.kind === "image" && l.rasterToken && <RasterImageStylePanel layer={l} onUpdate={(id, u) => onUpdateRasterLayer?.(id, u)} />}
+          {isR && l.legend?.length > 0 && <ClassifLegendPanel layer={l} onUpdateRasterLayer={onUpdateRasterLayer} C={C} />}
+          {isVec && (<>
+            <div style={sub}>Symbole</div>
+            <div style={rowSt}>
+              <span style={dim}>Remplissage</span>
+              <input type="color" value={l.color} onChange={e => onStyle(l.id, { color: e.target.value })} style={{ width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none" }} />
+              <span style={dim}>Taille pt</span>
+              <input type="range" min="2" max="15" step="1" value={l.radius || 5} onChange={e => onStyle(l.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
+              <span style={val}>{l.radius || 5}px</span>
+            </div>
+            <div style={rowSt}>
+              <span style={dim}>Contour</span>
+              <input type="color" value={l.outlineColor || l.color || "#000000"} onChange={e => onStyle(l.id, { outlineColor: e.target.value })} style={{ width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none" }} />
+              <span style={dim}>Épaisseur</span>
+              <input type="range" min="0" max="10" step="0.5" value={l.strokeWidth ?? 1.5} onChange={e => onStyle(l.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+              <span style={val}>{l.strokeWidth ?? 1.5}px</span>
+            </div>
+            <div style={rowSt}>
+              <span style={dim}>Marqueur (points)</span>
+              <select value={l.markerShape || "circle"} onChange={e => onStyle(l.id, { markerShape: e.target.value })} style={selSt}>
+                <option value="circle">Rond</option><option value="square">Carré</option><option value="triangle">Triangle</option><option value="diamond">Losange</option>
+              </select>
+            </div>
+            <div style={{ ...sub, marginTop: 6 }}>Classification</div>
+            <ClassPanel key={`${l.id}-${l.classCfg?.ramp}-${l.classCfg?.type}`} layer={l} classification={l.classCfg}
+              onChange={cfg => onClassify(l.id, cfg)} mapRef={mapRef}
+              chartCfg={l.chartCfg} onChartChange={cfg => onStyle(l.id, { chartCfg: cfg })}
+              onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
+          </>)}
+        </>)}
+
+        {tab === "lab" && isVec && (<>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!l.labels} onChange={() => onStyle(l.id, { labels: !l.labels })} /> Afficher les étiquettes
+          </label>
+          {l.labels && txtAttrs.size > 0 && (
+            <div style={rowSt}>
+              <span style={dim}>Attribut</span>
+              <select value={l.labelAttr || "name"} onChange={e => onStyle(l.id, { labelAttr: e.target.value })} style={selSt}>
+                {[...txtAttrs].map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          )}
+          {l.labels && txtAttrs.size === 0 && <div style={{ fontSize: 10.5, color: C.dim }}>Aucun attribut texte à afficher.</div>}
+        </>)}
+
+        {tab === "render" && (<>
+          <div style={rowSt}>
+            <span style={dim}>Opacité</span>
+            <input type="range" min="0" max="1" step="0.05" value={l.opacity} onChange={e => onStyle(l.id, { opacity: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+            <span style={val}>{Math.round(l.opacity * 100)}%</span>
+          </div>
+          {isVec && (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <Btn small color={C.amb} active={l.heatmap} onClick={() => onStyle(l.id, { heatmap: !l.heatmap, extrude: false })}>Heatmap</Btn>
+              <Btn small color={C.blu} active={l.extrude} onClick={() => onStyle(l.id, { extrude: !l.extrude, heatmap: false })}>3D</Btn>
+              <Btn small color={C.pnk} active={l.cluster} onClick={() => onStyle(l.id, { cluster: !l.cluster })}>Cluster</Btn>
+            </div>
+          )}
+          {isVec && l.extrude && numAttrs.size > 0 && (
+            <div style={rowSt}>
+              <span style={dim}>Hauteur</span>
+              <select value={l.extrudeAttr || ""} onChange={e => onStyle(l.id, { extrudeAttr: e.target.value })} style={selSt}>
+                <option value="">auto (height)</option>{[...numAttrs].map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              <input type="range" min="1" max="20" step="1" value={l.extrudeScale || 1} onChange={e => onStyle(l.id, { extrudeScale: parseInt(e.target.value) })} style={{ width: 50, height: 3 }} />
+              <span style={val}>{l.extrudeScale || 1}x</span>
+            </div>
+          )}
+          {isR && l._geeParams?.dataset && l._geeParams?.index && (
+            <button onClick={e => openStats(e, l)} style={{ fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, width: "100%", background: "transparent", border: `0.5px solid ${C.acc}`, color: C.acc, cursor: "pointer", fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><IcBarChart size={13} /> Statistiques de la zone</button>
+          )}
+        </>)}
+
+        {tab === "fields" && (<>
+          {isVec && <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />}
+          {isVec && <div style={{ fontSize: 10.5, color: C.dim }}>{numAttrs.size} champ(s) numérique(s) · {txtAttrs.size} champ(s) texte.</div>}
+          {isR && <div style={{ fontSize: 11.5, color: C.mut }}>Couche raster — palette et classes dans l'onglet Symbologie.</div>}
+        </>)}
+
+        {tab === "info" && (
+          <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "7px 14px", fontSize: 12, margin: 0 }}>
+            <dt style={dim}>Nom</dt><dd style={{ margin: 0, color: C.txt }}>{l.name}</dd>
+            <dt style={dim}>Type</dt><dd style={{ margin: 0, color: C.txt }}>{isR ? "Raster" : "Vecteur"}</dd>
+            {l.geojson && (<><dt style={dim}>Entités</dt><dd style={{ margin: 0, fontFamily: M, color: C.txt }}>{(l.geojson.features || []).length}</dd></>)}
+          </dl>
+        )}
+      </div>
+
+      <div style={{ position: "sticky", bottom: 0, borderTop: `1px solid ${C.bdr}`, padding: "9px 12px", display: "flex",
+        gap: 5, flexWrap: "wrap", alignItems: "center", background: C.bg2 || C.hover }}>
+        {isVec && (<>
+          <Btn small color={C.acc} onClick={() => onExport(l.id)}>GeoJSON</Btn>
+          {EXPORT_FORMATS.filter(f => f !== "GeoJSON").map(fmt => <Btn key={fmt} small onClick={() => onExportFmt(l.id, fmt)}>{fmt}</Btn>)}
+        </>)}
+        {l.kind === "image" && l.imageUrl && l.coordinates && <Btn small color={C.acc} onClick={() => exportImageTiff(l)}>{tiffBusy === l.id ? "Export…" : "GeoTIFF"}</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn small color={C.red} onClick={() => onRemove(l.id)}>Supprimer</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── Composant principal ────────────────────────────────────────
 export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
   const C = useThemeContext();
@@ -859,164 +996,9 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
             {/* Fenêtre Symbologie flottante (déplaçable + redimensionnable) */}
             {exp === l.id && (
               <PropsWindow title={l.name} isRaster={l.isRaster} onClose={() => setExp(null)}>
-              <div style={{ padding: "10px 12px 12px", display: "flex", flexDirection: "column", gap: 8, background: "transparent" }}>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                  <span style={{ color: C.dim }}>Opacité</span>
-                  <input type="range" min="0" max="1" step="0.05" value={l.opacity}
-                    onChange={e => onStyle(l.id, { opacity: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-                  <span style={{ color: C.dim, fontFamily: M, flexShrink: 0 }}>{Math.round(l.opacity * 100)}%</span>
-                </div>
-
-                {l.isRaster && l.visParams && (
-                  <RasterStylePanel layer={l} onUpdateLayer={(id, updates) => onUpdateRasterLayer?.(id, updates)} />
-                )}
-
-                {/* ── Sémiologie d'un nuage LiDAR (couleur, filtre, légende classes) ── */}
-                {l.kind === "pointcloud" && (
-                  <PointcloudStylePanel layer={l} mapRef={mapRef} />
-                )}
-
-                {/* ── Reclassification d'un GeoTIFF importé (mono OU multi-bande) ── */}
-                {l.kind === "image" && l.rasterToken && (
-                  <RasterImageStylePanel layer={l} onUpdate={(id, updates) => onUpdateRasterLayer?.(id, updates)} />
-                )}
-
-                {/* ── Légende + restyle pour couches de classification ── */}
-                {l.isRaster && l.legend?.length > 0 && (
-                  <ClassifLegendPanel layer={l} onUpdateRasterLayer={onUpdateRasterLayer} C={C} />
-                )}
-
-                {/* ── Bouton stats dans le panneau déroulé (tous rasters GEE) ── */}
-                {l.isRaster && l._geeParams?.dataset && l._geeParams?.index && (
-                  <button onClick={e => openStats(e, l)} style={{
-                    fontFamily: F, fontSize: 10, padding: "6px 0", borderRadius: 5, width: "100%",
-                    background: "transparent", border: `0.5px solid ${C.acc}`,
-                    color: C.acc, cursor: "pointer", fontWeight: 500,
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  }}>
-                    <IcBarChart size={13}/> Statistiques de la zone
-                  </button>
-                )}
-
-                {/* ── Export GeoTIFF d'une couche image géoréférencée ── */}
-                {l.kind === "image" && l.imageUrl && l.coordinates && (
-                  <button onClick={() => exportImageTiff(l)} disabled={tiffBusy === l.id} style={{
-                    fontFamily: F, fontSize: 10, fontWeight: 500, padding: "6px 0", borderRadius: 5, width: "100%",
-                    background: "transparent", border: `0.5px solid ${C.acc}`, color: C.acc,
-                    cursor: tiffBusy === l.id ? "wait" : "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  }}>{tiffBusy === l.id ? "Export…" : "⬇ Exporter en GeoTIFF"}</button>
-                )}
-
-                {l.isRaster && (
-                  <button onClick={() => onRemove(l.id)} style={{
-                    fontFamily: F, fontSize: 10, padding: "5px 0", borderRadius: 5, width: "100%",
-                    background: "transparent", border: `0.5px solid ${C.red}55`,
-                    color: C.red, cursor: "pointer",
-                  }}>Supprimer la couche</button>
-                )}
-
-                {!l.isRaster && l.geojson && (<>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                  <span style={{ color: C.dim }}>Couleur</span>
-                  <input type="color" value={l.color} onChange={e => onStyle(l.id, { color: e.target.value })}
-                    style={{ width: 24, height: 18, border: "none", borderRadius: 3, cursor: "pointer", background: "none" }} />
-                  <span style={{ color: C.dim }}>Taille pt</span>
-                  <input type="range" min="2" max="15" step="1" value={l.radius || 5}
-                    onChange={e => onStyle(l.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
-                  <span style={{ color: C.dim, fontFamily: M }}>{l.radius || 5}px</span>
-                </div>
-
-                {/* Contour + épaisseur : s'appliquent aux LIGNES et au CONTOUR des polygones
-                    (aplat = « Couleur » ci-dessus). Symbologie type QGIS. */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                  <span style={{ color: C.dim }}>Contour</span>
-                  <input type="color" value={l.outlineColor || l.color || "#000000"} onChange={e => onStyle(l.id, { outlineColor: e.target.value })}
-                    style={{ width: 24, height: 18, border: "none", borderRadius: 3, cursor: "pointer", background: "none" }} />
-                  <span style={{ color: C.dim }}>Épaisseur</span>
-                  <input type="range" min="0" max="10" step="0.5" value={l.strokeWidth ?? 1.5}
-                    onChange={e => onStyle(l.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-                  <span style={{ color: C.dim, fontFamily: M }}>{l.strokeWidth ?? 1.5}px</span>
-                </div>
-
-                {/* Forme des marqueurs ponctuels (comme QGIS : rond / carré / triangle / losange) */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                  <span style={{ color: C.dim }}>Marqueur (points)</span>
-                  <select value={l.markerShape || "circle"} onChange={e => onStyle(l.id, { markerShape: e.target.value })}
-                    style={{ fontFamily: F, fontSize: 11, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 }}>
-                    <option value="circle">● Rond</option>
-                    <option value="square">■ Carré</option>
-                    <option value="triangle">▲ Triangle</option>
-                    <option value="diamond">◆ Losange</option>
-                  </select>
-                </div>
-
-                {/* Calculateur de champ : en amont de la classification, puisqu'il
-                    sert justement à fabriquer la variable qu'on va classer. */}
-                <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />
-
-                <ClassPanel key={`${l.id}-${l.classCfg?.ramp}-${l.classCfg?.type}`} layer={l} classification={l.classCfg}
-                  onChange={cfg => onClassify(l.id, cfg)} mapRef={mapRef}
-                  chartCfg={l.chartCfg} onChartChange={cfg => onStyle(l.id, { chartCfg: cfg })}
-                  onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
-
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <Btn small color={C.amb} active={l.heatmap} onClick={() => onStyle(l.id, { heatmap: !l.heatmap, extrude: false })}>Heatmap</Btn>
-                  <Btn small color={C.blu} active={l.extrude} onClick={() => onStyle(l.id, { extrude: !l.extrude, heatmap: false })}>3D</Btn>
-                  <Btn small color={C.pnk} active={l.cluster} onClick={() => onStyle(l.id, { cluster: !l.cluster })}>Cluster</Btn>
-                  <Btn small color={C.mut} active={l.labels} onClick={() => onStyle(l.id, { labels: !l.labels })}>Labels</Btn>
-                </div>
-
-                {l.extrude && (() => {
-                  const numAttrs = (l.geojson?.features || []).slice(0, 10).reduce((acc, f) => {
-                    Object.entries(f.properties || {}).forEach(([k, v]) => {
-                      if (typeof v === "number" && v > 0 && !["id"].includes(k)) acc.add(k);
-                    });
-                    return acc;
-                  }, new Set());
-                  return numAttrs.size > 0 ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
-                      <span style={{ color: C.dim }}>Hauteur</span>
-                      <select value={l.extrudeAttr || ""} onChange={e => onStyle(l.id, { extrudeAttr: e.target.value })}
-                        style={{ fontFamily: F, fontSize: 10, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 }}>
-                        <option value="">auto (height)</option>
-                        {[...numAttrs].map(a => <option key={a} value={a}>{a}</option>)}
-                      </select>
-                      <input type="range" min="1" max="20" step="1" value={l.extrudeScale || 1}
-                        onChange={e => onStyle(l.id, { extrudeScale: parseInt(e.target.value) })} style={{ width: 50, height: 3 }} />
-                      <span style={{ color: C.dim, fontFamily: M }}>{l.extrudeScale || 1}x</span>
-                    </div>
-                  ) : null;
-                })()}
-
-                {l.labels && (() => {
-                  const txtAttrs = (l.geojson?.features || []).slice(0, 10).reduce((acc, f) => {
-                    Object.entries(f.properties || {}).forEach(([k, v]) => {
-                      if (v != null && v !== "" && !["id","geom_json"].includes(k)) acc.add(k);
-                    });
-                    return acc;
-                  }, new Set());
-                  return (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
-                      <span style={{ color: C.dim }}>Étiquette</span>
-                      <select value={l.labelAttr || "name"} onChange={e => onStyle(l.id, { labelAttr: e.target.value })}
-                        style={{ fontFamily: F, fontSize: 10, padding: "3px 6px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 }}>
-                        {[...txtAttrs].map(a => <option key={a} value={a}>{a}</option>)}
-                      </select>
-                    </div>
-                  );
-                })()}
-
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <Btn small color={C.acc} onClick={() => onExport(l.id)}>GeoJSON</Btn>
-                  {EXPORT_FORMATS.filter(f => f !== "GeoJSON").map(fmt => (
-                    <Btn key={fmt} small onClick={() => onExportFmt(l.id, fmt)}>{fmt}</Btn>
-                  ))}
-                  <Btn small color={C.red} onClick={() => onRemove(l.id)}>Suppr.</Btn>
-                </div>
-                </>)}
-              </div>
+              <LayerSymbology l={l} onStyle={onStyle} onClassify={onClassify} onExport={onExport} onExportFmt={onExportFmt}
+                onRemove={onRemove} onUpdateRasterLayer={onUpdateRasterLayer} onUpdateGeojson={onUpdateGeojson} mapRef={mapRef}
+                openStats={openStats} exportImageTiff={exportImageTiff} tiffBusy={tiffBusy} />
               </PropsWindow>
             )}
           </div>
