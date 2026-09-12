@@ -739,11 +739,28 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
           </label>
           {l.labels && txtAttrs.size > 0 && (
             <div style={rowSt}>
-              <span style={dim}>Attribut</span>
+              <span style={dim}>Étiqueter avec</span>
               <select value={l.labelAttr || "name"} onChange={e => onStyle(l.id, { labelAttr: e.target.value })} style={selSt}>
                 {[...txtAttrs].map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
+          )}
+          {l.labels && (
+            <>
+              <div style={rowSt}>
+                <span style={dim}>Taille</span>
+                <input type="range" min="8" max="28" step="1" value={l.labelSize || 11} onChange={e => onStyle(l.id, { labelSize: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
+                <span style={val}>{l.labelSize || 11} px</span>
+              </div>
+              <div style={rowSt}>
+                <span style={dim}>Halo</span>
+                <input type="range" min="0" max="4" step="0.5" value={l.labelHalo ?? 1.5} onChange={e => onStyle(l.id, { labelHalo: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+                <span style={val}>{l.labelHalo ?? 1.5} px · blanc</span>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
+                <input type="checkbox" checked={l.labelAvoidOverlap ?? true} onChange={() => onStyle(l.id, { labelAvoidOverlap: !(l.labelAvoidOverlap ?? true) })} /> Éviter les chevauchements
+              </label>
+            </>
           )}
           {l.labels && txtAttrs.size === 0 && <div style={{ fontSize: 10.5, color: C.dim }}>Aucun attribut texte à afficher.</div>}
         </>)}
@@ -754,6 +771,14 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
             <input type="range" min="0" max="1" step="0.05" value={l.opacity} onChange={e => onStyle(l.id, { opacity: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
             <span style={val}>{Math.round(l.opacity * 100)}%</span>
           </div>
+          {isVec && (
+            <div style={rowSt}>
+              <span style={dim}>Visible de zoom</span>
+              <input type="number" min="0" max="24" placeholder="0" value={l.minZoom ?? ""} onChange={e => onStyle(l.id, { minZoom: e.target.value === "" ? null : parseFloat(e.target.value) })} style={{ ...selSt, flex: "none", width: 52 }} />
+              <span style={{ color: C.dim }}>→</span>
+              <input type="number" min="0" max="24" placeholder="24" value={l.maxZoom ?? ""} onChange={e => onStyle(l.id, { maxZoom: e.target.value === "" ? null : parseFloat(e.target.value) })} style={{ ...selSt, flex: "none", width: 52 }} />
+            </div>
+          )}
           {isVec && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               <Btn small color={C.amb} active={l.heatmap} onClick={() => onStyle(l.id, { heatmap: !l.heatmap, extrude: false })}>Heatmap</Btn>
@@ -779,8 +804,24 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
         {tab === "attr" && isVec && <AttributeTable layer={l} C={C} />}
 
         {tab === "fields" && (<>
-          {isVec && <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />}
-          {isVec && <div style={{ fontSize: 10.5, color: C.dim }}>{numAttrs.size} champ(s) numérique(s) · {txtAttrs.size} champ(s) texte.</div>}
+          {isVec && (<>
+            <div style={sub}>Champs — variables</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {[...numAttrs].map(a => (
+                <span key={a} title="Numérique" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: M, fontSize: 10.5, color: C.txt, background: C.hover, border: `0.5px solid ${C.bdr}`, borderRadius: 5, padding: "3px 7px" }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.blu }} />{a}
+                </span>
+              ))}
+              {[...txtAttrs].filter(a => !numAttrs.has(a)).map(a => (
+                <span key={a} title="Texte" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: M, fontSize: 10.5, color: C.txt, background: C.hover, border: `0.5px solid ${C.bdr}`, borderRadius: 5, padding: "3px 7px" }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.mut }} />{a}
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: 9.5, color: C.dim }}>● {numAttrs.size} numérique(s) · ● {[...txtAttrs].filter(a => !numAttrs.has(a)).length} texte</div>
+            <div style={{ ...sub, marginTop: 8 }}>Calculateur de champ</div>
+            <FieldCalcBlock layer={l} onApply={(gj, col) => onUpdateGeojson?.(l.id, gj, col)} />
+          </>)}
           {isR && <div style={{ fontSize: 11.5, color: C.mut }}>Couche raster — palette et classes dans l'onglet Symbologie.</div>}
         </>)}
 

@@ -179,11 +179,48 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
     background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`,
     outline: "none", width: "100%", boxSizing: "border-box",
   };
-  // styles du bloc « Symbole unique »
+  // styles + fabriques du bloc « Symbole unique » (rendu façon maquette)
   const rowSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 11 };
   const dimS  = { color: C.dim };
   const valS  = { color: C.dim, fontFamily: M };
   const swInp = { width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none", padding: 0, flexShrink: 0 };
+  const fLbl  = { fontSize: 9.5, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4, fontWeight: 600 };
+  // champ couleur : pastille (color-picker) + code hexa mono, comme la maquette
+  const swatchField = (lbl, val, onCol) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={fLbl}>{lbl}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <label style={{ position: "relative", width: 30, height: 24, borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: val, cursor: "pointer", overflow: "hidden", flexShrink: 0 }}>
+          <input type="color" value={val || "#000000"} onChange={e => onCol(e.target.value)} style={{ position: "absolute", inset: -6, width: "160%", height: "160%", opacity: 0, cursor: "pointer" }} />
+        </label>
+        <span style={{ fontFamily: M, fontSize: 10.5, color: C.mut }}>{(val || "").toUpperCase()}</span>
+      </div>
+    </div>
+  );
+  // champ numérique : curseur + valeur
+  const stepField = (lbl, val, mn, mx, st, unit, onVal) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={fLbl}>{lbl}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <input type="range" min={mn} max={mx} step={st} value={val} onChange={e => onVal(parseFloat(e.target.value))} style={{ flex: 1, height: 3 }} />
+        <span style={{ fontFamily: M, fontSize: 11, color: C.mut, minWidth: 34, textAlign: "right" }}>{val}{unit}</span>
+      </div>
+    </div>
+  );
+  // aperçu du symbole (SVG) selon la géométrie
+  const symbolPreview = () => {
+    const fill = layer?.color || "#1D9E75", outline = layer?.outlineColor || "#000000", sw = layer?.strokeWidth ?? 1.5;
+    if (isLine) return <svg width="52" height="52" viewBox="0 0 52 52"><line x1="7" y1="26" x2="45" y2="26" stroke={fill} strokeWidth={Math.max(1, layer?.strokeWidth ?? 2)} strokeLinecap="round" /></svg>;
+    if (isPoly) return <svg width="52" height="52" viewBox="0 0 52 52"><rect x="8" y="12" width="36" height="28" rx="2" fill={fill} stroke={outline} strokeWidth={sw} /></svg>;
+    const r = Math.max(6, (layer?.radius || 5) * 1.6), c = 26, shape = layer?.markerShape || "circle";
+    let inner;
+    if (shape === "square") inner = <rect x={c - r} y={c - r} width={r * 2} height={r * 2} />;
+    else if (shape === "triangle") inner = <polygon points={`${c},${c - r} ${c + r * 0.92},${c + r * 0.8} ${c - r * 0.92},${c + r * 0.8}`} />;
+    else if (shape === "diamond") inner = <polygon points={`${c},${c - r} ${c + r},${c} ${c},${c + r} ${c - r},${c}`} />;
+    else inner = <circle cx={c} cy={c} r={r} />;
+    return <svg width="52" height="52" viewBox="0 0 52 52"><g fill={fill} stroke={outline} strokeWidth={sw} strokeLinejoin="miter">{inner}</g></svg>;
+  };
+  const SHAPES = [["circle", "●", "Rond"], ["square", "■", "Carré"], ["triangle", "▲", "Triangle"], ["diamond", "◆", "Losange"]];
 
   // types de rendu (segmenté façon QGIS)
   const RENDER_TYPES = [
@@ -402,50 +439,53 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
           }} />
       </div>
 
-      {/* ══ SYMBOLE UNIQUE (couleur unique) — adapté au type de géométrie ══════════ */}
+      {/* ══ SYMBOLE UNIQUE (couleur unique) — rendu façon maquette, adapté géométrie ══ */}
       {type === "none" && isVec && onStyle && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
           <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>
             Symbole {isLine ? "· ligne" : isPoly ? "· polygone" : "· point"}
           </span>
-          {/* Couleur principale (aplat pour point/polygone, trait pour ligne) + taille (points) */}
-          <div style={rowSt}>
-            <span style={dimS}>{isLine ? "Couleur" : "Remplissage"}</span>
-            <input type="color" value={layer.color || "#1D9E75"} onChange={e => onStyle(layer.id, { color: e.target.value })} style={swInp} />
-            {isPointish && <>
-              <span style={dimS}>Taille pt</span>
-              <input type="range" min="2" max="15" step="1" value={layer.radius || 5} onChange={e => onStyle(layer.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
-              <span style={valS}>{layer.radius || 5}px</span>
-            </>}
+          {/* Aperçu + contrôles couleur / taille */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, border: `0.5px solid ${C.bdr}`, borderRadius: 10, background: C.hover }}>
+            <div style={{ width: 64, height: 64, borderRadius: 9, background: C.bg, border: `0.5px solid ${C.bdr}`, display: "grid", placeItems: "center", flexShrink: 0 }}>
+              {symbolPreview()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                {swatchField(isLine ? "Couleur" : "Remplissage", layer.color || "#1D9E75", v => onStyle(layer.id, { color: v }))}
+                {!isLine && swatchField("Contour", layer.outlineColor || layer.color || "#000000", v => onStyle(layer.id, { outlineColor: v }))}
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                {stepField("Épaisseur", layer.strokeWidth ?? (isLine ? 2 : 1.5), 0, isLine ? 12 : 10, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
+                {isPointish && stepField("Taille", layer.radius || 5, 2, 15, 1, "px", v => onStyle(layer.id, { radius: parseInt(v) }))}
+              </div>
+            </div>
           </div>
-          {/* Contour (points + polygones seulement) */}
-          {!isLine && (
-            <div style={rowSt}>
-              <span style={dimS}>Contour</span>
-              <input type="color" value={layer.outlineColor || layer.color || "#000000"} onChange={e => onStyle(layer.id, { outlineColor: e.target.value })} style={swInp} />
-              <span style={dimS}>Épaisseur</span>
-              <input type="range" min="0" max="10" step="0.5" value={layer.strokeWidth ?? 1.5} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-              <span style={valS}>{layer.strokeWidth ?? 1.5}px</span>
-            </div>
-          )}
-          {/* Épaisseur du trait (lignes) */}
-          {isLine && (
-            <div style={rowSt}>
-              <span style={dimS}>Épaisseur</span>
-              <input type="range" min="0.5" max="12" step="0.5" value={layer.strokeWidth ?? 2} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-              <span style={valS}>{layer.strokeWidth ?? 2}px</span>
-            </div>
-          )}
-          {/* Marqueur — points uniquement (n'a aucun sens sur lignes/polygones) */}
+          {/* Forme du marqueur — points uniquement */}
           {isPointish && (
-            <div style={rowSt}>
-              <span style={dimS}>Marqueur (points)</span>
-              <Sel value={layer.markerShape || "circle"} onChange={v => onStyle(layer.id, { markerShape: v })} options={[
-                { value: "circle", label: "Rond" }, { value: "square", label: "Carré" },
-                { value: "triangle", label: "Triangle" }, { value: "diamond", label: "Losange" },
-              ]} />
+            <div>
+              <div style={fLbl}>Forme du marqueur</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {SHAPES.map(([k, gl, lab]) => {
+                  const on = (layer.markerShape || "circle") === k;
+                  return (
+                    <button key={k} onClick={() => onStyle(layer.id, { markerShape: k })} style={{
+                      fontFamily: F, fontSize: 11.5, padding: "5px 11px", borderRadius: 8, cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: on ? C.acc + "18" : "transparent",
+                      border: `0.5px solid ${on ? C.acc : C.bdr}`, color: on ? C.acc : C.mut,
+                    }}><span>{gl}</span> {lab}</button>
+                  );
+                })}
+              </div>
             </div>
           )}
+          {/* Légende explicative selon géométrie (comme la maquette) */}
+          <p style={{ margin: 0, fontSize: 10.5, color: C.dim, lineHeight: 1.5 }}>
+            {isPoly ? <>Polygone : <b style={{ color: C.mut }}>Remplissage</b> = aplat, <b style={{ color: C.mut }}>Contour</b> = bord (couleur + épaisseur variables), coins en angles droits.</>
+              : isLine ? <>Ligne : <b style={{ color: C.mut }}>Couleur</b> et <b style={{ color: C.mut }}>épaisseur</b> du trait.</>
+              : <>Point : forme (rond/carré/triangle/losange), remplissage, contour et taille.</>}
+          </p>
         </div>
       )}
 
