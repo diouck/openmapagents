@@ -33,6 +33,12 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const C = useThemeContext();
   const attrs = useMemo(() => getLayerAttrs(layer), [layer]);
   const isVec = !layer?.isRaster && !!layer?.geojson;
+  // Type de géométrie → contrôles adaptés (les points ont taille+marqueur ; les lignes
+  // n'ont ni remplissage ni marqueur ; les polygones ont aplat + contour).
+  const geomType = (layer?.geojson?.features || []).find(f => f?.geometry)?.geometry?.type || "";
+  const isLine  = /LineString/i.test(geomType);
+  const isPoly  = /Polygon/i.test(geomType);
+  const isPointish = !isLine && !isPoly;   // point OU géométrie inconnue → contrôles point
 
   const [type,    setType]    = useState(classification?.type    || "none");
   const [attr,    setAttr]    = useState(classification?.attribute || "");
@@ -396,31 +402,50 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
           }} />
       </div>
 
-      {/* ══ SYMBOLE UNIQUE (couleur unique) — aplat + contour + taille + marqueur ══ */}
+      {/* ══ SYMBOLE UNIQUE (couleur unique) — adapté au type de géométrie ══════════ */}
       {type === "none" && isVec && onStyle && (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-          <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>Symbole</span>
+          <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>
+            Symbole {isLine ? "· ligne" : isPoly ? "· polygone" : "· point"}
+          </span>
+          {/* Couleur principale (aplat pour point/polygone, trait pour ligne) + taille (points) */}
           <div style={rowSt}>
-            <span style={dimS}>Remplissage</span>
+            <span style={dimS}>{isLine ? "Couleur" : "Remplissage"}</span>
             <input type="color" value={layer.color || "#1D9E75"} onChange={e => onStyle(layer.id, { color: e.target.value })} style={swInp} />
-            <span style={dimS}>Taille pt</span>
-            <input type="range" min="2" max="15" step="1" value={layer.radius || 5} onChange={e => onStyle(layer.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
-            <span style={valS}>{layer.radius || 5}px</span>
+            {isPointish && <>
+              <span style={dimS}>Taille pt</span>
+              <input type="range" min="2" max="15" step="1" value={layer.radius || 5} onChange={e => onStyle(layer.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
+              <span style={valS}>{layer.radius || 5}px</span>
+            </>}
           </div>
-          <div style={rowSt}>
-            <span style={dimS}>Contour</span>
-            <input type="color" value={layer.outlineColor || layer.color || "#000000"} onChange={e => onStyle(layer.id, { outlineColor: e.target.value })} style={swInp} />
-            <span style={dimS}>Épaisseur</span>
-            <input type="range" min="0" max="10" step="0.5" value={layer.strokeWidth ?? 1.5} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-            <span style={valS}>{layer.strokeWidth ?? 1.5}px</span>
-          </div>
-          <div style={rowSt}>
-            <span style={dimS}>Marqueur (points)</span>
-            <Sel value={layer.markerShape || "circle"} onChange={v => onStyle(layer.id, { markerShape: v })} options={[
-              { value: "circle", label: "Rond" }, { value: "square", label: "Carré" },
-              { value: "triangle", label: "Triangle" }, { value: "diamond", label: "Losange" },
-            ]} />
-          </div>
+          {/* Contour (points + polygones seulement) */}
+          {!isLine && (
+            <div style={rowSt}>
+              <span style={dimS}>Contour</span>
+              <input type="color" value={layer.outlineColor || layer.color || "#000000"} onChange={e => onStyle(layer.id, { outlineColor: e.target.value })} style={swInp} />
+              <span style={dimS}>Épaisseur</span>
+              <input type="range" min="0" max="10" step="0.5" value={layer.strokeWidth ?? 1.5} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+              <span style={valS}>{layer.strokeWidth ?? 1.5}px</span>
+            </div>
+          )}
+          {/* Épaisseur du trait (lignes) */}
+          {isLine && (
+            <div style={rowSt}>
+              <span style={dimS}>Épaisseur</span>
+              <input type="range" min="0.5" max="12" step="0.5" value={layer.strokeWidth ?? 2} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+              <span style={valS}>{layer.strokeWidth ?? 2}px</span>
+            </div>
+          )}
+          {/* Marqueur — points uniquement (n'a aucun sens sur lignes/polygones) */}
+          {isPointish && (
+            <div style={rowSt}>
+              <span style={dimS}>Marqueur (points)</span>
+              <Sel value={layer.markerShape || "circle"} onChange={v => onStyle(layer.id, { markerShape: v })} options={[
+                { value: "circle", label: "Rond" }, { value: "square", label: "Carré" },
+                { value: "triangle", label: "Triangle" }, { value: "diamond", label: "Losange" },
+              ]} />
+            </div>
+          )}
         </div>
       )}
 

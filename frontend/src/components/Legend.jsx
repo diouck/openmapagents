@@ -3,7 +3,7 @@ import { useThemeContext } from "../theme";
 import { M, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
-import { IcPalette, IcMove } from "../icons";
+import { IcPalette, IcMove, IcEye } from "../icons";
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -262,7 +262,7 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -325,6 +325,11 @@ export default function Legend({ layers, onOpenSymbology, onReorder }) {
               )}
               <span style={{ fontSize: 11, fontWeight: 500, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{layer.name}</span>
               <span style={{ fontSize: 9, color: C.dim, fontFamily: M, flexShrink: 0 }}>{layer.featureCount}</span>
+              {/* Bouton masquer (bascule la visibilité) */}
+              <button onClick={() => onToggle?.(layer.id)} title="Masquer la couche"
+                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                <IcEye size={12} />
+              </button>
               {/* Bouton symbologie (ouvre la fenêtre de la couche) */}
               <button onClick={() => onOpenSymbology?.(layer.id)} title="Symbologie de la couche"
                 style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>

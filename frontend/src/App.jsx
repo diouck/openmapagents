@@ -3100,7 +3100,7 @@ export default function App() {
               légende et les panneaux pour rester dessous. */}
           {terrain3D && weather !== "none" && <PrecipLayer type={weather} />}
 
-          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer}/>
+          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL}/>
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(
