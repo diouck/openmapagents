@@ -86,14 +86,25 @@ export function buildClassification(layer, cfg) {
     const u = getUniques(layer, attribute);
     const baseCols = RAMPS[ramp] || RAMPS.categorial;
     const cols = cfg.invertRamp ? [...baseCols].reverse() : baseCols;
-    const entries = u.slice(0, cols.length).map((v, i) => ({
-      value: v.value, color: cols[i % cols.length], count: v.count,
-    }));
+    const man = cfg.manual?.type === "categorized" ? cfg.manual : null;
+    let entries;
+    if (man && Array.isArray(man.entries) && man.entries.length) {
+      // Édition manuelle : la liste éditée fait autorité (couleur/étiquette/suppression)
+      const countOf = {};
+      u.forEach(v => { countOf[String(v.value)] = v.count; });
+      entries = man.entries.map(e => ({
+        value: e.value, color: e.color, label: e.label ?? undefined, count: countOf[String(e.value)] ?? 0,
+      }));
+    } else {
+      entries = u.slice(0, cols.length).map((v, i) => ({
+        value: v.value, color: cols[i % cols.length], count: v.count,
+      }));
+    }
     const expr = ["match", ["to-string", ["get", attribute]]];
     entries.forEach(e => { expr.push(e.value); expr.push(e.color); });
     expr.push("#888");
     return { type: "categorized", attribute, entries, expression: expr,
-             invertRamp: !!cfg.invertRamp };
+             manual: !!man, invertRamp: !!cfg.invertRamp };
   }
 
   // ── Icône / Emoji ────────────────────────────────────────────
@@ -168,6 +179,31 @@ export function buildClassification(layer, cfg) {
     const vals = getNumVals(layer, attribute);
     if (!vals.length) return null;
     const nc = nClasses || 5;
+
+    // ── Édition manuelle : bornes / couleurs / étiquettes imposées ──
+    const man = cfg.manual?.type === "graduated" ? cfg.manual : null;
+    if (man && Array.isArray(man.breaks) && man.breaks.length >= 2) {
+      const mbr = man.breaks;
+      const classes = [];
+      for (let i = 0; i < mbr.length - 1; i++) {
+        const count = vals.filter(v => v >= mbr[i] && (i === mbr.length - 2 ? v <= mbr[i + 1] : v < mbr[i + 1])).length;
+        classes.push({
+          min: mbr[i], max: mbr[i + 1],
+          color: man.colors?.[i] || "#888",
+          label: man.labels?.[i] ?? undefined,
+          count,
+        });
+      }
+      const expr = ["step", ["to-number", ["get", attribute], 0]];
+      expr.push(classes[0]?.color || "#888");
+      let lastStop = -Infinity;
+      classes.forEach((c, i) => {
+        if (i > 0 && c.min > lastStop) { expr.push(c.min); expr.push(c.color); lastStop = c.min; }
+      });
+      return { type: "graduated", attribute, method, classes, breaks: mbr, expression: expr,
+               manual: true, invertRamp: !!cfg.invertRamp };
+    }
+
     let br;
     switch (method) {
       case "quantile": br = classifyQuantile(vals, nc); break;
