@@ -6,7 +6,7 @@ import { MAKI_GROUPS, MAKI_PATHS } from "../utils/makiIcons";
 import { makiToDataUrl, loadMakiIcon } from "../utils/makiLoader";
 import { Sel, Lbl } from "./ui";
 import ChartStyleBlock from "./ChartStyleBlock";
-import { IcMap, IcImage, IcUpload, IcChevronDown, IcChevronRight } from "../icons";
+import { IcMap, IcImage, IcUpload } from "../icons";
 
 // Preview inline d'une icône Maki (SVG dans le DOM, sans map)
 function MakiPreview({ name, color = "#1D9E75", size = 20 }) {
@@ -25,7 +25,6 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
   const attrs = useMemo(() => getLayerAttrs(layer), [layer]);
 
   const [type,    setType]    = useState(classification?.type    || "none");
-  const [openClass, setOpenClass] = useState(!!classification && classification.type !== "none");
   const [attr,    setAttr]    = useState(classification?.attribute || "");
   const [method,  setMethod]  = useState(classification?.method  || "quantile");
   const [nc,      setNc]      = useState(classification?.nClasses || 5);
@@ -134,26 +133,14 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
     background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`,
     outline: "none", width: "100%", boxSizing: "border-box",
   };
+  const fmtN = n => (typeof n === "number" ? (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("fr") : (Math.round(n * 100) / 100).toLocaleString("fr")) : n);
+  // classes calculées (rendu façon QGIS : tableau couleur / plage)
+  const cr = layer?.classResult;
+  const legendRows = cr ? (cr.type === "categorized" ? (cr.entries || []) : (cr.classes || [])) : [];
 
   return (
     <div style={{ background: C.bg, borderRadius: 8, padding: 10, border: `0.5px solid ${C.bdr}`, display: "flex", flexDirection: "column", gap: 8 }}>
-      {/* Repliable : avec le calculateur de champ et les graphiques, la colonne
-          devenait un long défilement. Ouvert d'office si une classification est
-          déjà en place, pour ne pas cacher un réglage actif. */}
-      <button onClick={() => setOpenClass(o => !o)} style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 6, background: "transparent",
-        border: "none", cursor: "pointer", padding: 0, color: type !== "none" ? C.acc : C.txt,
-      }}>
-        {openClass ? <IcChevronDown size={13} /> : <IcChevronRight size={13} />}
-        <span style={{ fontSize: 11, fontWeight: 500, flex: 1, textAlign: "left" }}>Classification</span>
-        {type !== "none" && (
-          <span style={{ fontSize: 8.5, color: C.acc, border: `0.5px solid ${C.acc}55`,
-                         borderRadius: 3, padding: "0 4px" }}>{attr || type}</span>
-        )}
-      </button>
-
-      {openClass && (<>
-      {/* Type */}
+      {/* Type de rendu (toujours visible, façon QGIS) */}
       <div>
         <Lbl>Type</Lbl>
         <Sel value={type} onChange={v => { setType(v); setAttr(""); if (v === "none") onChange(null); }} options={[
@@ -293,11 +280,13 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
       {/* ══ GRADUÉE ═════════════════════════════════════════════ */}
       {type === "graduated" && attr && (
         <>
-          <div><Lbl>Méthode</Lbl><Sel value={method} onChange={setMethod} options={[
-            { value: "quantile", label: "Quantile" }, { value: "jenks", label: "Jenks" },
-            { value: "equal", label: "Intervalles égaux" }, { value: "fixed", label: "Fixes" },
-          ]} /></div>
-          <div><Lbl>Classes</Lbl><Sel value={nc} onChange={setNc} options={[3,4,5,6,7,8,9,10].map(n => ({ value: String(n), label: `${n}` }))} /></div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1.4 }}><Lbl>Méthode</Lbl><Sel value={method} onChange={setMethod} options={[
+              { value: "quantile", label: "Quantile" }, { value: "jenks", label: "Jenks" },
+              { value: "equal", label: "Intervalles égaux" }, { value: "fixed", label: "Fixes" },
+            ]} /></div>
+            <div style={{ width: 88 }}><Lbl>Classes</Lbl><Sel value={nc} onChange={setNc} options={[3,4,5,6,7,8,9,10].map(n => ({ value: String(n), label: `${n}` }))} /></div>
+          </div>
           {method === "fixed" && (
             <div><Lbl>Bornes</Lbl><input value={cb} onChange={e => setCb(e.target.value)} placeholder="0,5,10,20" style={inp} /></div>
           )}
@@ -386,16 +375,34 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
               }} />
             );
           })()}
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 128, overflowY: "auto",
+            padding: 6, border: `0.5px solid ${C.bdr}`, borderRadius: 6, background: C.hover }}>
             {Object.entries(RAMPS).map(([n, cols]) => (
-              <button key={n} onClick={() => setRamp(n)} style={{
-                width: 44, height: 12, borderRadius: 3,
+              <button key={n} onClick={() => setRamp(n)} title={n} style={{
+                width: 62, height: 16, borderRadius: 4, padding: 0, cursor: "pointer",
                 border: ramp === n ? `2px solid ${C.acc}` : `1px solid ${C.bdr}`,
-                background: `linear-gradient(to right,${cols.slice(0,5).join(",")})`,
-                cursor: "pointer", padding: 0,
+                background: `linear-gradient(to right,${cols.join(",")})`,
               }} />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Légende des classes calculées (couleur / plage / effectif) — façon QGIS */}
+      {legendRows.length > 0 && (
+        <div style={{ border: `0.5px solid ${C.bdr}`, borderRadius: 6, overflow: "hidden" }}>
+          <div style={{ display: "flex", fontSize: 8.5, textTransform: "uppercase", letterSpacing: ".04em", color: C.dim, background: C.hover, padding: "4px 8px", fontWeight: 600 }}>
+            <span style={{ width: 20 }} /><span style={{ flex: 1 }}>{cr.type === "categorized" ? "Valeur" : "Plage"}</span>{cr.type !== "categorized" && <span>n</span>}
+          </div>
+          {legendRows.slice(0, 60).map((e, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 8px", borderTop: `0.5px solid ${C.bdr}`, fontSize: 11 }}>
+              <span style={{ width: 18, height: 12, borderRadius: 3, background: e.color, border: "0.5px solid rgba(0,0,0,.18)", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontFamily: M, color: C.txt, fontSize: 10.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {cr.type === "categorized" ? String(e.value ?? e.label ?? e.key ?? "—") : `${fmtN(e.min)} – ${fmtN(e.max)}`}
+              </span>
+              {e.count != null && <span style={{ fontFamily: M, color: C.dim, fontSize: 9.5 }}>{e.count}</span>}
+            </div>
+          ))}
         </div>
       )}
 
@@ -406,7 +413,6 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
           background: C.acc, color: "#fff", border: "none", cursor: "pointer",
         }}>Appliquer</button>
       )}
-      </>)}
 
       {/* Graphiques par entité — mode à part, replié par défaut */}
       {onChartChange && (
