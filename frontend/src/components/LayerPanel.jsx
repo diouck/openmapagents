@@ -567,10 +567,12 @@ function ClassifLegendPanel({ layer, onUpdateRasterLayer, C }) {
 }
 
 // ── Composant principal ────────────────────────────────────────
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
   const C = useThemeContext();
   const [exp,      setExp]      = useState(null);
   const [editName, setEditName] = useState(null);
+  const [dragId,   setDragId]   = useState(null);   // glisser-déposer : couche saisie
+  const [overId,   setOverId]   = useState(null);   // couche survolée (indicateur de dépôt)
   const [tiffBusy, setTiffBusy] = useState(null);
 
   // Export d'une couche image (overlay géoréférencé) → GeoTIFF téléchargé.
@@ -650,7 +652,13 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
         )}
 
         {layers.map(l => (
-          <div key={l.id} style={{ borderBottom: `0.5px solid ${C.bdr}` }}>
+          <div key={l.id}
+            onDragOver={e => { if (dragId && dragId !== l.id) { e.preventDefault(); if (overId !== l.id) setOverId(l.id); } }}
+            onDragLeave={() => setOverId(o => (o === l.id ? null : o))}
+            onDrop={e => { e.preventDefault(); if (dragId && dragId !== l.id) onReorder?.(dragId, l.id); setDragId(null); setOverId(null); }}
+            style={{ borderBottom: `0.5px solid ${C.bdr}`,
+              boxShadow: overId === l.id ? `inset 0 2px 0 ${C.acc}` : "none",
+              opacity: dragId === l.id ? 0.45 : 1 }}>
 
             {/* Ligne principale */}
             <div
@@ -660,6 +668,14 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               }}
               onClick={() => setExp(exp === l.id ? null : l.id)}
             >
+              <span
+                draggable
+                onDragStart={e => { setDragId(l.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", l.id); } catch (_) {} }}
+                onDragEnd={() => { setDragId(null); setOverId(null); }}
+                onClick={e => e.stopPropagation()}
+                title="Glisser pour réordonner"
+                style={{ cursor: "grab", color: C.dim, fontSize: 12, lineHeight: 1, padding: "0 1px", flexShrink: 0, userSelect: "none" }}
+              >⠿</span>
               <div style={{
                 width: 10, height: 10, borderRadius: 3,
                 background: l.color, opacity: l.visible ? 1 : 0.3, flexShrink: 0,

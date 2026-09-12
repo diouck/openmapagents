@@ -1087,6 +1087,8 @@ export default function App() {
   // ── Helpers couches ───────────────────────────────────────
   const moveLayerUp   = id => setLayers(p => { const i = p.findIndex(l => l.id === id); if (i <= 0) return p; const n = [...p]; [n[i-1], n[i]] = [n[i], n[i-1]]; return n; });
   const moveLayerDown = id => setLayers(p => { const i = p.findIndex(l => l.id === id); if (i < 0 || i >= p.length-1) return p; const n = [...p]; [n[i], n[i+1]] = [n[i+1], n[i]]; return n; });
+  // glisser-déposer : place la couche `fromId` à l'emplacement de `toId`
+  const reorderLayer = (fromId, toId) => setLayers(p => { if (fromId === toId) return p; const from = p.findIndex(l => l.id === fromId), to = p.findIndex(l => l.id === toId); if (from < 0 || to < 0) return p; const n = [...p]; const [m] = n.splice(from, 1); n.splice(to, 0, m); return n; });
 
   const zoomToLayer = useCallback((id) => {
     const l = layers.find(x => x.id === id); if (!l) return;
@@ -2218,7 +2220,7 @@ export default function App() {
         <LayerPanel
           layers={layers} onToggle={toggleL} onRemove={removeL} onStyle={styleL}
           onExport={exportL} onClassify={classifyL} onExportFmt={exportFmt}
-          onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown}
+          onRename={renameL} onMoveUp={moveLayerUp} onMoveDown={moveLayerDown} onReorder={reorderLayer}
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
           onFilter={filterL} onUpdateGeojson={updateGeojson}
         />
