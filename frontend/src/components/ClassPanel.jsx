@@ -221,6 +221,8 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
     return <svg width="52" height="52" viewBox="0 0 52 52"><g fill={fill} stroke={outline} strokeWidth={sw} strokeLinejoin="miter">{inner}</g></svg>;
   };
   const SHAPES = [["circle", "●", "Rond"], ["square", "■", "Carré"], ["triangle", "▲", "Triangle"], ["diamond", "◆", "Losange"]];
+  // Forme des bords du trait/contour (bout + coin) : lignes & polygones
+  const STROKE_SHAPES = [["butt", "miter", "Angles droits"], ["round", "round", "Arrondi"], ["square", "miter", "Carré"]];
 
   // types de rendu (segmenté façon QGIS)
   const RENDER_TYPES = [
@@ -445,20 +447,25 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
           <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>
             Symbole {isLine ? "· ligne" : isPoly ? "· polygone" : "· point"}
           </span>
-          {/* Aperçu + contrôles couleur / taille */}
+          {/* Aperçu + contrôles couleur / taille (couleur + épaisseur appairées) */}
           <div style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, border: `0.5px solid ${C.bdr}`, borderRadius: 10, background: C.hover }}>
             <div style={{ width: 64, height: 64, borderRadius: 9, background: C.bg, border: `0.5px solid ${C.bdr}`, display: "grid", placeItems: "center", flexShrink: 0 }}>
               {symbolPreview()}
             </div>
             <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Ligne 1 : couleur principale + (point) taille / (ligne) épaisseur */}
               <div style={{ display: "flex", gap: 10 }}>
                 {swatchField(isLine ? "Couleur" : "Remplissage", layer.color || "#1D9E75", v => onStyle(layer.id, { color: v }))}
-                {!isLine && swatchField("Contour", layer.outlineColor || layer.color || "#000000", v => onStyle(layer.id, { outlineColor: v }))}
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                {stepField("Épaisseur", layer.strokeWidth ?? (isLine ? 2 : 1.5), 0, isLine ? 12 : 10, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
                 {isPointish && stepField("Taille", layer.radius || 5, 2, 15, 1, "px", v => onStyle(layer.id, { radius: parseInt(v) }))}
+                {isLine && stepField("Épaisseur", layer.strokeWidth ?? 2, 0.5, 12, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
               </div>
+              {/* Ligne 2 : contour = couleur + épaisseur ensemble (point & polygone) */}
+              {!isLine && (
+                <div style={{ display: "flex", gap: 10 }}>
+                  {swatchField("Contour", layer.outlineColor || layer.color || "#000000", v => onStyle(layer.id, { outlineColor: v }))}
+                  {stepField("Épaisseur", layer.strokeWidth ?? 1.5, 0, 10, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
+                </div>
+              )}
             </div>
           </div>
           {/* Forme du marqueur — points uniquement */}
@@ -475,6 +482,24 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
                       background: on ? C.acc + "18" : "transparent",
                       border: `0.5px solid ${on ? C.acc : C.bdr}`, color: on ? C.acc : C.mut,
                     }}><span>{gl}</span> {lab}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Forme des bords du trait/contour — lignes & polygones */}
+          {!isPointish && (
+            <div>
+              <div style={fLbl}>{isLine ? "Bouts & coins du trait" : "Coins du contour"}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {STROKE_SHAPES.map(([cap, join, lab]) => {
+                  const on = (layer.lineCap || "butt") === cap && (layer.lineJoin || "miter") === join;
+                  return (
+                    <button key={lab} onClick={() => onStyle(layer.id, { lineCap: cap, lineJoin: join })} style={{
+                      fontFamily: F, fontSize: 11.5, padding: "5px 11px", borderRadius: 8, cursor: "pointer",
+                      background: on ? C.acc + "18" : "transparent",
+                      border: `0.5px solid ${on ? C.acc : C.bdr}`, color: on ? C.acc : C.mut,
+                    }}>{lab}</button>
                   );
                 })}
               </div>

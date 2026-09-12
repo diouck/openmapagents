@@ -6,6 +6,7 @@ import { Badge, Btn } from "./ui";
 import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX,
   IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck, IcEdit } from "../icons";
 import ClassPanel from "./ClassPanel";
+import ChartStyleBlock from "./ChartStyleBlock";
 import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
 import FilterModal, { FunnelIcon, applyFilter } from "./FilterModal";
@@ -582,6 +583,17 @@ function geomLabel(l) {
   return "VECTEUR";
 }
 
+// Emprise (bbox) calculée depuis les coordonnées du GeoJSON → [minX, minY, maxX, maxY].
+function bboxOf(gj) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const walk = (c) => {
+    if (typeof c[0] === "number") { const [x, y] = c; if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; return; }
+    for (const k of c) walk(k);
+  };
+  (gj?.features || []).forEach(f => { if (f?.geometry?.coordinates) walk(f.geometry.coordinates); });
+  return isFinite(minX) ? [minX, minY, maxX, maxY] : null;
+}
+
 // ── Fenêtre « Symbologie » flottante : déplaçable (par le bandeau, dans toutes les
 //    directions) + redimensionnable (poignée en bas à droite) + réductible. ────────
 function PropsWindow({ title, isRaster, badge, z, onFocus, onClose, children }) {
@@ -674,7 +686,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
   const isR = l.isRaster, isVec = !l.isRaster && !!l.geojson;
   const TABS = isR
     ? [["sym", "Symbologie", IcPalette], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]]
-    : [["sym", "Symbologie", IcPalette], ["lab", "Étiquettes", IcHash], ["attr", "Attributs", IcTable], ["render", "Rendu", IcSliders], ["fields", "Champs", IcEdit], ["info", "Infos", IcInfo]];
+    : [["sym", "Symbologie", IcPalette], ["graphs", "Graphiques", IcBarChart], ["lab", "Étiquettes", IcHash], ["attr", "Attributs", IcTable], ["render", "Rendu", IcSliders], ["fields", "Champs", IcEdit], ["info", "Infos", IcInfo]];
   const [tab, setTab] = useState("sym");
   const [expMenu, setExpMenu] = useState(false);
   const [, force] = useState(0);
@@ -727,11 +739,15 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
           {isR && l.legend?.length > 0 && <ClassifLegendPanel layer={l} onUpdateRasterLayer={onUpdateRasterLayer} C={C} />}
           {isVec && (
             <ClassPanel key={`${l.id}-${l.classCfg?.ramp}-${l.classCfg?.type}`} layer={l} classification={l.classCfg}
-              onChange={cfg => onClassify(l.id, cfg)} onStyle={onStyle} mapRef={mapRef}
-              chartCfg={l.chartCfg} onChartChange={cfg => onStyle(l.id, { chartCfg: cfg })}
-              onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
+              onChange={cfg => onClassify(l.id, cfg)} onStyle={onStyle} mapRef={mapRef} />
           )}
         </>)}
+
+        {/* Graphiques par entité — SUPERPOSABLES à une classification (aplat + camembert/ronds) */}
+        {tab === "graphs" && isVec && (
+          <ChartStyleBlock layer={l} cfg={l.chartCfg} onChange={cfg => onStyle(l.id, { chartCfg: cfg })} mapRef={mapRef}
+            layerOpacity={l.opacity ?? 1} onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
+        )}
 
         {tab === "lab" && isVec && (<>
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
@@ -825,13 +841,21 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
           {isR && <div style={{ fontSize: 11.5, color: C.mut }}>Couche raster — palette et classes dans l'onglet Symbologie.</div>}
         </>)}
 
-        {tab === "info" && (
-          <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "7px 14px", fontSize: 12, margin: 0 }}>
-            <dt style={dim}>Nom</dt><dd style={{ margin: 0, color: C.txt }}>{l.name}</dd>
-            <dt style={dim}>Type</dt><dd style={{ margin: 0, color: C.txt }}>{isR ? "Raster" : `Vecteur — ${(geomLabel || "").toLowerCase()}`}</dd>
-            {l.geojson && (<><dt style={dim}>Entités</dt><dd style={{ margin: 0, fontFamily: M, color: C.txt }}>{(l.geojson.features || []).length}</dd></>)}
-          </dl>
-        )}
+        {tab === "info" && (() => {
+          const bb = isVec ? bboxOf(l.geojson) : (l.bbox || l._geeParams?.bbox || null);
+          const fc = n => (typeof n === "number" ? n.toFixed(2) : n);
+          const crs = l.crs || l.epsg || l._geeParams?.crs || "EPSG:4326 · WGS 84";
+          const dd = { margin: 0, color: C.txt }, ddM = { margin: 0, fontFamily: M, color: C.txt };
+          return (
+            <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "7px 14px", fontSize: 12, margin: 0 }}>
+              <dt style={dim}>Nom</dt><dd style={dd}>{l.name}</dd>
+              <dt style={dim}>Type</dt><dd style={dd}>{isR ? "Raster" : `Vecteur — ${(geomLabel || "").toLowerCase()}`}</dd>
+              {l.geojson && (<><dt style={dim}>Entités</dt><dd style={ddM}>{(l.geojson.features || []).length}</dd></>)}
+              {bb && (<><dt style={dim}>Emprise</dt><dd style={ddM}>{fc(bb[0])}, {fc(bb[1])} → {fc(bb[2])}, {fc(bb[3])}</dd></>)}
+              <dt style={dim}>SCR</dt><dd style={ddM}>{crs}</dd>
+            </dl>
+          );
+        })()}
         </div>
       </div>
 
