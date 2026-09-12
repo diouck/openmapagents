@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useThemeContext } from "../theme";
 import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
-import { IcBarChart, IcEye, IcEyeOff } from "../icons";
+import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX } from "../icons";
 import ClassPanel from "./ClassPanel";
 import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
@@ -566,6 +567,49 @@ function ClassifLegendPanel({ layer, onUpdateRasterLayer, C }) {
   );
 }
 
+// ── Fenêtre « Symbologie » flottante : déplaçable (par le bandeau, dans toutes les
+//    directions) + redimensionnable (poignée en bas à droite) + réductible. ────────
+function PropsWindow({ title, isRaster, onClose, children }) {
+  const C = useThemeContext();
+  const [pos, setPos] = useState(() => ({ x: Math.max(12, Math.min((window.innerWidth || 1200) - 372, 300)), y: 96 }));
+  const [size, setSize] = useState({ w: 348, h: 478 });
+  const [min, setMin] = useState(false);
+  const drag = useRef(null);
+  useEffect(() => {
+    const mv = (e) => {
+      const d = drag.current; if (!d) return;
+      if (d.mode === "move") setPos({ x: Math.max(0, Math.min((window.innerWidth || 9999) - 60, d.x + e.clientX - d.sx)), y: Math.max(0, Math.min((window.innerHeight || 9999) - 40, d.y + e.clientY - d.sy)) });
+      else setSize({ w: Math.max(280, d.w + e.clientX - d.sx), h: Math.max(160, d.h + e.clientY - d.sy) });
+    };
+    const up = () => { drag.current = null; document.body.style.userSelect = ""; };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
+  }, []);
+  const headDown = (e) => { if (e.target.closest("[data-nodrag]")) return; drag.current = { mode: "move", sx: e.clientX, sy: e.clientY, x: pos.x, y: pos.y }; document.body.style.userSelect = "none"; e.preventDefault(); };
+  const resizeDown = (e) => { drag.current = { mode: "resize", sx: e.clientX, sy: e.clientY, w: size.w, h: size.h }; document.body.style.userSelect = "none"; e.preventDefault(); e.stopPropagation(); };
+  const hbtn = { background: "none", border: "none", cursor: "pointer", color: C.mut, lineHeight: 0, padding: "3px 5px", borderRadius: 5, display: "flex", alignItems: "center" };
+  return createPortal(
+    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: size.w, maxWidth: "calc(100vw - 16px)", zIndex: 1400,
+      background: C.card || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 11,
+      boxShadow: "0 22px 60px -16px rgba(0,0,0,.5), 0 6px 16px -6px rgba(0,0,0,.35)", display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "calc(100vh - 16px)" }}>
+      <div onMouseDown={headDown} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px",
+        borderBottom: `1px solid ${C.bdr}`, cursor: "move", userSelect: "none", background: C.bg2 || C.hover }}>
+        <span style={{ display: "flex", color: isRaster ? "#a06bd6" : C.acc, flexShrink: 0 }}><IcPalette size={14} /></span>
+        <span style={{ fontFamily: M, fontSize: 8.5, fontWeight: 700, letterSpacing: ".03em", padding: "2px 5px", borderRadius: 5,
+          color: isRaster ? "#a06bd6" : C.acc, border: `1px solid ${isRaster ? "#a06bd655" : C.acc + "55"}`, background: (isRaster ? "#a06bd6" : C.acc) + "18", flexShrink: 0 }}>{isRaster ? "RASTER" : "VECTEUR"}</span>
+        <span style={{ fontFamily: F, fontWeight: 600, fontSize: 12.5, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+        <button data-nodrag onClick={() => setMin(m => !m)} title={min ? "Agrandir" : "Réduire"} style={hbtn}>{min ? <IcMaximize size={13} /> : <IcMinus size={14} />}</button>
+        <button data-nodrag onClick={onClose} title="Fermer" style={hbtn}><IcX size={14} /></button>
+      </div>
+      {!min && <div style={{ height: size.h, maxHeight: "calc(100vh - 70px)", overflow: "auto" }}>{children}</div>}
+      {!min && <div onMouseDown={resizeDown} title="Redimensionner" aria-hidden="true"
+        style={{ position: "absolute", right: 2, bottom: 2, width: 15, height: 15, cursor: "nwse-resize",
+          background: `repeating-linear-gradient(-45deg, ${C.dim} 0 1.2px, transparent 1.2px 3px)`, opacity: 0.75, borderBottomRightRadius: 9 }} />}
+    </div>,
+    document.body
+  );
+}
+
 // ── Composant principal ────────────────────────────────────────
 export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson }) {
   const C = useThemeContext();
@@ -674,8 +718,8 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 onDragEnd={() => { setDragId(null); setOverId(null); }}
                 onClick={e => e.stopPropagation()}
                 title="Glisser pour réordonner"
-                style={{ cursor: "grab", color: C.dim, fontSize: 12, lineHeight: 1, padding: "0 1px", flexShrink: 0, userSelect: "none" }}
-              >⠿</span>
+                style={{ cursor: "grab", color: C.dim, lineHeight: 0, padding: "0 1px", flexShrink: 0, userSelect: "none", display: "inline-flex", alignItems: "center" }}
+              ><IcMove size={13} /></span>
               <div style={{
                 width: 10, height: 10, borderRadius: 3,
                 background: l.color, opacity: l.visible ? 1 : 0.3, flexShrink: 0,
@@ -710,6 +754,8 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               )}
 
               {/* Actions compactes */}
+              <button onClick={e => { e.stopPropagation(); setExp(exp === l.id ? null : l.id); }} title="Symbologie / propriétés"
+                style={{ background: exp === l.id ? C.acc + "22" : "none", border:`0.5px solid ${exp === l.id ? C.acc : C.bdr}`, borderRadius:4, cursor:"pointer", padding:"2px 4px", color: exp === l.id ? C.acc : C.dim, lineHeight:0, flexShrink:0, display:"flex", alignItems:"center" }}><IcPalette size={13} /></button>
               <button onClick={e => { e.stopPropagation(); onZoomExtent?.(l.id); }} title="Zoomer"
                 style={{ background:"none",border:"none",cursor:"pointer",fontSize:11,padding:"0 2px",color:C.dim,lineHeight:1,flexShrink:0 }}>🔍</button>
               <button onClick={e => { e.stopPropagation(); onMoveUp?.(l.id); }} title="Monter"
@@ -810,9 +856,10 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               </div>
             )}
 
-            {/* Panneau déroulé */}
+            {/* Fenêtre Symbologie flottante (déplaçable + redimensionnable) */}
             {exp === l.id && (
-              <div style={{ padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 8, background: C.hover }}>
+              <PropsWindow title={l.name} isRaster={l.isRaster} onClose={() => setExp(null)}>
+              <div style={{ padding: "10px 12px 12px", display: "flex", flexDirection: "column", gap: 8, background: "transparent" }}>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                   <span style={{ color: C.dim }}>Opacité</span>
@@ -970,6 +1017,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 </div>
                 </>)}
               </div>
+              </PropsWindow>
             )}
           </div>
         ))}
