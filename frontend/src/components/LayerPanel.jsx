@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { useThemeContext } from "../theme";
 import { F, M, EXPORT_FORMATS } from "../config";
 import { Badge, Btn } from "./ui";
-import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX } from "../icons";
+import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX,
+  IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck } from "../icons";
 import ClassPanel from "./ClassPanel";
 import FieldCalcBlock from "./FieldCalcBlock";
 import IndexStatsModal from "./IndexStatsModal";
@@ -567,12 +568,25 @@ function ClassifLegendPanel({ layer, onUpdateRasterLayer, C }) {
   );
 }
 
+// presse-papier de style (copier/coller la symbologie d'une couche à l'autre)
+let STYLE_CLIP = null;
+
+// Libellé de géométrie pour le badge de la fenêtre (POLYGONES / LIGNES / POINTS).
+function geomLabel(l) {
+  if (l.isRaster) return "RASTER";
+  const t = (l.geojson?.features || []).find(f => f?.geometry)?.geometry?.type || "";
+  if (/Polygon/i.test(t)) return "POLYGONES";
+  if (/LineString/i.test(t)) return "LIGNES";
+  if (/Point/i.test(t)) return "POINTS";
+  return "VECTEUR";
+}
+
 // ── Fenêtre « Symbologie » flottante : déplaçable (par le bandeau, dans toutes les
 //    directions) + redimensionnable (poignée en bas à droite) + réductible. ────────
-function PropsWindow({ title, isRaster, onClose, children }) {
+function PropsWindow({ title, isRaster, badge, onClose, children }) {
   const C = useThemeContext();
-  const [pos, setPos] = useState(() => ({ x: Math.max(12, Math.min((window.innerWidth || 1200) - 372, 300)), y: 96 }));
-  const [size, setSize] = useState({ w: 348, h: 478 });
+  const [pos, setPos] = useState(() => ({ x: Math.max(12, Math.min((window.innerWidth || 1200) - 494, 260)), y: 84 }));
+  const [size, setSize] = useState({ w: 470, h: 520 });
   const [min, setMin] = useState(false);
   const drag = useRef(null);
   useEffect(() => {
@@ -596,12 +610,12 @@ function PropsWindow({ title, isRaster, onClose, children }) {
         borderBottom: `1px solid ${C.bdr}`, cursor: "move", userSelect: "none", background: C.bg2 || C.hover }}>
         <span style={{ display: "flex", color: isRaster ? "#a06bd6" : C.acc, flexShrink: 0 }}><IcPalette size={14} /></span>
         <span style={{ fontFamily: M, fontSize: 8.5, fontWeight: 700, letterSpacing: ".03em", padding: "2px 5px", borderRadius: 5,
-          color: isRaster ? "#a06bd6" : C.acc, border: `1px solid ${isRaster ? "#a06bd655" : C.acc + "55"}`, background: (isRaster ? "#a06bd6" : C.acc) + "18", flexShrink: 0 }}>{isRaster ? "RASTER" : "VECTEUR"}</span>
+          color: isRaster ? "#a06bd6" : C.acc, border: `1px solid ${isRaster ? "#a06bd655" : C.acc + "55"}`, background: (isRaster ? "#a06bd6" : C.acc) + "18", flexShrink: 0 }}>{badge || (isRaster ? "RASTER" : "VECTEUR")}</span>
         <span style={{ fontFamily: F, fontWeight: 600, fontSize: 12.5, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
         <button data-nodrag onClick={() => setMin(m => !m)} title={min ? "Agrandir" : "Réduire"} style={hbtn}>{min ? <IcMaximize size={13} /> : <IcMinus size={14} />}</button>
         <button data-nodrag onClick={onClose} title="Fermer" style={hbtn}><IcX size={14} /></button>
       </div>
-      {!min && <div style={{ height: size.h, maxHeight: "calc(100vh - 70px)", overflow: "auto" }}>{children}</div>}
+      {!min && <div style={{ height: size.h, maxHeight: "calc(100vh - 70px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>{children}</div>}
       {!min && <div onMouseDown={resizeDown} title="Redimensionner" aria-hidden="true"
         style={{ position: "absolute", right: 2, bottom: 2, width: 15, height: 15, cursor: "nwse-resize",
           background: `repeating-linear-gradient(-45deg, ${C.dim} 0 1.2px, transparent 1.2px 3px)`, opacity: 0.75, borderBottomRightRadius: 9 }} />}
@@ -612,13 +626,15 @@ function PropsWindow({ title, isRaster, onClose, children }) {
 
 // ── Contenu de la fenêtre Symbologie : structure à ONGLETS (façon QGIS / maquette
 //    validée), qui réutilise les vrais composants de style existants. ─────────────
-function LayerSymbology({ l, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
+function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
   const C = useThemeContext();
   const isR = l.isRaster, isVec = !l.isRaster && !!l.geojson;
-  const tabs = isR
-    ? [["sym", "Symbologie"], ["render", "Rendu"], ["fields", "Champs"], ["info", "Infos"]]
-    : [["sym", "Symbologie"], ["lab", "Étiquettes"], ["render", "Rendu"], ["fields", "Champs"], ["info", "Infos"]];
+  const TABS = isR
+    ? [["sym", "Symbologie", IcPalette], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]]
+    : [["sym", "Symbologie", IcPalette], ["lab", "Étiquettes", IcHash], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]];
   const [tab, setTab] = useState("sym");
+  const [expMenu, setExpMenu] = useState(false);
+  const [, force] = useState(0);
   const numAttrs = new Set(), txtAttrs = new Set();
   (l.geojson?.features || []).slice(0, 20).forEach(f => Object.entries(f.properties || {}).forEach(([k, v]) => {
     if (typeof v === "number" && !["id"].includes(k)) numAttrs.add(k);
@@ -628,51 +644,50 @@ function LayerSymbology({ l, onStyle, onClassify, onExport, onExportFmt, onRemov
   const selSt = { fontFamily: F, fontSize: 11, padding: "4px 6px", borderRadius: 5, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", flex: 1 };
   const rowSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 11 };
   const dim = { color: C.dim }, val = { color: C.dim, fontFamily: M };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 2, display: "flex", gap: 1, flexWrap: "wrap", padding: "0 8px",
-        borderBottom: `1px solid ${C.bdr}`, background: C.card || C.bg }}>
-        {tabs.map(([k, la]) => (
-          <button key={k} onClick={() => setTab(k)} style={{ fontFamily: F, fontSize: 11.5, fontWeight: tab === k ? 600 : 500,
-            padding: "8px 8px", cursor: "pointer", background: "transparent", color: tab === k ? C.acc : C.mut,
-            border: "none", borderBottom: `2px solid ${tab === k ? C.acc : "transparent"}`, marginBottom: -1 }}>{la}</button>
-        ))}
-      </div>
 
-      <div style={{ flex: 1, padding: "12px", display: "flex", flexDirection: "column", gap: 10 }}>
+  // Copier / Coller le style d'une couche à l'autre (presse-papier de module)
+  const copyStyle  = () => { STYLE_CLIP = { color: l.color, outlineColor: l.outlineColor, radius: l.radius, strokeWidth: l.strokeWidth, markerShape: l.markerShape, opacity: l.opacity, classCfg: l.classCfg ? { ...l.classCfg } : null }; force(x => x + 1); };
+  const pasteStyle = () => { if (!STYLE_CLIP) return; const { classCfg, ...st } = STYLE_CLIP; onStyle(l.id, st); onClassify(l.id, classCfg || null); };
+  const footBtn = (Icon, label, onClick, opts = {}) => (
+    <button onClick={onClick} disabled={opts.disabled} title={label} style={{
+      fontFamily: F, fontSize: 11, fontWeight: 600, padding: "6px 10px", borderRadius: 7,
+      display: "inline-flex", alignItems: "center", gap: 5, cursor: opts.disabled ? "default" : "pointer",
+      background: opts.primary ? C.acc : "transparent",
+      color: opts.primary ? "#fff" : opts.danger ? C.red : C.mut,
+      border: `0.5px solid ${opts.primary ? C.acc : C.bdr}`, opacity: opts.disabled ? 0.45 : 1,
+    }}><Icon size={13} /> {label}</button>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {/* corps : rail d'onglets à GAUCHE + contenu à droite (façon maquette QGIS) */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        <div style={{ width: 116, flexShrink: 0, minHeight: 0, borderRight: `1px solid ${C.bdr}`, background: C.bg2 || C.hover, padding: "9px 7px",
+          display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
+          {TABS.map(([k, la, Icon]) => (
+            <button key={k} onClick={() => setTab(k)} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 7, border: "none",
+              cursor: "pointer", width: "100%", textAlign: "left", fontFamily: F, fontSize: 11.5, fontWeight: tab === k ? 600 : 500,
+              background: tab === k ? (C.card || C.bg) : "transparent", color: tab === k ? C.txt : C.mut,
+              boxShadow: tab === k ? `inset 2px 0 0 ${C.acc}` : "none",
+            }}>
+              <span style={{ display: "flex", color: tab === k ? C.acc : C.dim, flexShrink: 0 }}><Icon size={14} /></span> {la}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 10 }}>
         {tab === "sym" && (<>
           {isR && l.visParams && <RasterStylePanel layer={l} onUpdateLayer={(id, u) => onUpdateRasterLayer?.(id, u)} />}
           {l.kind === "pointcloud" && <PointcloudStylePanel layer={l} mapRef={mapRef} />}
           {l.kind === "image" && l.rasterToken && <RasterImageStylePanel layer={l} onUpdate={(id, u) => onUpdateRasterLayer?.(id, u)} />}
           {isR && l.legend?.length > 0 && <ClassifLegendPanel layer={l} onUpdateRasterLayer={onUpdateRasterLayer} C={C} />}
-          {isVec && (<>
-            <div style={sub}>Symbole</div>
-            <div style={rowSt}>
-              <span style={dim}>Remplissage</span>
-              <input type="color" value={l.color} onChange={e => onStyle(l.id, { color: e.target.value })} style={{ width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none" }} />
-              <span style={dim}>Taille pt</span>
-              <input type="range" min="2" max="15" step="1" value={l.radius || 5} onChange={e => onStyle(l.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
-              <span style={val}>{l.radius || 5}px</span>
-            </div>
-            <div style={rowSt}>
-              <span style={dim}>Contour</span>
-              <input type="color" value={l.outlineColor || l.color || "#000000"} onChange={e => onStyle(l.id, { outlineColor: e.target.value })} style={{ width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none" }} />
-              <span style={dim}>Épaisseur</span>
-              <input type="range" min="0" max="10" step="0.5" value={l.strokeWidth ?? 1.5} onChange={e => onStyle(l.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
-              <span style={val}>{l.strokeWidth ?? 1.5}px</span>
-            </div>
-            <div style={rowSt}>
-              <span style={dim}>Marqueur (points)</span>
-              <select value={l.markerShape || "circle"} onChange={e => onStyle(l.id, { markerShape: e.target.value })} style={selSt}>
-                <option value="circle">Rond</option><option value="square">Carré</option><option value="triangle">Triangle</option><option value="diamond">Losange</option>
-              </select>
-            </div>
-            <div style={{ ...sub, marginTop: 6 }}>Classification</div>
+          {isVec && (
             <ClassPanel key={`${l.id}-${l.classCfg?.ramp}-${l.classCfg?.type}`} layer={l} classification={l.classCfg}
-              onChange={cfg => onClassify(l.id, cfg)} mapRef={mapRef}
+              onChange={cfg => onClassify(l.id, cfg)} onStyle={onStyle} mapRef={mapRef}
               chartCfg={l.chartCfg} onChartChange={cfg => onStyle(l.id, { chartCfg: cfg })}
               onLayerOpacity={o => onStyle(l.id, { opacity: o })} />
-          </>)}
+          )}
         </>)}
 
         {tab === "lab" && isVec && (<>
@@ -727,21 +742,37 @@ function LayerSymbology({ l, onStyle, onClassify, onExport, onExportFmt, onRemov
         {tab === "info" && (
           <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "7px 14px", fontSize: 12, margin: 0 }}>
             <dt style={dim}>Nom</dt><dd style={{ margin: 0, color: C.txt }}>{l.name}</dd>
-            <dt style={dim}>Type</dt><dd style={{ margin: 0, color: C.txt }}>{isR ? "Raster" : "Vecteur"}</dd>
+            <dt style={dim}>Type</dt><dd style={{ margin: 0, color: C.txt }}>{isR ? "Raster" : `Vecteur — ${(geomLabel || "").toLowerCase()}`}</dd>
             {l.geojson && (<><dt style={dim}>Entités</dt><dd style={{ margin: 0, fontFamily: M, color: C.txt }}>{(l.geojson.features || []).length}</dd></>)}
           </dl>
         )}
+        </div>
       </div>
 
-      <div style={{ position: "sticky", bottom: 0, borderTop: `1px solid ${C.bdr}`, padding: "9px 12px", display: "flex",
-        gap: 5, flexWrap: "wrap", alignItems: "center", background: C.bg2 || C.hover }}>
-        {isVec && (<>
-          <Btn small color={C.acc} onClick={() => onExport(l.id)}>GeoJSON</Btn>
-          {EXPORT_FORMATS.filter(f => f !== "GeoJSON").map(fmt => <Btn key={fmt} small onClick={() => onExportFmt(l.id, fmt)}>{fmt}</Btn>)}
-        </>)}
-        {l.kind === "image" && l.imageUrl && l.coordinates && <Btn small color={C.acc} onClick={() => exportImageTiff(l)}>{tiffBusy === l.id ? "Export…" : "GeoTIFF"}</Btn>}
+      {/* barre d'actions façon maquette : Copier · Coller · Exporter ▾ · Réinit. · Supprimer · OK */}
+      <div style={{ position: "relative", borderTop: `1px solid ${C.bdr}`, padding: "9px 12px", display: "flex",
+        gap: 6, flexWrap: "wrap", alignItems: "center", background: C.bg2 || C.hover }}>
+        {footBtn(IcCopy, "Copier", copyStyle, { disabled: !isVec })}
+        {footBtn(IcClipboard, "Coller", pasteStyle, { disabled: !isVec || !STYLE_CLIP })}
+        <div style={{ position: "relative" }}>
+          {footBtn(IcFileDown, "Exporter ▾", () => setExpMenu(m => !m))}
+          {expMenu && (
+            <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 30, minWidth: 170,
+              background: C.card || C.bg, border: `1px solid ${C.bdr}`, borderRadius: 9,
+              boxShadow: "0 14px 36px -10px rgba(0,0,0,.5)", padding: 5, display: "flex", flexDirection: "column", gap: 1 }}>
+              {isVec ? EXPORT_FORMATS.map(fmt => (
+                <button key={fmt} onClick={() => { setExpMenu(false); fmt === "GeoJSON" ? onExport(l.id) : onExportFmt(l.id, fmt); }}
+                  style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{fmt}</button>
+              )) : (l.kind === "image" && l.imageUrl && l.coordinates)
+                ? <button onClick={() => { setExpMenu(false); exportImageTiff(l); }} style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{tiffBusy === l.id ? "Export…" : "GeoTIFF (.tif)"}</button>
+                : <div style={{ fontSize: 11, color: C.dim, padding: "6px 9px" }}>Export indisponible</div>}
+            </div>
+          )}
+        </div>
+        {footBtn(IcRefresh, "Réinit.", () => onClassify(l.id, null), { disabled: !isVec })}
         <div style={{ flex: 1 }} />
-        <Btn small color={C.red} onClick={() => onRemove(l.id)}>Supprimer</Btn>
+        {footBtn(IcTrash, "Supprimer", () => onRemove(l.id), { danger: true })}
+        {footBtn(IcCheck, "OK", () => onClose?.(), { primary: true })}
       </div>
     </div>
   );
@@ -995,8 +1026,9 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
 
             {/* Fenêtre Symbologie flottante (déplaçable + redimensionnable) */}
             {exp === l.id && (
-              <PropsWindow title={l.name} isRaster={l.isRaster} onClose={() => setExp(null)}>
-              <LayerSymbology l={l} onStyle={onStyle} onClassify={onClassify} onExport={onExport} onExportFmt={onExportFmt}
+              <PropsWindow title={l.name} isRaster={l.isRaster} badge={geomLabel(l)} onClose={() => setExp(null)}>
+              <LayerSymbology l={l} geomLabel={geomLabel(l)} onClose={() => setExp(null)}
+                onStyle={onStyle} onClassify={onClassify} onExport={onExport} onExportFmt={onExportFmt}
                 onRemove={onRemove} onUpdateRasterLayer={onUpdateRasterLayer} onUpdateGeojson={onUpdateGeojson} mapRef={mapRef}
                 openStats={openStats} exportImageTiff={exportImageTiff} tiffBusy={tiffBusy} />
               </PropsWindow>

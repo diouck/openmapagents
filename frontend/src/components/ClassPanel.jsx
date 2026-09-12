@@ -29,9 +29,10 @@ function rampCss(cols, key) {
   return `linear-gradient(90deg,${cols.join(",")})`;
 }
 
-export default function ClassPanel({ layer, classification, onChange, mapRef, chartCfg, onChartChange, onLayerOpacity }) {
+export default function ClassPanel({ layer, classification, onChange, onStyle, mapRef, chartCfg, onChartChange, onLayerOpacity }) {
   const C = useThemeContext();
   const attrs = useMemo(() => getLayerAttrs(layer), [layer]);
+  const isVec = !layer?.isRaster && !!layer?.geojson;
 
   const [type,    setType]    = useState(classification?.type    || "none");
   const [attr,    setAttr]    = useState(classification?.attribute || "");
@@ -172,6 +173,11 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
     background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`,
     outline: "none", width: "100%", boxSizing: "border-box",
   };
+  // styles du bloc « Symbole unique »
+  const rowSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 11 };
+  const dimS  = { color: C.dim };
+  const valS  = { color: C.dim, fontFamily: M };
+  const swInp = { width: 26, height: 20, border: "none", borderRadius: 4, cursor: "pointer", background: "none", padding: 0, flexShrink: 0 };
 
   // types de rendu (segmenté façon QGIS)
   const RENDER_TYPES = [
@@ -389,6 +395,34 @@ export default function ClassPanel({ layer, classification, onChange, mapRef, ch
             if (v === "none") onChange(null);
           }} />
       </div>
+
+      {/* ══ SYMBOLE UNIQUE (couleur unique) — aplat + contour + taille + marqueur ══ */}
+      {type === "none" && isVec && onStyle && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>Symbole</span>
+          <div style={rowSt}>
+            <span style={dimS}>Remplissage</span>
+            <input type="color" value={layer.color || "#1D9E75"} onChange={e => onStyle(layer.id, { color: e.target.value })} style={swInp} />
+            <span style={dimS}>Taille pt</span>
+            <input type="range" min="2" max="15" step="1" value={layer.radius || 5} onChange={e => onStyle(layer.id, { radius: parseInt(e.target.value) })} style={{ flex: 1, height: 3 }} />
+            <span style={valS}>{layer.radius || 5}px</span>
+          </div>
+          <div style={rowSt}>
+            <span style={dimS}>Contour</span>
+            <input type="color" value={layer.outlineColor || layer.color || "#000000"} onChange={e => onStyle(layer.id, { outlineColor: e.target.value })} style={swInp} />
+            <span style={dimS}>Épaisseur</span>
+            <input type="range" min="0" max="10" step="0.5" value={layer.strokeWidth ?? 1.5} onChange={e => onStyle(layer.id, { strokeWidth: parseFloat(e.target.value) })} style={{ flex: 1, height: 3 }} />
+            <span style={valS}>{layer.strokeWidth ?? 1.5}px</span>
+          </div>
+          <div style={rowSt}>
+            <span style={dimS}>Marqueur (points)</span>
+            <Sel value={layer.markerShape || "circle"} onChange={v => onStyle(layer.id, { markerShape: v })} options={[
+              { value: "circle", label: "Rond" }, { value: "square", label: "Carré" },
+              { value: "triangle", label: "Triangle" }, { value: "diamond", label: "Losange" },
+            ]} />
+          </div>
+        </div>
+      )}
 
       {/* Attribut — proportionnels uniquement (gradué/catégorisé l'ont dans la grammaire) */}
       {isProp && (
