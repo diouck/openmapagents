@@ -22,6 +22,14 @@ import {
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const WS_NAMES = ["Bassin versant", "Réseau hydro (continu)", "Réseau hydrographique", "Exutoire"];
+
+// Emprise [minX,minY,maxX,maxY] d'une géométrie GeoJSON (pour recentrer la carte).
+function geomBbox(g) {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  const walk = (x) => { if (typeof x[0] === "number") { if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[0] > c) c = x[0]; if (x[1] > d) d = x[1]; return; } for (const k of x) walk(k); };
+  if (g?.coordinates) walk(g.coordinates);
+  return isFinite(a) ? [a, b, c, d] : null;
+}
 const STEPS = [
   ["delin", "Délimitation du bassin (HydroSHEDS)"],
   ["net",   "Extraction du réseau hydrographique"],
@@ -120,6 +128,12 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
       type: "Feature", geometry: { type: "Point", coordinates: [outlet.lon, outlet.lat] },
       properties: { type: "exutoire" },
     }] }, "Exutoire", "data", { color: "#e01e1e", radius: 7 });
+
+    // Recentre la carte sur le bassin délimité (sinon un grand bassin sort du cadre).
+    try {
+      const m = mapObj(); const bb = delim.boundary && geomBbox(delim.boundary);
+      if (m && bb) m.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 50, duration: 900, maxZoom: 12 });
+    } catch (_) {}
 
     setRes({ attributes: A0, notes: delim.notes || [], unavailable: delim.unavailable || [] });
 
