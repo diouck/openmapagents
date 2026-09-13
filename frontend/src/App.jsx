@@ -689,6 +689,29 @@ export default function App() {
   // reste ouverte même si l'on ferme le panneau et passe au-dessus au clic (z partagé).
   const [symbolLayerId, setSymbolLayerId] = useState(null);
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
+
+  // ── Indicateur de % de chargement/rendu des couches (vecteur + raster) ──
+  const [loadPct, setLoadPct] = useState(null);
+  const loadRef = useRef({ timer: null, val: 0 });
+  const startLoad = useCallback(() => {
+    loadRef.current.active = true;
+    if (loadRef.current.timer) return;                       // déjà en cours
+    loadRef.current.val = Math.max(loadRef.current.val, 8);
+    setLoadPct(Math.round(loadRef.current.val));
+    loadRef.current.timer = setInterval(() => {
+      loadRef.current.val = Math.min(92, loadRef.current.val + Math.max(0.6, (92 - loadRef.current.val) * 0.1));
+      setLoadPct(Math.round(loadRef.current.val));
+    }, 180);
+  }, []);
+  const endLoad = useCallback(() => {
+    if (!loadRef.current.active) return;                      // aucun chargement en cours → pas de flash
+    loadRef.current.active = false;
+    if (loadRef.current.timer) { clearInterval(loadRef.current.timer); loadRef.current.timer = null; }
+    loadRef.current.val = 0;
+    setLoadPct(100);
+    setTimeout(() => setLoadPct(p => (p === 100 ? null : p)), 500);
+  }, []);
+  useEffect(() => () => { if (loadRef.current.timer) clearInterval(loadRef.current.timer); }, []);
   const [sidebarOpen,  setSidebarOpen]  = useState(false); // conservé pour compat (tools sans panel)
   const [openPanels,   setOpenPanels]   = useState(new Set()); // ids des panneaux ouverts
   const [openGroup,    setOpenGroup]    = useState(() => new Set(RAIL_GROUPS.filter(g => g.label).map(g => g.id))); // tous les groupes ouverts par défaut
@@ -2872,6 +2895,8 @@ export default function App() {
           {/* Fond spatial (étoiles + filantes) visible dans l'espace autour du globe */}
           {globeOn && <StarField />}
           <Map ref={mapRef} {...vs} onMove={e=>setVs(e.viewState)}
+            onData={e=>{ if(e.dataType==="source" && e.sourceId && e.isSourceLoaded===false && layers.some(l=>e.sourceId.startsWith(l.id))) startLoad(); }}
+            onIdle={()=>{ const m=mapRef.current?.getMap?.(); if(m && m.areTilesLoaded()) endLoad(); }}
             style={{width:"100%",height:"100%",background:"transparent"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES["positron"]}
             maplibreLogo={false} attributionControl={false} preserveDrawingBuffer={true}
             /* MapLibre plafonne l'inclinaison à 60° par défaut : impossible d'amener
@@ -3108,6 +3133,17 @@ export default function App() {
           {/* Précipitations : APRÈS </Map> pour se peindre sur les tuiles, AVANT la
               légende et les panneaux pour rester dessous. */}
           {terrain3D && weather !== "none" && <PrecipLayer type={weather} />}
+
+          {/* Indicateur de % de chargement/rendu des couches (vecteur + raster) */}
+          {loadPct != null && (<>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:3, zIndex:60, pointerEvents:"none" }}>
+              <div style={{ height:"100%", width:`${loadPct}%`, background:C.acc, transition:"width .18s ease", boxShadow:`0 0 8px ${C.acc}` }} />
+            </div>
+            <div style={{ position:"absolute", top:12, left:"50%", transform:"translateX(-50%)", zIndex:60, background:C.card, border:`0.5px solid ${C.bdr}`, borderRadius:999, padding:"4px 12px", fontSize:11.5, fontWeight:500, boxShadow:"0 2px 10px rgba(0,0,0,.25)", display:"flex", alignItems:"center", gap:8, pointerEvents:"none" }}>
+              <span style={{ fontFamily:M, color:C.acc, fontWeight:700 }}>{loadPct}%</span>
+              <span style={{ color:C.mut }}>rendu des couches…</span>
+            </div>
+          </>)}
 
           <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL}/>
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}
