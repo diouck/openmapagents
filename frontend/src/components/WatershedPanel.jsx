@@ -10,7 +10,8 @@
  * précédent sont retirées à chaque relance (onRemoveLayers). Clic capté par
  * `map.once`, sans toucher au clic central de la carte.
  */
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import maplibregl from "maplibre-gl";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { Sel, Lbl } from "./ui";
@@ -41,6 +42,25 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
   const [res, setRes]         = useState(null);       // { attributes, notes, unavailable }
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
+
+  // Marqueur exutoire VISIBLE dès qu'un point est posé (clic ou coordonnées), et
+  // qui reste affiché — pas besoin d'attendre la délimitation.
+  const outletMarker = useRef(null);
+  useEffect(() => {
+    const m = mapObj();
+    if (!m) return;
+    const ok = outlet && !Number.isNaN(outlet.lat) && !Number.isNaN(outlet.lon);
+    if (!ok) { if (outletMarker.current) { outletMarker.current.remove(); outletMarker.current = null; } return; }
+    if (!outletMarker.current) {
+      const el = document.createElement("div");
+      el.style.cssText = "width:15px;height:15px;border-radius:50%;background:#e01e1e;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)";
+      el.title = "Exutoire";
+      outletMarker.current = new maplibregl.Marker({ element: el }).setLngLat([outlet.lon, outlet.lat]).addTo(m);
+    } else {
+      outletMarker.current.setLngLat([outlet.lon, outlet.lat]);
+    }
+  }, [outlet]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (outletMarker.current) outletMarker.current.remove(); }, []);
 
   const pick = () => {
     const m = mapObj();
