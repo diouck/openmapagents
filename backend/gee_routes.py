@@ -2330,37 +2330,32 @@ def gee_watershed(req: WatershedRequest):
         # MERIT Hydro (~90 m) : bien plus FIN que HydroSHEDS 15ACC (~450 m) → réseau
         # net et dendritique, pas pixelisé. Bande 'upa' = aire drainée amont (km²).
         upa = ee.Image("MERIT/Hydro/v1_0_1").select("upa")
-        maxu = ee.Number(upa.clip(geom).reduceRegion(
-            reducer=ee.Reducer.max(), geometry=geom, scale=200,
-            maxPixels=int(1e10), bestEffort=True).values().get(0))
-        # Seuil d'aire drainée adaptatif (1–20 km²) : réseau dense pour les petits
-        # bassins, lisible pour les grands, connecté par construction à l'exutoire.
-        thr = ee.Number(ee.Algorithms.If(
-            maxu, ee.Number(maxu).divide(200).max(1).min(20), 5))
+        # Seuil basé sur la TAILLE DU BASSIN, pas sur l'aire amont totale à l'exutoire
+        # (énorme sur un grand fleuve → réseau bien trop pauvre). Petit bassin → ~2 km²
+        # (réseau DENSE) ; grand bassin → seuil relevé pour rester vectorisable.
+        thr_val = max(2.0, round(area_km2 / 3000.0, 1))
+        thr = ee.Number(thr_val)
         streams = upa.gte(thr).selfMask().clip(geom)
         mid = streams.getMapId({"min": 0, "max": 1, "palette": ["2b83ba"]})
         f = mid.get("tile_fetcher")
         streams_tile = f.url_format if (f and hasattr(f, "url_format")) else mid.get("urlFormat", "")
-        try:
-            attrs["seuil_drainage_km2"] = round(float(thr.getInfo()), 1)
-        except Exception:
-            pass
-        # ── VECTORISATION SANS PERTE + réseau CONNECTÉ (8-connexité) → GeoJSON ──
-        # reduceToVectors transforme les cellules « cours d'eau » en polygones ;
-        # eightConnected=True raccorde les diagonales → un réseau d'un seul tenant,
-        # sans rupture. Pas de simplification (fidèle au pixel = « sans perte »).
+        attrs["seuil_drainage_km2"] = thr_val
+        # ── VECTORISATION + réseau CONNECTÉ (8-connexité) → GeoJSON exportable ──
+        # eightConnected raccorde les diagonales (réseau d'un seul tenant). Légère
+        # simplification (30 m ≈ 1/3 de pixel) pour un payload transférable et
+        # visuellement fidèle (le 90 m natif est préservé).
         try:
             sv = streams.reduceToVectors(
                 geometry=geom, scale=95, geometryType="polygon",
-                eightConnected=True, labelProperty="net",
-                maxPixels=int(1e10), bestEffort=True)
+                eightConnected=True, labelProperty="net", maxPixels=int(1e10))
+            sv = sv.map(lambda ft: ee.Feature(ft.geometry().simplify(30), {"net": ft.get("net")}))
             streams_vector = sv.limit(8000).getInfo()
             if streams_vector and streams_vector.get("features"):
                 attrs["reseau_troncons_vect"] = len(streams_vector["features"])
         except Exception as e2:
             print(f"[watershed] vectorisation réseau indisponible : {e2}")
-        notes.append("Réseau continu = aire drainée MERIT Hydro (~90 m) seuillée, vectorisée en "
-                     "8-connexité (réseau d'un seul tenant, sans perte ni rupture).")
+        notes.append("Réseau continu = aire drainée MERIT Hydro (~90 m) seuillée à %s km² puis "
+                     "vectorisée en 8-connexité (réseau connecté)." % thr_val)
     except Exception as e:
         print(f"[watershed] réseau continu (MERIT upa) indisponible : {e}")
 
