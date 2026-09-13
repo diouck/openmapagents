@@ -66,10 +66,11 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const [symbolMode,  setSymbolMode]  = useState(classification?.symbolMode  || "maki");
 
   // 2e style INDÉPENDANT : taille proportionnelle (combinable avec la couleur)
-  const [sizeOn,   setSizeOn]   = useState(!!layer?.sizeCfg);
-  const [sizeAttr, setSizeAttr] = useState(layer?.sizeCfg?.attribute || "");
-  const [sizeMin,  setSizeMin]  = useState(layer?.sizeCfg?.minSize ?? 3);
-  const [sizeMax,  setSizeMax]  = useState(layer?.sizeCfg?.maxSize ?? 26);
+  const [sizeOn,    setSizeOn]    = useState(!!layer?.sizeCfg);
+  const [sizeAttr,  setSizeAttr]  = useState(layer?.sizeCfg?.attribute || "");
+  const [sizeMin,   setSizeMin]   = useState(layer?.sizeCfg?.minSize ?? 3);
+  const [sizeMax,   setSizeMax]   = useState(layer?.sizeCfg?.maxSize ?? 26);
+  const [sizeColor, setSizeColor] = useState(layer?.sizeCfg?.color || layer?.color || "#1D9E75");
 
   const isProp   = type === "proportional" || type === "proportional_line";
   const isSymbol = type === "symbol";
@@ -155,6 +156,7 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
       attribute: at,
       minSize: parseFloat(extra.sizeMin ?? sizeMin) || 3,
       maxSize: parseFloat(extra.sizeMax ?? sizeMax) || 26,
+      color: extra.sizeColor ?? sizeColor,
       mode: isLine ? "width" : "radius",
     };
     onStyle(layer.id, { sizeCfg: cfg, sizeResult: buildSize(layer, cfg) });
@@ -823,6 +825,14 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
                 <input type="number" min="1" max="80" value={sizeMax} onChange={e => { setSizeMax(e.target.value); applySize({ sizeMax: e.target.value, sizeOn: true }); }} style={inp} />
               </div>
             </div>
+            {isPoly && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 9.5, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>Couleur des ronds</span>
+                <input type="color" value={sizeColor} onChange={e => { setSizeColor(e.target.value); applySize({ sizeColor: e.target.value, sizeOn: true }); }}
+                  style={{ width: 30, height: 24, border: "none", borderRadius: 6, cursor: "pointer", background: "none", padding: 0 }} />
+                <span style={{ fontFamily: M, fontSize: 10.5, color: C.mut }}>{(sizeColor || "").toUpperCase()}</span>
+              </div>
+            )}
             <div style={{ fontSize: 9.5, color: C.dim, lineHeight: 1.5 }}>
               {isPoly
                 ? <>Un <b style={{ color: C.mut }}>rond</b> par polygone (au centroïde), taille ∝ valeur — se combine avec l'aplat coloré.</>

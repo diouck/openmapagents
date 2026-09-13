@@ -142,6 +142,7 @@ export function buildSize(layer, cfg) {
   }
   return {
     attribute: cfg.attribute, mode, minVal, maxVal, minSize, maxSize,
+    color: cfg.color || null,
     radiusExpression: mode === "radius" ? expr : null,
     widthExpression:  mode === "width"  ? expr : null,
     bubbles,

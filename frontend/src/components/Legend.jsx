@@ -443,7 +443,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
             {/* 2e style : taille proportionnelle (combinée à la couleur) */}
             {layer.visible && layer.sizeResult?.radiusExpression && cr?.type !== "proportional" && (
               <div style={{ paddingLeft: 4, color: C.mut, marginTop: 2 }}>
-                <NestedCircles cr={{ minSize: layer.sizeResult.minSize, maxSize: layer.sizeResult.maxSize, minVal: layer.sizeResult.minVal, maxVal: layer.sizeResult.maxVal, classes: layer.classResult?.classes }} color={layer.color} />
+                <NestedCircles cr={{ minSize: layer.sizeResult.minSize, maxSize: layer.sizeResult.maxSize, minVal: layer.sizeResult.minVal, maxVal: layer.sizeResult.maxVal, classes: layer.sizeResult.color ? null : layer.classResult?.classes }} color={layer.sizeResult.color || layer.color} />
               </div>
             )}
             {layer.visible && layer.sizeResult?.widthExpression && cr?.type !== "proportional_line" && (
