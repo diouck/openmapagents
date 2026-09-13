@@ -2304,18 +2304,14 @@ def gee_watershed(req: WatershedRequest):
         # rivière d'abord : on garde les cours MAJEURS de tout le bassin plutôt
         # qu'un cluster de petits affluents d'une seule zone dense. Sans ce tri,
         # un grand bassin très ramifié au sud tronquait le réseau au nord.
-        # Géométries légèrement simplifiées + une seule propriété → payload raisonnable
-        # (ee.Feature n'a pas de .simplify() → on reconstruit chaque Feature).
-        # NB : une simplification par tronçon trop forte (ex. 120 m) DÉPLACE les
-        # extrémités partagées aux confluences → des « ruptures » visibles entre
-        # cours d'eau. On garde une tolérance faible (30 m) pour préserver la
-        # continuité du réseau aux jonctions.
+        # DIAGNOSTIC : AUCUNE simplification (géométrie complète) + plafond relevé,
+        # pour afficher TOUTES les lignes du réseau sans perte de sommets.
         def _slim(f):
-            return ee.Feature(f.geometry().simplify(30), {"RIV_ORD": f.get("RIV_ORD")})
+            return ee.Feature(f.geometry(), {"RIV_ORD": f.get("RIV_ORD")})
         try:
-            rivers_gj = riv.sort("RIV_ORD").limit(4500).map(_slim).getInfo()
+            rivers_gj = riv.sort("RIV_ORD").limit(10000).map(_slim).getInfo()
         except Exception:
-            rivers_gj = riv.limit(4500).map(_slim).getInfo()   # RIV_ORD absent → tri ignoré
+            rivers_gj = riv.limit(10000).map(_slim).getInfo()   # RIV_ORD absent → tri ignoré
         notes.append("Réseau = HydroRIVERS (cours pérennes cartographiés). En zone aride / "
                      "endoréique (désert), il peut ne pas y avoir de cours d'eau connectés : "
                      "les vraies discontinuités du terrain apparaissent alors telles quelles.")

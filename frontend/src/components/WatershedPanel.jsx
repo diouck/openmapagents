@@ -91,10 +91,10 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
       onAddRaster?.({ id: `ws-streams-${Date.now()}`, name: "Réseau hydro (continu)",
         type: "wms", tileUrl: delim.streams_tile, opacity: 0.95 });
     }
-    // Tronçons vecteur HydroRIVERS (attributs, ordre) — peut présenter des ruptures.
+    // Tronçons vecteur HydroRIVERS — TOUTES les lignes, sans simplification.
     if (delim.rivers?.features?.length) {
       onAddLayerSilent?.(delim.rivers, "Réseau hydrographique", "data",
-        { color: "#7fb2d6", opacity: 0.7, radius: 3 });
+        { color: "#1a5fb4", opacity: 1, strokeWidth: 1.4, radius: 3 });
     }
     onAddLayerSilent?.({ type: "FeatureCollection", features: [{
       type: "Feature", geometry: { type: "Point", coordinates: [outlet.lon, outlet.lat] },
