@@ -187,7 +187,7 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const fLbl  = { fontSize: 9.5, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4, fontWeight: 600 };
   // champ couleur : pastille (color-picker) + code hexa mono, comme la maquette
   const swatchField = (lbl, val, onCol) => (
-    <div style={{ flex: 1, minWidth: 0 }}>
+    <div style={{ flex: 1, minWidth: 104 }}>
       <div style={fLbl}>{lbl}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <label style={{ position: "relative", width: 30, height: 24, borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: val, cursor: "pointer", overflow: "hidden", flexShrink: 0 }}>
@@ -199,7 +199,7 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   );
   // champ numérique : curseur + valeur
   const stepField = (lbl, val, mn, mx, st, unit, onVal) => (
-    <div style={{ flex: 1, minWidth: 0 }}>
+    <div style={{ flex: 1, minWidth: 104 }}>
       <div style={fLbl}>{lbl}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <input type="range" min={mn} max={mx} step={st} value={val} onChange={e => onVal(parseFloat(e.target.value))} style={{ flex: 1, height: 3 }} />
@@ -250,15 +250,16 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const legIsCat = manualMode === "manual" && manual ? manual.type === "categorized" : cr?.type === "categorized";
 
   // ── UI atoms ────────────────────────────────────────────────────
-  const Seg = ({ options, value, onPick, small }) => (
-    <div style={{ display: "inline-flex", flexWrap: "wrap", gap: 2, padding: 3, borderRadius: 8,
-      background: C.hover, border: `0.5px solid ${C.bdr}` }}>
+  const Seg = ({ options, value, onPick, small, block }) => (
+    <div style={{ display: block ? "flex" : "inline-flex", width: block ? "100%" : undefined, flexWrap: "wrap", gap: 2, padding: 3, borderRadius: 8,
+      background: C.hover, border: `0.5px solid ${C.bdr}`, boxSizing: "border-box" }}>
       {options.map(o => {
         const on = value === o.v;
         return (
           <button key={o.v} onClick={() => onPick(o.v)} style={{
             fontFamily: F, fontSize: small ? 10.5 : 11.5, fontWeight: on ? 600 : 500,
-            padding: small ? "4px 9px" : "5px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+            padding: small ? "4px 9px" : "5px 8px", borderRadius: 6, border: "none", cursor: "pointer",
+            flex: block ? "1 1 auto" : undefined, whiteSpace: "nowrap",
             background: on ? C.bg : "transparent", color: on ? C.txt : C.dim,
             boxShadow: on ? "0 1px 2px rgba(0,0,0,.12)" : "none",
           }}>{o.label}</button>
@@ -432,7 +433,7 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
       {/* ══ Type de rendu (segmenté, toujours visible) ══════════ */}
       <div>
         <Lbl>Type de rendu</Lbl>
-        <Seg options={RENDER_TYPES} value={type}
+        <Seg options={RENDER_TYPES} value={type} block
           onPick={v => {
             setType(v); setAttr(""); setManualMode("auto"); setManual(null);
             if (v === "categorized" && !CAT_RAMPS.has(ramp)) setRamp("categorial");
@@ -448,20 +449,20 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
             Symbole {isLine ? "· ligne" : isPoly ? "· polygone" : "· point"}
           </span>
           {/* Aperçu + contrôles couleur / taille (couleur + épaisseur appairées) */}
-          <div style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, border: `0.5px solid ${C.bdr}`, borderRadius: 10, background: C.hover }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: 12, border: `0.5px solid ${C.bdr}`, borderRadius: 10, background: C.hover }}>
             <div style={{ width: 64, height: 64, borderRadius: 9, background: C.bg, border: `0.5px solid ${C.bdr}`, display: "grid", placeItems: "center", flexShrink: 0 }}>
               {symbolPreview()}
             </div>
-            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 150, display: "flex", flexDirection: "column", gap: 10 }}>
               {/* Ligne 1 : couleur principale + (point) taille / (ligne) épaisseur */}
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {swatchField(isLine ? "Couleur" : "Remplissage", layer.color || "#1D9E75", v => onStyle(layer.id, { color: v }))}
                 {isPointish && stepField("Taille", layer.radius || 5, 2, 15, 1, "px", v => onStyle(layer.id, { radius: parseInt(v) }))}
                 {isLine && stepField("Épaisseur", layer.strokeWidth ?? 2, 0.5, 12, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
               </div>
               {/* Ligne 2 : contour = couleur + épaisseur ensemble (point & polygone) */}
               {!isLine && (
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {swatchField("Contour", layer.outlineColor || layer.color || "#000000", v => onStyle(layer.id, { outlineColor: v }))}
                   {stepField("Épaisseur", layer.strokeWidth ?? 1.5, 0, 10, 0.5, "px", v => onStyle(layer.id, { strokeWidth: v }))}
                 </div>
@@ -526,8 +527,8 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
       {/* ══ GRADUÉE — grammaire QGIS ═══════════════════════════ */}
       {isGrad && grammarBox(
         <>
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 130 }}>
               <Lbl>Attribut</Lbl>
               <Sel value={attr}
                 onChange={v => { setAttr(v); setManualMode("auto"); setManual(null); if (v) commit({ attribute: v, manual: null }); }}
