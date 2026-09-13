@@ -3,7 +3,7 @@ import { useThemeContext } from "../theme";
 import { M, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
-import { IcPalette, IcMove, IcEye } from "../icons";
+import { IcPalette, IcMove, IcEye, IcEyeOff } from "../icons";
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -266,8 +266,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
-  const visible = layers.filter(l => l.visible);
-  if (!visible.length) return null;
+  if (!layers.length) return null;   // afficher TOUTES les couches (visibles ou non)
 
   return (
     <div style={{
@@ -283,14 +282,13 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
         <span style={{ display: "flex", color: C.acc }}><IcPalette size={12} /></span>
         <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.dim, fontWeight: 600 }}>Légende</span>
       </div>
-      {visible.map(layer => {
-        const cr = layer.classResult;
-        const isBivariate  = layer.isRaster && layer.bivariate?.palette?.length >= 9;
-        // Couche classée : sa légende porte les vraies bornes min/max de chaque
-        // classe. La rampe continue tirée de visParams afficherait « 0 → n-1 »
-        // (les identifiants de classe), ce qui n'a aucun sens pour le lecteur.
-        const hasClasses   = layer.isRaster && layer.legend?.length > 0;
-        const showGeeLegend = !isBivariate && !hasClasses && layer.isRaster
+      {layers.map(layer => {
+        // Détails de légende affichés uniquement pour les couches ACTIVES (visibles) ;
+        // une couche masquée reste listée (grisée) pour pouvoir la réactiver.
+        const cr = layer.visible ? layer.classResult : null;
+        const isBivariate  = layer.visible && layer.isRaster && layer.bivariate?.palette?.length >= 9;
+        const hasClasses   = layer.visible && layer.isRaster && layer.legend?.length > 0;
+        const showGeeLegend = layer.visible && !isBivariate && !hasClasses && layer.isRaster
                               && (layer.visParams || _inferGeeDefaults(layer.name));
 
         return (
@@ -300,7 +298,8 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
             onDragOver={e => { if (dragId && dragId !== layer.id) { e.preventDefault(); if (overId !== layer.id) setOverId(layer.id); } }}
             onDragLeave={() => setOverId(o => (o === layer.id ? null : o))}
             onDrop={e => { e.preventDefault(); if (dragId && dragId !== layer.id) onReorder?.(dragId, layer.id); setDragId(null); setOverId(null); }}
-            style={{ marginBottom: 8, borderRadius: 5, cursor: "default", opacity: dragId === layer.id ? 0.45 : 1,
+            style={{ marginBottom: 8, borderRadius: 5, cursor: "default",
+              opacity: dragId === layer.id ? 0.45 : (layer.visible ? 1 : 0.45),
               boxShadow: overId === layer.id ? `inset 0 2px 0 ${C.acc}` : "none" }}>
 
             {/* Nom couche + poignée + bouton palette */}
@@ -325,10 +324,10 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
               )}
               <span style={{ fontSize: 11, fontWeight: 500, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{layer.name}</span>
               <span style={{ fontSize: 9, color: C.dim, fontFamily: M, flexShrink: 0 }}>{layer.featureCount}</span>
-              {/* Bouton masquer (bascule la visibilité) */}
-              <button onClick={() => onToggle?.(layer.id)} title="Masquer la couche"
-                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
-                <IcEye size={12} />
+              {/* Bouton activer/désactiver (bascule la visibilité, NE supprime pas) */}
+              <button onClick={() => onToggle?.(layer.id)} title={layer.visible ? "Désactiver (masquer)" : "Activer (afficher)"}
+                style={{ background: layer.visible ? "none" : C.acc + "18", border: `0.5px solid ${layer.visible ? C.bdr : C.acc + "66"}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: layer.visible ? C.dim : C.acc, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                {layer.visible ? <IcEye size={12} /> : <IcEyeOff size={12} />}
               </button>
               {/* Bouton symbologie (ouvre la fenêtre de la couche) */}
               <button onClick={() => onOpenSymbology?.(layer.id)} title="Symbologie de la couche"
@@ -371,7 +370,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
             )}
 
             {/* Graphiques par entité — couleur de chaque variable représentée */}
-            {layer.chartCfg?.vars?.length > 0 && (() => {
+            {layer.visible && layer.chartCfg?.vars?.length > 0 && (() => {
               const cs = resolveChartColors(layer.chartCfg, RAMPS, layer.chartCfg.vars.length);
               return (
                 <div style={{ paddingLeft: 4, display: "flex", flexDirection: "column", gap: 2 }}>
