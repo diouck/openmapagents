@@ -2325,6 +2325,7 @@ def gee_watershed(req: WatershedRequest):
     # SANS rupture — contrairement aux tronçons vecteur FreeFlowingRivers.
     # (cf. méthode QGIS/GEE : MNT → direction → accumulation → réseau.)
     streams_tile = None
+    streams_vector = None
     try:
         # MERIT Hydro (~90 m) : bien plus FIN que HydroSHEDS 15ACC (~450 m) → réseau
         # net et dendritique, pas pixelisé. Bande 'upa' = aire drainée amont (km²).
@@ -2344,8 +2345,22 @@ def gee_watershed(req: WatershedRequest):
             attrs["seuil_drainage_km2"] = round(float(thr.getInfo()), 1)
         except Exception:
             pass
-        notes.append("Réseau continu = seuillage de l'aire drainée MERIT Hydro (~90 m) : fin, "
-                     "dendritique et connecté par construction jusqu'à l'exutoire, sans rupture.")
+        # ── VECTORISATION SANS PERTE + réseau CONNECTÉ (8-connexité) → GeoJSON ──
+        # reduceToVectors transforme les cellules « cours d'eau » en polygones ;
+        # eightConnected=True raccorde les diagonales → un réseau d'un seul tenant,
+        # sans rupture. Pas de simplification (fidèle au pixel = « sans perte »).
+        try:
+            sv = streams.reduceToVectors(
+                geometry=geom, scale=95, geometryType="polygon",
+                eightConnected=True, labelProperty="net",
+                maxPixels=int(1e10), bestEffort=True)
+            streams_vector = sv.limit(8000).getInfo()
+            if streams_vector and streams_vector.get("features"):
+                attrs["reseau_troncons_vect"] = len(streams_vector["features"])
+        except Exception as e2:
+            print(f"[watershed] vectorisation réseau indisponible : {e2}")
+        notes.append("Réseau continu = aire drainée MERIT Hydro (~90 m) seuillée, vectorisée en "
+                     "8-connexité (réseau d'un seul tenant, sans perte ni rupture).")
     except Exception as e:
         print(f"[watershed] réseau continu (MERIT upa) indisponible : {e}")
 
@@ -2357,6 +2372,7 @@ def gee_watershed(req: WatershedRequest):
         "boundary": boundary,
         "rivers": rivers_gj,
         "streams_tile": streams_tile,
+        "streams_vector": streams_vector,
         "attributes": attrs,
         "unavailable": unavailable,
         "notes": notes,
