@@ -1048,13 +1048,14 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               boxShadow: overId === l.id ? `inset 0 2px 0 ${C.acc}` : "none",
               opacity: dragId === l.id ? 0.45 : 1 }}>
 
-            {/* Ligne principale */}
+            {/* Ligne principale — double-clic = renommer ; symbologie via le bouton palette */}
             <div
               style={{
                 padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
-                cursor: "pointer", background: exp === l.id ? C.hover : "transparent",
+                cursor: "default", background: exp === l.id ? C.hover : "transparent",
               }}
-              onClick={() => onOpenSymbology?.(exp === l.id ? null : l.id)}
+              onDoubleClick={() => setEditName(l.id)}
+              title="Double-clic : renommer"
             >
               <span
                 draggable

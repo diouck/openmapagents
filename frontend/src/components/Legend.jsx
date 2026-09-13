@@ -262,10 +262,11 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
+  const [editId, setEditId] = useState(null);   // couche en cours de renommage
   if (!layers.length) return null;   // afficher TOUTES les couches (visibles ou non)
 
   return (
@@ -293,8 +294,8 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
 
         return (
           <div key={layer.id}
-            onDoubleClick={() => onOpenSymbology?.(layer.id)}
-            title="Double-clic : ouvrir la symbologie"
+            onDoubleClick={() => setEditId(layer.id)}
+            title="Double-clic : renommer"
             onDragOver={e => { if (dragId && dragId !== layer.id) { e.preventDefault(); if (overId !== layer.id) setOverId(layer.id); } }}
             onDragLeave={() => setOverId(o => (o === layer.id ? null : o))}
             onDrop={e => { e.preventDefault(); if (dragId && dragId !== layer.id) onReorder?.(dragId, layer.id); setDragId(null); setOverId(null); }}
@@ -322,7 +323,16 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle })
               ) : (
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: layer.color, flexShrink: 0 }} />
               )}
-              <span style={{ fontSize: 11, fontWeight: 500, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{layer.name}</span>
+              {editId === layer.id ? (
+                <input autoFocus value={layer.name}
+                  onChange={e => onRename?.(layer.id, e.target.value)}
+                  onBlur={() => setEditId(null)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditId(null); }}
+                  onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
+                  style={{ fontSize: 11, flex: 1, minWidth: 0, padding: "1px 5px", borderRadius: 4, background: C.input, color: C.txt, border: `0.5px solid ${C.acc}`, outline: "none" }} />
+              ) : (
+                <span style={{ fontSize: 11, fontWeight: 500, color: C.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{layer.name}</span>
+              )}
               <span style={{ fontSize: 9, color: C.dim, fontFamily: M, flexShrink: 0 }}>{layer.featureCount}</span>
               {/* Bouton activer/désactiver (bascule la visibilité, NE supprime pas) */}
               <button onClick={() => onToggle?.(layer.id)} title={layer.visible ? "Désactiver (masquer)" : "Activer (afficher)"}
