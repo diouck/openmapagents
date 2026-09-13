@@ -20,14 +20,14 @@ import {
 } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS_NAMES = ["Bassin versant", "Réseau hydrographique", "Exutoire"];
+const WS_NAMES = ["Bassin versant", "Réseau hydro (continu)", "Réseau hydrographique", "Exutoire"];
 const STEPS = [
   ["delin", "Délimitation du bassin (HydroSHEDS)"],
   ["net",   "Extraction du réseau hydrographique"],
   ["attr",  "Attributs : sol, relief, climat, nappe"],
 ];
 
-export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onRemoveLayers }) {
+export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onAddRaster, onRemoveLayers }) {
   const C = useThemeContext();
 
   const [tab, setTab]         = useState("outil");   // outil | info
@@ -86,9 +86,15 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
                       reseau_km: A0.reseau_km, sous_bassins: A0.sous_bassins },
       }] }, "Bassin versant", "analysis");
     }
+    // Réseau CONTINU (accumulation de flux, raster) — connecté jusqu'à l'exutoire.
+    if (delim.streams_tile) {
+      onAddRaster?.({ id: `ws-streams-${Date.now()}`, name: "Réseau hydro (continu)",
+        type: "wms", tileUrl: delim.streams_tile, opacity: 0.95 });
+    }
+    // Tronçons vecteur HydroRIVERS (attributs, ordre) — peut présenter des ruptures.
     if (delim.rivers?.features?.length) {
       onAddLayerSilent?.(delim.rivers, "Réseau hydrographique", "data",
-        { color: "#2b83ba", opacity: 0.9, radius: 3 });
+        { color: "#7fb2d6", opacity: 0.7, radius: 3 });
     }
     onAddLayerSilent?.({ type: "FeatureCollection", features: [{
       type: "Feature", geometry: { type: "Point", coordinates: [outlet.lon, outlet.lat] },
@@ -357,6 +363,13 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
               <b style={{ color: C.mut }}> hiérarchisé et continu</b> jusqu'à l'exutoire. Chaque
               tronçon se raccorde au suivant à une <b style={{ color: C.mut }}>confluence</b> — un
               réseau correct est donc sans rupture.
+            </p>
+            <p style={{ ...p, marginTop: 6 }}>
+              Deux réseaux sont fournis : <b style={{ color: C.mut }}>Réseau hydro (continu)</b> —
+              seuillage de l'<b style={{ color: C.mut }}>accumulation de flux</b> (MNT → direction →
+              accumulation), connecté par construction jusqu'à l'exutoire — et les
+              <b style={{ color: C.mut }}> tronçons HydroRIVERS</b> (vecteur), porteurs des attributs
+              d'ordre mais qui peuvent présenter des ruptures.
             </p>
           </div>
 

@@ -2329,7 +2329,7 @@ export default function App() {
       <Embed>
         <WatershedPanel layers={layers} mapRef={mapRef}
           onAddLayer={addLayer} onAddLayerSilent={addLayerSilent}
-          onRemoveLayers={removeLayersByName} />
+          onAddRaster={addRasterLayer} onRemoveLayers={removeLayersByName} />
       </Embed>
     );
 

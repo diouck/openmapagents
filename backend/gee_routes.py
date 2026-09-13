@@ -2323,6 +2323,33 @@ def gee_watershed(req: WatershedRequest):
         print(f"[watershed] réseau hydro indisponible : {e}")
         notes.append("Réseau hydrographique HydroRIVERS indisponible sur ce bassin.")
 
+    # ── Réseau de drainage CONTINU depuis l'ACCUMULATION DE FLUX (méthode MNT) ──
+    # L'accumulation de flux HydroSHEDS (15ACC) croît de façon MONOTONE vers
+    # l'aval : un simple seuillage donne un réseau connecté jusqu'à l'exutoire,
+    # SANS rupture — contrairement aux tronçons vecteur FreeFlowingRivers.
+    # (cf. méthode QGIS/GEE : MNT → direction → accumulation → réseau.)
+    streams_tile = None
+    try:
+        acc = ee.Image("WWF/HydroSHEDS/15ACC").select(0)
+        maxv = ee.Number(acc.clip(geom).reduceRegion(
+            reducer=ee.Reducer.max(), geometry=geom, scale=500,
+            maxPixels=int(1e9), bestEffort=True).values().get(0))
+        # Seuil adaptatif : ~0,4 % de l'accumulation max du bassin (au moins 30
+        # cellules) → réseau dense mais lisible, connecté jusqu'à l'exutoire.
+        thr = ee.Number(ee.Algorithms.If(maxv, maxv.multiply(0.004).max(30), 100))
+        streams = acc.gte(thr).selfMask().clip(geom)
+        mid = streams.getMapId({"min": 0, "max": 1, "palette": ["2b83ba"]})
+        f = mid.get("tile_fetcher")
+        streams_tile = f.url_format if (f and hasattr(f, "url_format")) else mid.get("urlFormat", "")
+        try:
+            attrs["seuil_accumulation_cells"] = int(thr.getInfo())
+        except Exception:
+            pass
+        notes.append("Réseau continu = seuillage de l'accumulation de flux (HydroSHEDS 15ACC, "
+                     "~450 m) : connecté par construction jusqu'à l'exutoire, sans rupture.")
+    except Exception as e:
+        print(f"[watershed] réseau continu (ACC) indisponible : {e}")
+
     # Étape 1 finie : géométrie + réseau. L'échantillonnage des indicateurs
     # (relief, sol, climat, nappe) est déporté sur /watershed/attributes pour
     # que le front affiche le bassin immédiatement, puis complète le tableau.
@@ -2330,6 +2357,7 @@ def gee_watershed(req: WatershedRequest):
         "outlet": {"lat": req.lat, "lon": req.lon},
         "boundary": boundary,
         "rivers": rivers_gj,
+        "streams_tile": streams_tile,
         "attributes": attrs,
         "unavailable": unavailable,
         "notes": notes,
