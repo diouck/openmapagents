@@ -800,16 +800,16 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
       )}
 
       {/* ══ 2e STYLE : TAILLE PROPORTIONNELLE (combinable avec la couleur) ══════════ */}
-      {isVec && (isPointish || isLine) && onStyle && (
+      {isVec && onStyle && (
         <div style={{ border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: 9, display: "flex", flexDirection: "column", gap: 8 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
             <input type="checkbox" checked={sizeOn} onChange={() => { const v = !sizeOn; setSizeOn(v); applySize({ sizeOn: v }); }} />
-            Taille proportionnelle
+            {isPoly ? "Ronds proportionnels" : "Taille proportionnelle"}
             <span style={{ fontSize: 8.5, fontWeight: 600, color: C.acc, background: C.acc + "18", border: `0.5px solid ${C.acc}55`, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".04em" }}>2ᵉ style</span>
           </label>
           {sizeOn && (<>
             <div>
-              <Lbl>{isLine ? "Épaisseur selon" : "Rayon selon"} (numérique)</Lbl>
+              <Lbl>{isLine ? "Épaisseur selon" : isPoly ? "Rond (centroïde) selon" : "Rayon selon"} (numérique)</Lbl>
               <Sel value={sizeAttr} onChange={v => { setSizeAttr(v); applySize({ sizeAttr: v, sizeOn: true }); }}
                 options={[{ value: "", label: "-- Attribut --" }, ...attrs.num.map(a => ({ value: a, label: a }))]} />
             </div>
@@ -824,7 +824,9 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
               </div>
             </div>
             <div style={{ fontSize: 9.5, color: C.dim, lineHeight: 1.5 }}>
-              Se combine avec la couleur — ex. <b style={{ color: C.mut }}>couleur graduée</b> + <b style={{ color: C.mut }}>rayon proportionnel</b>.
+              {isPoly
+                ? <>Un <b style={{ color: C.mut }}>rond</b> par polygone (au centroïde), taille ∝ valeur — se combine avec l'aplat coloré.</>
+                : <>Se combine avec la couleur — ex. <b style={{ color: C.mut }}>couleur graduée</b> + <b style={{ color: C.mut }}>rayon proportionnel</b>.</>}
             </div>
           </>)}
         </div>

@@ -78,8 +78,17 @@ function classifyJenks(vals, n) {
   return [...new Set(br)].sort((a, b) => a - b);
 }
 
+// Centroïde simple (moyenne des coordonnées) — suffisant pour placer un rond.
+function simpleCentroid(geom) {
+  let sx = 0, sy = 0, n = 0;
+  const walk = (c) => { if (typeof c[0] === "number") { sx += c[0]; sy += c[1]; n++; return; } for (const k of c) walk(k); };
+  if (geom?.coordinates) walk(geom.coordinates);
+  return n ? [sx / n, sy / n] : null;
+}
+
 // Taille proportionnelle INDÉPENDANTE (2e style combinable avec une couleur graduée/
-// catégorisée). mode "radius" (points) ou "width" (lignes). → expression MapLibre.
+// catégorisée). mode "radius" (points/polygones) ou "width" (lignes). → expression MapLibre.
+// Pour les polygones : on génère des ronds proportionnels placés au centroïde (bubbles).
 export function buildSize(layer, cfg) {
   if (!cfg || !cfg.attribute) return null;
   const vals = getNumVals(layer, cfg.attribute);
@@ -90,10 +99,24 @@ export function buildSize(layer, cfg) {
   const maxSize = cfg.maxSize ?? (mode === "width" ? 12 : 26);
   const expr = ["interpolate", ["linear"], ["to-number", ["get", cfg.attribute], 0],
     minVal, minSize, maxVal === minVal ? maxVal + 1 : maxVal, maxSize];
+
+  const gt = (layer.geojson?.features || []).find(f => f?.geometry)?.geometry?.type || "";
+  const isPoly = /Polygon/i.test(gt);
+  let bubbles = null;
+  if (mode === "radius" && isPoly) {
+    bubbles = {
+      type: "FeatureCollection",
+      features: (layer.geojson.features || []).map(f => {
+        const c = simpleCentroid(f.geometry);
+        return c ? { type: "Feature", geometry: { type: "Point", coordinates: c }, properties: f.properties || {} } : null;
+      }).filter(Boolean),
+    };
+  }
   return {
     attribute: cfg.attribute, mode, minVal, maxVal, minSize, maxSize,
     radiusExpression: mode === "radius" ? expr : null,
     widthExpression:  mode === "width"  ? expr : null,
+    bubbles,
   };
 }
 
