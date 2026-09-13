@@ -2334,9 +2334,11 @@ def gee_watershed(req: WatershedRequest):
         maxv = ee.Number(acc.clip(geom).reduceRegion(
             reducer=ee.Reducer.max(), geometry=geom, scale=500,
             maxPixels=int(1e9), bestEffort=True).values().get(0))
-        # Seuil adaptatif : ~0,4 % de l'accumulation max du bassin (au moins 30
-        # cellules) → réseau dense mais lisible, connecté jusqu'à l'exutoire.
-        thr = ee.Number(ee.Algorithms.If(maxv, maxv.multiply(0.004).max(30), 100))
+        # Seuil BAS → réseau DENDRITIQUE dense (petits affluents inclus), connecté
+        # jusqu'à l'exutoire. ~50 cellules ≈ 10 km² drainés ; borné à l'échelle du
+        # bassin pour que même les petits bassins montrent leur cours principal.
+        thr = ee.Number(ee.Algorithms.If(
+            maxv, ee.Number(maxv).divide(20).min(50).max(5), 20))
         streams = acc.gte(thr).selfMask().clip(geom)
         mid = streams.getMapId({"min": 0, "max": 1, "palette": ["2b83ba"]})
         f = mid.get("tile_fetcher")
