@@ -998,7 +998,6 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
         </div>
         {footBtn(IcRefresh, "Réinit.", () => onClassify(l.id, null), { disabled: !isVec })}
         <div style={{ flex: 1 }} />
-        {footBtn(IcTrash, "Supprimer", () => onRemove(l.id), { danger: true })}
         {footBtn(IcCheck, "OK", () => onClose?.(), { primary: true })}
       </div>
     </div>
