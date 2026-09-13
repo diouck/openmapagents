@@ -528,9 +528,9 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
       stateRef.current.pos = { x, y };
       setPos({ x, y });
     };
-    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }, []);
 
   // Resize générique — dir = combinaison de "n","s","e","w"
@@ -557,16 +557,16 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
       setPos({ x, y });
       setSize({ w, h });
     };
-    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }, []);
 
-  const E = 6;
-  const edgeStyle = (cursor, extra) => ({ position: "absolute", zIndex: 10, cursor, ...extra });
+  const E = 8;
+  const edgeStyle = (cursor, extra) => ({ position: "absolute", zIndex: 10, cursor, touchAction: "none", ...extra });
 
   return (
-    <div ref={panelRef} onMouseDown={() => setZ(bumpZ)} style={{
+    <div ref={panelRef} onPointerDown={() => setZ(bumpZ)} style={{
       position: "fixed",
       ...(pos.x !== null ? { left: pos.x, top: pos.y } : { top: "50%", left: "50%", transform: "translate(-50%,-50%)" }),
       width: size.w, height: size.h, zIndex: z,
@@ -576,20 +576,20 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
     }}>
 
       {/* ── Poignées de bord ── */}
-      <div onMouseDown={e => onResizeStart(e, "n")}  style={edgeStyle("n-resize",  { top: 0,    left: E,    right: E,   height: E })} />
-      <div onMouseDown={e => onResizeStart(e, "s")}  style={edgeStyle("s-resize",  { bottom: 0, left: E,    right: E,   height: E })} />
-      <div onMouseDown={e => onResizeStart(e, "w")}  style={edgeStyle("w-resize",  { left: 0,   top: E,     bottom: E,  width: E })} />
-      <div onMouseDown={e => onResizeStart(e, "e")}  style={edgeStyle("e-resize",  { right: 0,  top: E,     bottom: E,  width: E })} />
-      <div onMouseDown={e => onResizeStart(e, "nw")} style={edgeStyle("nw-resize", { top: 0,    left: 0,    width: E,   height: E })} />
-      <div onMouseDown={e => onResizeStart(e, "ne")} style={edgeStyle("ne-resize", { top: 0,    right: 0,   width: E,   height: E })} />
-      <div onMouseDown={e => onResizeStart(e, "sw")} style={edgeStyle("sw-resize", { bottom: 0, left: 0,    width: E,   height: E })} />
-      <div onMouseDown={e => onResizeStart(e, "se")} style={edgeStyle("se-resize", { bottom: 0, right: 0,   width: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "n")}  style={edgeStyle("n-resize",  { top: 0,    left: E,    right: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "s")}  style={edgeStyle("s-resize",  { bottom: 0, left: E,    right: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "w")}  style={edgeStyle("w-resize",  { left: 0,   top: E,     bottom: E,  width: E })} />
+      <div onPointerDown={e => onResizeStart(e, "e")}  style={edgeStyle("e-resize",  { right: 0,  top: E,     bottom: E,  width: E })} />
+      <div onPointerDown={e => onResizeStart(e, "nw")} style={edgeStyle("nw-resize", { top: 0,    left: 0,    width: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "ne")} style={edgeStyle("ne-resize", { top: 0,    right: 0,   width: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "sw")} style={edgeStyle("sw-resize", { bottom: 0, left: 0,    width: E,   height: E })} />
+      <div onPointerDown={e => onResizeStart(e, "se")} style={edgeStyle("se-resize", { bottom: 0, right: 0,   width: E,   height: E })} />
 
       {/* ── Titre / drag ── */}
-      <div onMouseDown={onDragStart} style={{
+      <div onPointerDown={onDragStart} style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "9px 12px 8px", borderBottom: `0.5px solid ${C.bdr}`,
-        cursor: "grab", flexShrink: 0, background: C.card,
+        cursor: "grab", flexShrink: 0, background: C.card, touchAction: "none",
       }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: C.txt, display: "flex", alignItems: "center", gap: 6, userSelect: "none", minWidth: 0 }}>
           <span style={{ fontSize: 11, color: C.dim, letterSpacing: 2, flexShrink: 0 }}>⠿</span>

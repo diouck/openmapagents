@@ -70,9 +70,9 @@ export default function FloatingWindow({
       setPos({ x, y }); setSize({ w, h });
     };
     const up = () => { if (act.current) { act.current = null; document.body.style.userSelect = ""; } };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
   }, [minW, minH]);
 
   const begin = (mode) => (e) => {
@@ -87,7 +87,7 @@ export default function FloatingWindow({
     document.body.style.userSelect = "none";
   };
 
-  const H = { position: "absolute", zIndex: 12 };
+  const H = { position: "absolute", zIndex: 12, touchAction: "none" };
   const handles = [
     { m: "n",  s: { top: -3, left: 14, right: 14, height: 8, cursor: "ns-resize" } },
     { m: "s",  s: { bottom: -3, left: 14, right: 14, height: 8, cursor: "ns-resize" } },
@@ -106,23 +106,23 @@ export default function FloatingWindow({
         height: size.h ?? "auto", maxHeight: "92vh", maxWidth: "96vw" };
 
   return (
-    <div ref={winRef} onMouseDown={() => onFocus?.()} style={{
+    <div ref={winRef} onPointerDown={() => onFocus?.()} style={{
       ...frame,
       background: C.card, borderRadius: 14, border: `0.5px solid ${C.bdr}`,
       boxShadow: "0 16px 48px rgba(0,0,0,.4)", zIndex: z,
       display: "flex", flexDirection: "column", overflow: "hidden",
     }}>
-      {!isMobile && handles.map(h => <div key={h.m} onMouseDown={begin(h.m)} style={{ ...H, ...h.s }} />)}
+      {!isMobile && handles.map(h => <div key={h.m} onPointerDown={begin(h.m)} style={{ ...H, ...h.s }} />)}
 
       {/* En-tête (déplaçable sur desktop ; fixe sur mobile) */}
-      <div onMouseDown={isMobile ? undefined : begin("drag")} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 11px", borderBottom: `0.5px solid ${C.bdr}`, cursor: isMobile ? "default" : "move", userSelect: "none", flexShrink: 0 }}>
+      <div onPointerDown={isMobile ? undefined : begin("drag")} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 11px", borderBottom: `0.5px solid ${C.bdr}`, cursor: isMobile ? "default" : "move", userSelect: "none", touchAction: isMobile ? "auto" : "none", flexShrink: 0 }}>
         {icon && <span style={{ display: "flex", flexShrink: 0, color: C.acc }}>{icon}</span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
           {subtitle && <div style={{ fontSize: 10, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
         </div>
         {headerRight}
-        <button onMouseDown={e => e.stopPropagation()} onClick={onClose} title="Fermer" style={{ background: "transparent", border: "none", color: C.dim, cursor: "pointer", display: "flex", flexShrink: 0, padding: 2 }}><IcX size={16}/></button>
+        <button onPointerDown={e => e.stopPropagation()} onClick={onClose} title="Fermer" style={{ background: "transparent", border: "none", color: C.dim, cursor: "pointer", display: "flex", flexShrink: 0, padding: 2 }}><IcX size={16}/></button>
       </div>
 
       {/* Corps */}

@@ -598,29 +598,82 @@ function bboxOf(gj) {
 //    directions) + redimensionnable (poignée en bas à droite) + réductible. ────────
 function PropsWindow({ title, isRaster, badge, z, onFocus, onClose, children }) {
   const C = useThemeContext();
-  const [pos, setPos] = useState(() => ({ x: Math.max(12, Math.min((window.innerWidth || 1200) - 494, 260)), y: 84 }));
+  const winRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
+  const [pos, setPos] = useState(() => ({ x: Math.max(10, Math.min((window.innerWidth || 1200) - 494, 260)), y: 80 }));
   const [size, setSize] = useState({ w: 470, h: 520 });
   const [min, setMin] = useState(false);
-  const drag = useRef(null);
+  const act = useRef(null);   // { mode, sx, sy, px, py, w, h }
+  const minW = 300, minH = 200;
+
   useEffect(() => {
-    const mv = (e) => {
-      const d = drag.current; if (!d) return;
-      if (d.mode === "move") setPos({ x: Math.max(0, Math.min((window.innerWidth || 9999) - 60, d.x + e.clientX - d.sx)), y: Math.max(0, Math.min((window.innerHeight || 9999) - 40, d.y + e.clientY - d.sy)) });
-      else setSize({ w: Math.max(280, d.w + e.clientX - d.sx), h: Math.max(160, d.h + e.clientY - d.sy) });
-    };
-    const up = () => { drag.current = null; document.body.style.userSelect = ""; };
-    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
-    return () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
+    const onR = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
   }, []);
-  const headDown = (e) => { if (e.target.closest("[data-nodrag]")) return; drag.current = { mode: "move", sx: e.clientX, sy: e.clientY, x: pos.x, y: pos.y }; document.body.style.userSelect = "none"; e.preventDefault(); };
-  const resizeDown = (e) => { drag.current = { mode: "resize", sx: e.clientX, sy: e.clientY, w: size.w, h: size.h }; document.body.style.userSelect = "none"; e.preventDefault(); e.stopPropagation(); };
+
+  // Au montage (desktop) : borner la position dans le viewport.
+  useEffect(() => {
+    if (isMobile) return;
+    const el = winRef.current; if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    setPos(p => ({ x: Math.max(6, Math.min(p.x, Math.max(6, window.innerWidth - w - 6))), y: Math.max(6, Math.min(p.y, Math.max(6, window.innerHeight - h - 6))) }));
+  }, [isMobile]);
+
+  useEffect(() => {
+    const move = (e) => {
+      const a = act.current; if (!a) return;
+      const dx = e.clientX - a.sx, dy = e.clientY - a.sy;
+      if (a.mode === "drag") {
+        const el = winRef.current, w = el?.offsetWidth || size.w, h = el?.offsetHeight || minH;
+        setPos({ x: Math.max(6, Math.min(a.px + dx, Math.max(6, window.innerWidth - w - 6))), y: Math.max(6, Math.min(a.py + dy, Math.max(6, window.innerHeight - h - 6))) });
+        return;
+      }
+      let x = a.px, y = a.py, w = a.w, h = a.h; const m = a.mode;
+      if (m.includes("e")) w = Math.max(minW, a.w + dx);
+      if (m.includes("s")) h = Math.max(minH, a.h + dy);
+      if (m.includes("w")) { w = Math.max(minW, a.w - dx); x = a.px + (a.w - w); }
+      if (m.includes("n")) { h = Math.max(minH, a.h - dy); y = a.py + (a.h - h); }
+      setPos({ x, y }); setSize({ w, h });
+    };
+    const up = () => { if (act.current) { act.current = null; document.body.style.userSelect = ""; } };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  }, [size.w]);
+
+  const begin = (mode) => (e) => {
+    if (mode === "drag" && e.target.closest("[data-nodrag]")) return;
+    e.preventDefault(); onFocus?.();
+    const rect = winRef.current?.getBoundingClientRect();
+    act.current = { mode, sx: e.clientX, sy: e.clientY, px: pos.x, py: pos.y, w: size.w ?? rect?.width ?? minW, h: size.h ?? rect?.height ?? minH };
+    document.body.style.userSelect = "none";
+  };
+
   const hbtn = { background: "none", border: "none", cursor: "pointer", color: C.dim, lineHeight: 0, padding: "3px 5px", borderRadius: 5, display: "flex", alignItems: "center" };
+  const H = { position: "absolute", zIndex: 12, touchAction: "none" };
+  const handles = [
+    { m: "n",  s: { top: -3, left: 16, right: 16, height: 9, cursor: "ns-resize" } },
+    { m: "s",  s: { bottom: -3, left: 16, right: 16, height: 9, cursor: "ns-resize" } },
+    { m: "w",  s: { left: -3, top: 16, bottom: 16, width: 9, cursor: "ew-resize" } },
+    { m: "e",  s: { right: -3, top: 16, bottom: 16, width: 9, cursor: "ew-resize" } },
+    { m: "nw", s: { top: -4, left: -4, width: 16, height: 16, cursor: "nwse-resize" } },
+    { m: "ne", s: { top: -4, right: -4, width: 16, height: 16, cursor: "nesw-resize" } },
+    { m: "sw", s: { bottom: -4, left: -4, width: 16, height: 16, cursor: "nesw-resize" } },
+    { m: "se", s: { bottom: -4, right: -4, width: 16, height: 16, cursor: "nwse-resize" } },
+  ];
+  const frame = isMobile
+    ? { position: "fixed", left: 8, right: 8, bottom: 8, top: "auto", width: "auto", height: min ? "auto" : "82vh", maxWidth: "none" }
+    : { position: "fixed", left: pos.x, top: pos.y, width: size.w, height: min ? "auto" : size.h, maxWidth: "96vw", maxHeight: "92vh" };
+
   return createPortal(
-    <div onMouseDown={onFocus} style={{ position: "fixed", left: pos.x, top: pos.y, width: size.w, maxWidth: "calc(100vw - 16px)", zIndex: z || 1400,
+    <div ref={winRef} onPointerDown={() => onFocus?.()} style={{ ...frame, zIndex: z || 1400,
       background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 14,
-      boxShadow: "0 16px 48px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "calc(100vh - 16px)" }}>
-      <div onMouseDown={headDown} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px",
-        borderBottom: `0.5px solid ${C.bdr}`, cursor: "move", userSelect: "none" }}>
+      boxShadow: "0 16px 48px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {!isMobile && !min && handles.map(h => <div key={h.m} onPointerDown={begin(h.m)} style={{ ...H, ...h.s,
+        ...(h.m === "se" ? { background: `repeating-linear-gradient(-45deg, ${C.dim} 0 1.2px, transparent 1.2px 3px)`, opacity: 0.7, borderBottomRightRadius: 9 } : {}) }} />)}
+      <div onPointerDown={isMobile ? undefined : begin("drag")} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px",
+        borderBottom: `0.5px solid ${C.bdr}`, cursor: isMobile ? "default" : "move", userSelect: "none", touchAction: isMobile ? "auto" : "none", flexShrink: 0 }}>
         <span style={{ display: "flex", color: isRaster ? "#a06bd6" : C.acc, flexShrink: 0 }}><IcPalette size={14} /></span>
         <span style={{ fontFamily: M, fontSize: 8.5, fontWeight: 700, letterSpacing: ".03em", padding: "2px 5px", borderRadius: 5,
           color: isRaster ? "#a06bd6" : C.acc, border: `1px solid ${isRaster ? "#a06bd655" : C.acc + "55"}`, background: (isRaster ? "#a06bd6" : C.acc) + "18", flexShrink: 0 }}>{badge || (isRaster ? "RASTER" : "VECTEUR")}</span>
@@ -628,10 +681,7 @@ function PropsWindow({ title, isRaster, badge, z, onFocus, onClose, children }) 
         <button data-nodrag onClick={() => setMin(m => !m)} title={min ? "Agrandir" : "Réduire"} style={hbtn}>{min ? <IcMaximize size={13} /> : <IcMinus size={14} />}</button>
         <button data-nodrag onClick={onClose} title="Fermer" style={hbtn}><IcX size={14} /></button>
       </div>
-      {!min && <div style={{ height: size.h, maxHeight: "calc(100vh - 70px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>{children}</div>}
-      {!min && <div onMouseDown={resizeDown} title="Redimensionner" aria-hidden="true"
-        style={{ position: "absolute", right: 2, bottom: 2, width: 15, height: 15, cursor: "nwse-resize",
-          background: `repeating-linear-gradient(-45deg, ${C.dim} 0 1.2px, transparent 1.2px 3px)`, opacity: 0.75, borderBottomRightRadius: 9 }} />}
+      {!min && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{children}</div>}
     </div>,
     document.body
   );
