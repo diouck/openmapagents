@@ -3,7 +3,7 @@ import { useThemeContext } from "../theme";
 import { M, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
-import { IcPalette, IcMove, IcEye, IcEyeOff } from "../icons";
+import { IcPalette, IcMove, IcEye, IcEyeOff, IcTrash } from "../icons";
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -262,7 +262,7 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -343,6 +343,13 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
               <button onClick={() => onOpenSymbology?.(layer.id)} title="Symbologie de la couche"
                 style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
                 <IcPalette size={12} />
+              </button>
+              {/* Corbeille — supprimer la couche */}
+              <button onClick={() => onRemove?.(layer.id)} title="Supprimer la couche"
+                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}
+                onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.red; }}
+                onMouseLeave={e => { e.currentTarget.style.color = C.dim; e.currentTarget.style.borderColor = C.bdr; }}>
+                <IcTrash size={12} />
               </button>
             </div>
 

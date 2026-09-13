@@ -3145,7 +3145,7 @@ export default function App() {
             </div>
           </>)}
 
-          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL}/>
+          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL} onRemove={removeL}/>
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(

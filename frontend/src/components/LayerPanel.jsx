@@ -1235,6 +1235,13 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
               >
                 {l.visible ? "masquer" : "afficher"}
               </button>
+              {/* Corbeille — supprimer la couche */}
+              <button onClick={e => { e.stopPropagation(); onRemove(l.id); }} title="Supprimer la couche"
+                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}
+                onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.red; }}
+                onMouseLeave={e => { e.currentTarget.style.color = C.dim; e.currentTarget.style.borderColor = C.bdr; }}>
+                <IcTrash size={12} />
+              </button>
             </div>
 
             {/* Mini-légende classification (toujours visible sous la ligne) */}
