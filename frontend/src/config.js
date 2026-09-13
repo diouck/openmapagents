@@ -149,6 +149,14 @@ export const CAT_RAMPS = new Set(["categorial","set2","tab10","pastel","dark2"])
 
 export const EXPORT_FORMATS = ["GeoJSON", "GeoPackage", "Shapefile", "CSV", "FlatGeobuf"];
 
+// Palettes bivariées 3×3 : index = classeA*3 + classeB (A = axe vertical, B = horizontal).
+export const BIVARIATE_PALETTES = {
+  "Teal / Rouge":   ["#e8e8e8","#e4acac","#c85a5a","#b0d5df","#ad9ea5","#985356","#64acbe","#627f8c","#574249"],
+  "Bleu / Violet":  ["#e8e8e8","#b0d5df","#64acbe","#d6b0c9","#9fa5c1","#5a95b0","#c85aa2","#8c6296","#3b4994"],
+  "Vert / Magenta": ["#e8e8e8","#e4acd7","#c85ab0","#b8d6a2","#a99ea0","#8d5385","#73ae4f","#5a8f52","#2a5a3b"],
+  "Orange / Bleu":  ["#e8e8e8","#c3b3d8","#8c62aa","#f3b48a","#b79ca8","#7e5688","#e6842d","#a67231","#804d2a"],
+};
+
 export function hexToRgb(hex) {
   return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 }

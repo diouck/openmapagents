@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useThemeContext } from "../theme";
-import { F, M, EXPORT_FORMATS } from "../config";
+import { F, M, EXPORT_FORMATS, BIVARIATE_PALETTES } from "../config";
+import { getLayerAttrs, buildBivariate } from "../utils/classification";
 import { Badge, Btn } from "./ui";
 import { IcBarChart, IcEye, IcEyeOff, IcPalette, IcMove, IcMaximize, IcMinus, IcX,
-  IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck, IcEdit } from "../icons";
+  IcHash, IcSliders, IcTable, IcInfo, IcCopy, IcClipboard, IcFileDown, IcRefresh, IcTrash, IcCheck, IcEdit, IcVenn } from "../icons";
 import ClassPanel from "./ClassPanel";
 import ChartStyleBlock from "./ChartStyleBlock";
 import FieldCalcBlock from "./FieldCalcBlock";
@@ -729,6 +730,69 @@ function AttributeTable({ layer, C }) {
   );
 }
 
+// ── Onglet BIVARIÉ : croise 2 variables numériques en une matrice 3×3 ────────────
+function BivariateStylePanel({ layer, onStyle, C }) {
+  const nums = getLayerAttrs(layer).num;
+  const [ax, setAx]  = useState(layer.biv?.attrX || "");
+  const [ay, setAy]  = useState(layer.biv?.attrY || "");
+  const [pal, setPal] = useState(layer.biv?.paletteKey || Object.keys(BIVARIATE_PALETTES)[0]);
+  const on = !!layer.biv;
+  const apply = (x, y, p) => {
+    if (!x || !y) { onStyle(layer.id, { biv: null }); return; }
+    onStyle(layer.id, { biv: buildBivariate(layer, { attrX: x, attrY: y, palette: p }) });
+  };
+  const selSt = { fontFamily: F, fontSize: 11, padding: "5px 7px", borderRadius: 6, background: C.input, color: C.txt, border: `0.5px solid ${C.bdr}`, outline: "none", width: "100%" };
+  const lbl = { fontSize: 9.5, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4, fontWeight: 600 };
+  if (nums.length < 2) return <div style={{ fontSize: 11, color: C.dim }}>Il faut au moins 2 champs numériques pour un style bivarié.</div>;
+  const cols = BIVARIATE_PALETTES[pal] || [];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+      <div style={{ fontSize: 11, color: C.mut, lineHeight: 1.5 }}>Croise <b style={{ color: C.txt }}>deux variables</b> en une matrice 3×3 (tertiles). Chaque entité prend la couleur du croisement A × B.</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 118 }}>
+          <div style={lbl}>Variable A (vert.)</div>
+          <select value={ax} onChange={e => { setAx(e.target.value); apply(e.target.value, ay, pal); }} style={selSt}>
+            <option value="">-- Choisir --</option>{nums.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 118 }}>
+          <div style={lbl}>Variable B (horiz.)</div>
+          <select value={ay} onChange={e => { setAy(e.target.value); apply(ax, e.target.value, pal); }} style={selSt}>
+            <option value="">-- Choisir --</option>{nums.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style={lbl}>Palette bivariée</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {Object.entries(BIVARIATE_PALETTES).map(([name, p]) => (
+            <button key={name} onClick={() => { setPal(name); apply(ax, ay, name); }} title={name}
+              style={{ padding: 3, borderRadius: 7, cursor: "pointer", background: "transparent", border: pal === name ? `2px solid ${C.acc}` : "2px solid transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,10px)", gridTemplateRows: "repeat(3,10px)", gap: 1 }}>
+                {[6, 7, 8, 3, 4, 5, 0, 1, 2].map(i => <span key={i} style={{ width: 10, height: 10, background: p[i], borderRadius: 1 }} />)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+      {on && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, paddingTop: 2 }}>
+          <span style={{ fontSize: 9, color: C.dim, writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap" }}>{ax || "A"} →</span>
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,20px)", gridTemplateRows: "repeat(3,20px)", gap: 2 }}>
+              {[2, 1, 0].flatMap(a => [0, 1, 2].map(b => <span key={a * 3 + b} style={{ width: 20, height: 20, background: cols[a * 3 + b], borderRadius: 3, border: "0.5px solid rgba(0,0,0,.12)" }} />))}
+            </div>
+            <div style={{ fontSize: 9, color: C.dim, marginTop: 2 }}>{ay || "B"} →</div>
+          </div>
+        </div>
+      )}
+      {on && (
+        <button onClick={() => onStyle(layer.id, { biv: null })} style={{ alignSelf: "flex-start", fontFamily: F, fontSize: 11, padding: "5px 10px", borderRadius: 6, background: "transparent", border: `0.5px solid ${C.bdr}`, color: C.mut, cursor: "pointer" }}>Désactiver le bivarié</button>
+      )}
+    </div>
+  );
+}
+
 // ── Contenu de la fenêtre Symbologie : structure à ONGLETS (façon QGIS / maquette
 //    validée), qui réutilise les vrais composants de style existants. ─────────────
 function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, onExportFmt, onRemove, onUpdateRasterLayer, onUpdateGeojson, mapRef, openStats, exportImageTiff, tiffBusy }) {
@@ -736,7 +800,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
   const isR = l.isRaster, isVec = !l.isRaster && !!l.geojson;
   const TABS = isR
     ? [["sym", "Symbologie", IcPalette], ["render", "Rendu", IcSliders], ["fields", "Champs", IcTable], ["info", "Infos", IcInfo]]
-    : [["sym", "Symbologie", IcPalette], ["graphs", "Graphiques", IcBarChart], ["lab", "Étiquettes", IcHash], ["attr", "Attributs", IcTable], ["render", "Rendu", IcSliders], ["fields", "Champs", IcEdit], ["info", "Infos", IcInfo]];
+    : [["sym", "Symbologie", IcPalette], ["biv", "Bivarié", IcVenn], ["graphs", "Graphiques", IcBarChart], ["lab", "Étiquettes", IcHash], ["attr", "Attributs", IcTable], ["render", "Rendu", IcSliders], ["fields", "Champs", IcEdit], ["info", "Infos", IcInfo]];
   const [tab, setTab] = useState("sym");
   const [expMenu, setExpMenu] = useState(false);
   const [, force] = useState(0);
@@ -792,6 +856,9 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
               onChange={cfg => onClassify(l.id, cfg)} onStyle={onStyle} mapRef={mapRef} />
           )}
         </>)}
+
+        {/* Style bivarié — croise 2 variables en matrice 3×3 */}
+        {tab === "biv" && isVec && <BivariateStylePanel layer={l} onStyle={onStyle} C={C} />}
 
         {/* Graphiques par entité — SUPERPOSABLES à une classification (aplat + camembert/ronds) */}
         {tab === "graphs" && isVec && (

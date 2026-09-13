@@ -1946,7 +1946,7 @@ export default function App() {
   }, [vs, mapSt, layers]);
 
   const getPaint = useCallback((layer, gt) => {
-    const cr = layer.classResult; const ce = cr?.expression || layer.color;
+    const cr = layer.classResult; const ce = layer.biv?.expression || cr?.expression || layer.color;
     if (gt==="fill") return {"fill-color":ce,"fill-opacity":layer.opacity*0.4};
     // contour de POLYGONE : couleur + épaisseur variables (symbologie type QGIS, ex. aplat vert + contour noir)
     if (gt==="outline") return {"line-color":layer.outlineColor||ce,"line-width":layer.strokeWidth??1.5,"line-opacity":layer.opacity};

@@ -1,4 +1,32 @@
-import { RAMPS } from "../config";
+import { RAMPS, BIVARIATE_PALETTES } from "../config";
+
+// ── Style BIVARIÉ (2 variables croisées en une matrice 3×3) ──────────────────
+function tertiles(vals) {
+  const s = [...vals].sort((a, b) => a - b);
+  const q = (p) => s[Math.min(s.length - 1, Math.max(0, Math.floor(p * s.length)))];
+  let b1 = q(1 / 3), b2 = q(2 / 3);
+  if (b2 <= b1) b2 = b1 + (Math.abs(b1) || 1) * 1e-4 + 1e-6;   // bornes strictement croissantes (step MapLibre)
+  return [b1, b2];
+}
+export function buildBivariate(layer, cfg) {
+  if (!cfg || !cfg.attrX || !cfg.attrY) return null;
+  const vx = getNumVals(layer, cfg.attrX), vy = getNumVals(layer, cfg.attrY);
+  if (!vx.length || !vy.length) return null;
+  const [bx1, bx2] = tertiles(vx), [by1, by2] = tertiles(vy);
+  const palette = BIVARIATE_PALETTES[cfg.palette] || Object.values(BIVARIATE_PALETTES)[0];
+  const classX = ["step", ["to-number", ["get", cfg.attrX], 0], 0, bx1, 1, bx2, 2];
+  const classY = ["step", ["to-number", ["get", cfg.attrY], 0], 0, by1, 1, by2, 2];
+  const idx = ["+", ["*", classX, 3], classY];
+  const expr = ["match", idx];
+  for (let i = 0; i < 9; i++) { expr.push(i); expr.push(palette[i]); }
+  expr.push("#cccccc");
+  return {
+    type: "bivariate", palette, expression: expr,
+    attrX: cfg.attrX, attrY: cfg.attrY, paletteKey: cfg.palette,
+    label_a: cfg.attrX, label_b: cfg.attrY, levels: ["Faible", "Moyen", "Élevé"],
+    breaksX: [bx1, bx2], breaksY: [by1, by2],
+  };
+}
 
 export function getLayerAttrs(layer) {
   const feats = layer.geojson?.features || [];

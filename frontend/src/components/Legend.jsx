@@ -451,6 +451,9 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
                 <NestedLines cr={{ minSize: layer.sizeResult.minSize, maxSize: layer.sizeResult.maxSize, minVal: layer.sizeResult.minVal, maxVal: layer.sizeResult.maxVal }} color={layer.color} />
               </div>
             )}
+
+            {/* Style bivarié (vecteur) — matrice 3×3 */}
+            {layer.visible && layer.biv?.palette && <BivariateLegend bivariate={layer.biv} />}
           </div>
         );
       })}
