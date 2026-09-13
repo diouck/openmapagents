@@ -1115,6 +1115,43 @@ def export_data(req: ExportRequest):
     return execute_query_overture(args)
 
 
+class ConvertRequest(BaseModel):
+    geojson: dict
+    format: str = "GeoPackage"
+    name: str = "export"
+
+
+@app.post("/api/convert")
+def convert_features(req: ConvertRequest):
+    """Convertit un GeoJSON fourni par le client en GeoPackage / FlatGeobuf / GeoJSON
+    via DuckDB spatial (GDAL). Renvoie le fichier converti (données réelles de la couche)."""
+    from fastapi.responses import FileResponse
+    fmt_map = {
+        "GeoPackage": ("gpkg", "GPKG"),
+        "FlatGeobuf": ("fgb", "FlatGeobuf"),
+        "GeoJSON":    ("geojson", "GeoJSON"),
+    }
+    ext, driver = fmt_map.get(req.format, ("gpkg", "GPKG"))
+    feats = (req.geojson or {}).get("features") or []
+    if not feats:
+        raise HTTPException(400, "GeoJSON vide")
+    key = hashlib.md5((json.dumps(req.geojson)[:4000] + req.format + req.name).encode()).hexdigest()
+    in_path = CACHE_DIR / f"conv_{key}.geojson"
+    out_path = CACHE_DIR / f"conv_{key}.{ext}"
+    try:
+        in_path.write_text(json.dumps(req.geojson), encoding="utf-8")
+        if out_path.exists():
+            out_path.unlink()
+        db.conn.execute("LOAD spatial;")
+        db.conn.execute(
+            f"COPY (SELECT * FROM ST_Read('{in_path.as_posix()}')) "
+            f"TO '{out_path.as_posix()}' WITH (FORMAT GDAL, DRIVER '{driver}');"
+        )
+        return FileResponse(str(out_path), filename=f"{req.name}.{ext}", media_type="application/octet-stream")
+    except Exception as e:
+        raise HTTPException(500, f"Conversion {req.format}: {e}")
+
+
 
 # ─── LLM Proxy pour AgriPanel et autres modules frontend ──────────────────────
 # Expose /api/llm/chat/completions compatible OpenAI

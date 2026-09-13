@@ -147,7 +147,7 @@ export const RAMP_NAMES = {
 // Rampes catégorielles (couleurs discrètes, pas interpolées)
 export const CAT_RAMPS = new Set(["categorial","set2","tab10","pastel","dark2"]);
 
-export const EXPORT_FORMATS = ["GeoJSON", "GeoPackage", "Shapefile", "CSV", "FlatGeobuf"];
+export const EXPORT_FORMATS = ["GeoJSON", "GeoPackage", "CSV", "FlatGeobuf"];
 
 // Palettes bivariées 3×3 : index = classeA*3 + classeB (A = axe vertical, B = horizontal).
 export const BIVARIATE_PALETTES = {

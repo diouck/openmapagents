@@ -472,6 +472,22 @@ const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
 
 // ── FloatingPanel — redimensionnable sur les 8 côtés/coins ──────
+// GeoJSON → CSV (propriétés + type de géométrie + lon/lat repère), côté navigateur.
+function geojsonToCsv(gj) {
+  const feats = gj?.features || [];
+  const keys = [], seen = new Set();
+  feats.forEach(f => Object.keys(f.properties || {}).forEach(k => { if (!seen.has(k) && !["geom_json", "geom_wkt"].includes(k)) { seen.add(k); keys.push(k); } }));
+  const esc = (v) => { if (v == null) return ""; const s = typeof v === "object" ? JSON.stringify(v) : String(v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const header = [...keys, "geometry_type", "lon", "lat"].join(",");
+  const rows = feats.map(f => {
+    const g = f.geometry; let lon = "", lat = "";
+    if (g?.type === "Point") { lon = g.coordinates[0]; lat = g.coordinates[1]; }
+    else if (g?.coordinates) { let c = g.coordinates; while (Array.isArray(c) && Array.isArray(c[0])) c = c[0]; if (Array.isArray(c)) { lon = c[0]; lat = c[1]; } }
+    return [...keys.map(k => esc(f.properties?.[k])), g?.type || "", lon, lat].join(",");
+  });
+  return [header, ...rows].join("\n");
+}
+
 function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
   const C = useThemeContext();
   const preset  = PANEL_SIZES[id] || DEFAULT_SIZE;
@@ -1926,14 +1942,27 @@ export default function App() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(l.geojson,null,2)],{type:"application/json"}));
     a.download = `${l.name.replace(/\s+/g,"_")}.geojson`; a.click();
   };
+  // Export d'une couche DEPUIS SES DONNÉES RÉELLES (geojson affiché) :
+  //  • GeoJSON / CSV → généré côté navigateur (aucun serveur requis)
+  //  • GeoPackage / FlatGeobuf → conversion serveur (GDAL via DuckDB) sur le geojson
   const exportFmt = async (id, fmt) => {
-    const l = layers.find(x => x.id === id); if (!l) return;
+    const l = layers.find(x => x.id === id);
+    if (!l || !l.geojson?.features?.length) { alert("Aucune donnée vecteur à exporter pour cette couche."); return; }
+    const base = (l.name || "couche").replace(/[^\w.-]+/g, "_");
+    const dl = (blob, ext) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${base}.${ext}`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+
+    if (fmt === "GeoJSON") { dl(new Blob([JSON.stringify(l.geojson)], { type: "application/geo+json" }), "geojson"); return; }
+    if (fmt === "CSV")     { dl(new Blob(["﻿" + geojsonToCsv(l.geojson)], { type: "text/csv;charset=utf-8" }), "csv"); return; }
+
+    // GeoPackage / FlatGeobuf → serveur
     try {
-      const res = await fetch(`${API}/export`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({theme:l.theme, bbox:l.geojson.metadata?.bbox||[-2,47,-1,48], format:fmt, limit:l.featureCount+100}) });
-      const blob = await res.blob();
-      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-      a.download = `${l.name.replace(/\s+/g,"_")}${({GeoPackage:".gpkg",Shapefile:".shp",CSV:".csv",FlatGeobuf:".fgb"}[fmt]||".geojson")}`; a.click();
-    } catch (e) { alert(`Export ${fmt}: ${e.message}`); }
+      const res = await fetch(`${API}/convert`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geojson: l.geojson, format: fmt, name: base }),
+      });
+      if (!res.ok) { let m = `Erreur ${res.status}`; try { m = (await res.json()).detail || m; } catch (_) {} throw new Error(m); }
+      dl(await res.blob(), ({ GeoPackage: "gpkg", FlatGeobuf: "fgb" }[fmt] || "dat"));
+    } catch (e) { alert(`Export ${fmt} : ${e.message}\n(La conversion ${fmt} se fait côté serveur — vérifiez que le backend est à jour.)`); }
   };
   const zoomFeat = useCallback((ln, lt) => { mapRef.current?.getMap?.()?.flyTo({center:[ln,lt],zoom:17,duration:800}); }, []);
 
