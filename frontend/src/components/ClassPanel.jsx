@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useThemeContext } from "../theme";
 import { F, M, RAMPS, RAMP_GROUPS, RAMP_NAMES, CAT_RAMPS } from "../config";
-import { getLayerAttrs, getNumVals } from "../utils/classification";
+import { getLayerAttrs, getNumVals, buildSize } from "../utils/classification";
 import { MAKI_GROUPS, MAKI_PATHS } from "../utils/makiIcons";
 import { makiToDataUrl, loadMakiIcon } from "../utils/makiLoader";
 import { Sel, Lbl } from "./ui";
@@ -64,6 +64,12 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const [customImage, setCustomImage] = useState(classification?.customImage || null);
   const [imageSize,   setImageSize]   = useState(classification?.imageSize   || 1);
   const [symbolMode,  setSymbolMode]  = useState(classification?.symbolMode  || "maki");
+
+  // 2e style INDÉPENDANT : taille proportionnelle (combinable avec la couleur)
+  const [sizeOn,   setSizeOn]   = useState(!!layer?.sizeCfg);
+  const [sizeAttr, setSizeAttr] = useState(layer?.sizeCfg?.attribute || "");
+  const [sizeMin,  setSizeMin]  = useState(layer?.sizeCfg?.minSize ?? 3);
+  const [sizeMax,  setSizeMax]  = useState(layer?.sizeCfg?.maxSize ?? 26);
 
   const isProp   = type === "proportional" || type === "proportional_line";
   const isSymbol = type === "symbol";
@@ -139,6 +145,20 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
   const apply  = () => applyCfg(buildCfg());
   // commit "live" pour les contrôles de classification (gradué / catégorisé)
   const commit = (extra = {}) => applyCfg(buildCfg(extra));
+
+  // 2e style : taille proportionnelle (radius pour points, width pour lignes)
+  const applySize = (extra = {}) => {
+    const on = extra.sizeOn ?? sizeOn;
+    const at = extra.sizeAttr ?? sizeAttr;
+    if (!on || !at || !onStyle) { onStyle?.(layer.id, { sizeCfg: null, sizeResult: null }); return; }
+    const cfg = {
+      attribute: at,
+      minSize: parseFloat(extra.sizeMin ?? sizeMin) || 3,
+      maxSize: parseFloat(extra.sizeMax ?? sizeMax) || 26,
+      mode: isLine ? "width" : "radius",
+    };
+    onStyle(layer.id, { sizeCfg: cfg, sizeResult: buildSize(layer, cfg) });
+  };
 
   // ── Édition manuelle des classes ────────────────────────────────
   const seedManual = () => {
@@ -777,6 +797,37 @@ export default function ClassPanel({ layer, classification, onChange, onStyle, m
           fontFamily: F, fontSize: 11, fontWeight: 600, padding: "7px 12px", borderRadius: 6,
           background: C.acc, color: "#fff", border: "none", cursor: "pointer",
         }}>Appliquer</button>
+      )}
+
+      {/* ══ 2e STYLE : TAILLE PROPORTIONNELLE (combinable avec la couleur) ══════════ */}
+      {isVec && (isPointish || isLine) && onStyle && (
+        <div style={{ border: `0.5px solid ${C.bdr}`, borderRadius: 8, padding: 9, display: "flex", flexDirection: "column", gap: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
+            <input type="checkbox" checked={sizeOn} onChange={() => { const v = !sizeOn; setSizeOn(v); applySize({ sizeOn: v }); }} />
+            Taille proportionnelle
+            <span style={{ fontSize: 8.5, fontWeight: 600, color: C.acc, background: C.acc + "18", border: `0.5px solid ${C.acc}55`, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".04em" }}>2ᵉ style</span>
+          </label>
+          {sizeOn && (<>
+            <div>
+              <Lbl>{isLine ? "Épaisseur selon" : "Rayon selon"} (numérique)</Lbl>
+              <Sel value={sizeAttr} onChange={v => { setSizeAttr(v); applySize({ sizeAttr: v, sizeOn: true }); }}
+                options={[{ value: "", label: "-- Attribut --" }, ...attrs.num.map(a => ({ value: a, label: a }))]} />
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 96 }}>
+                <Lbl>{isLine ? "Épais. min" : "Rayon min"} (px)</Lbl>
+                <input type="number" min="0.5" max="30" value={sizeMin} onChange={e => { setSizeMin(e.target.value); applySize({ sizeMin: e.target.value, sizeOn: true }); }} style={inp} />
+              </div>
+              <div style={{ flex: 1, minWidth: 96 }}>
+                <Lbl>{isLine ? "Épais. max" : "Rayon max"} (px)</Lbl>
+                <input type="number" min="1" max="80" value={sizeMax} onChange={e => { setSizeMax(e.target.value); applySize({ sizeMax: e.target.value, sizeOn: true }); }} style={inp} />
+              </div>
+            </div>
+            <div style={{ fontSize: 9.5, color: C.dim, lineHeight: 1.5 }}>
+              Se combine avec la couleur — ex. <b style={{ color: C.mut }}>couleur graduée</b> + <b style={{ color: C.mut }}>rayon proportionnel</b>.
+            </div>
+          </>)}
+        </div>
       )}
 
       {/* Graphiques par entité — mode à part, replié par défaut */}

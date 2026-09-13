@@ -78,6 +78,25 @@ function classifyJenks(vals, n) {
   return [...new Set(br)].sort((a, b) => a - b);
 }
 
+// Taille proportionnelle INDÉPENDANTE (2e style combinable avec une couleur graduée/
+// catégorisée). mode "radius" (points) ou "width" (lignes). → expression MapLibre.
+export function buildSize(layer, cfg) {
+  if (!cfg || !cfg.attribute) return null;
+  const vals = getNumVals(layer, cfg.attribute);
+  if (!vals.length) return null;
+  const minVal = Math.min(...vals), maxVal = Math.max(...vals);
+  const mode = cfg.mode === "width" ? "width" : "radius";
+  const minSize = cfg.minSize ?? (mode === "width" ? 1 : 3);
+  const maxSize = cfg.maxSize ?? (mode === "width" ? 12 : 26);
+  const expr = ["interpolate", ["linear"], ["to-number", ["get", cfg.attribute], 0],
+    minVal, minSize, maxVal === minVal ? maxVal + 1 : maxVal, maxSize];
+  return {
+    attribute: cfg.attribute, mode, minVal, maxVal, minSize, maxSize,
+    radiusExpression: mode === "radius" ? expr : null,
+    widthExpression:  mode === "width"  ? expr : null,
+  };
+}
+
 export function buildClassification(layer, cfg) {
   if (!cfg || cfg.type === "none") return null;
   const { type, attribute, method, nClasses, ramp, customBreaks, invertRamp } = cfg;

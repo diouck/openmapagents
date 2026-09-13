@@ -439,6 +439,18 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
                 <span style={{ color: C.dim, fontFamily: M }}>{c.count}</span>
               </div>
             ))}
+
+            {/* 2e style : taille proportionnelle (combinée à la couleur) */}
+            {layer.visible && layer.sizeResult?.radiusExpression && cr?.type !== "proportional" && (
+              <div style={{ paddingLeft: 4, color: C.mut, marginTop: 2 }}>
+                <NestedCircles cr={{ minSize: layer.sizeResult.minSize, maxSize: layer.sizeResult.maxSize, minVal: layer.sizeResult.minVal, maxVal: layer.sizeResult.maxVal, classes: layer.classResult?.classes }} color={layer.color} />
+              </div>
+            )}
+            {layer.visible && layer.sizeResult?.widthExpression && cr?.type !== "proportional_line" && (
+              <div style={{ paddingLeft: 4, color: C.mut, marginTop: 2 }}>
+                <NestedLines cr={{ minSize: layer.sizeResult.minSize, maxSize: layer.sizeResult.maxSize, minVal: layer.sizeResult.minVal, maxVal: layer.sizeResult.maxVal }} color={layer.color} />
+              </div>
+            )}
           </div>
         );
       })}
