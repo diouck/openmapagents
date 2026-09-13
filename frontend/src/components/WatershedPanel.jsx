@@ -340,6 +340,42 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
           </div>
 
           <div>
+            <div style={h}>Délimitation : la ligne de partage des eaux</div>
+            <p style={p}>
+              La limite suit la <b style={{ color: C.mut }}>ligne de partage des eaux</b> (crêtes,
+              interfluves) : de part et d'autre, l'eau part vers des exutoires différents. Tout point
+              du bassin s'écoule <b style={{ color: C.mut }}>par gravité</b> vers l'exutoire — eaux de
+              surface comme eaux souterraines.
+            </p>
+          </div>
+
+          <div>
+            <div style={h}>Réseau hydrographique</div>
+            <p style={p}>
+              À l'intérieur, l'eau se concentre dans les <b style={{ color: C.mut }}>talwegs</b>
+              (fonds de vallée) : ruisseaux → affluents → cours principal, formant un réseau
+              <b style={{ color: C.mut }}> hiérarchisé et continu</b> jusqu'à l'exutoire. Chaque
+              tronçon se raccorde au suivant à une <b style={{ color: C.mut }}>confluence</b> — un
+              réseau correct est donc sans rupture.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, background: C.amb + "12",
+                        border: `0.5px solid ${C.amb}33`, borderRadius: 7, padding: "8px 10px" }}>
+            <span style={{ color: C.amb, flexShrink: 0, marginTop: 1 }}><IcAlert size={13} /></span>
+            <div>
+              <div style={{ fontSize: 9.5, color: C.amb, fontWeight: 600, marginBottom: 2 }}>ZONES ARIDES & ENDORÉISME</div>
+              <p style={{ ...p, fontSize: 10.5 }}>
+                En milieu désertique (ex. amont de <b>Bakel</b>), l'écoulement peut être
+                <b> endoréique</b> (vers une dépression fermée, sans liaison à la mer) ou diffus : il
+                n'existe pas toujours de cours d'eau pérenne connecté. Le réseau n'affiche alors que
+                les tronçons réellement cartographiés (HydroRIVERS) ; les discontinuités reflètent le
+                terrain, non une erreur de tracé.
+              </p>
+            </div>
+          </div>
+
+          <div>
             <div style={h}>Niveaux de délimitation</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {[
@@ -383,6 +419,7 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
             <div style={h}>Sources</div>
             {[
               ["HydroSHEDS / HydroBASINS / HydroRIVERS (WWF)", "https://www.hydrosheds.org/"],
+              ["Le bassin versant — notion (blog Rirak)", "https://rirak.blogspot.com/2015/04/le-bassin-versant.html"],
               ["OpenLandMap — propriétés des sols", "https://openlandmap.org/"],
               ["CHIRPS — précipitations", "https://www.chc.ucsb.edu/data/chirps"],
             ].map(([label, href]) => (
