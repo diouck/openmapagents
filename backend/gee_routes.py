@@ -2330,27 +2330,28 @@ def gee_watershed(req: WatershedRequest):
     # (cf. méthode QGIS/GEE : MNT → direction → accumulation → réseau.)
     streams_tile = None
     try:
-        acc = ee.Image("WWF/HydroSHEDS/15ACC").select(0)
-        maxv = ee.Number(acc.clip(geom).reduceRegion(
-            reducer=ee.Reducer.max(), geometry=geom, scale=500,
-            maxPixels=int(1e9), bestEffort=True).values().get(0))
-        # Seuil BAS → réseau DENDRITIQUE dense (petits affluents inclus), connecté
-        # jusqu'à l'exutoire. ~50 cellules ≈ 10 km² drainés ; borné à l'échelle du
-        # bassin pour que même les petits bassins montrent leur cours principal.
+        # MERIT Hydro (~90 m) : bien plus FIN que HydroSHEDS 15ACC (~450 m) → réseau
+        # net et dendritique, pas pixelisé. Bande 'upa' = aire drainée amont (km²).
+        upa = ee.Image("MERIT/Hydro/v1_0_1").select("upa")
+        maxu = ee.Number(upa.clip(geom).reduceRegion(
+            reducer=ee.Reducer.max(), geometry=geom, scale=200,
+            maxPixels=int(1e10), bestEffort=True).values().get(0))
+        # Seuil d'aire drainée adaptatif (1–20 km²) : réseau dense pour les petits
+        # bassins, lisible pour les grands, connecté par construction à l'exutoire.
         thr = ee.Number(ee.Algorithms.If(
-            maxv, ee.Number(maxv).divide(20).min(50).max(5), 20))
-        streams = acc.gte(thr).selfMask().clip(geom)
+            maxu, ee.Number(maxu).divide(200).max(1).min(20), 5))
+        streams = upa.gte(thr).selfMask().clip(geom)
         mid = streams.getMapId({"min": 0, "max": 1, "palette": ["2b83ba"]})
         f = mid.get("tile_fetcher")
         streams_tile = f.url_format if (f and hasattr(f, "url_format")) else mid.get("urlFormat", "")
         try:
-            attrs["seuil_accumulation_cells"] = int(thr.getInfo())
+            attrs["seuil_drainage_km2"] = round(float(thr.getInfo()), 1)
         except Exception:
             pass
-        notes.append("Réseau continu = seuillage de l'accumulation de flux (HydroSHEDS 15ACC, "
-                     "~450 m) : connecté par construction jusqu'à l'exutoire, sans rupture.")
+        notes.append("Réseau continu = seuillage de l'aire drainée MERIT Hydro (~90 m) : fin, "
+                     "dendritique et connecté par construction jusqu'à l'exutoire, sans rupture.")
     except Exception as e:
-        print(f"[watershed] réseau continu (ACC) indisponible : {e}")
+        print(f"[watershed] réseau continu (MERIT upa) indisponible : {e}")
 
     # Étape 1 finie : géométrie + réseau. L'échantillonnage des indicateurs
     # (relief, sol, climat, nappe) est déporté sur /watershed/attributes pour
