@@ -10,8 +10,7 @@
  * précédent sont retirées à chaque relance (onRemoveLayers). Clic capté par
  * `map.once`, sans toucher au clic central de la carte.
  */
-import { useState, useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+import { useState } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { Sel, Lbl } from "./ui";
@@ -21,22 +20,14 @@ import {
 } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS_NAMES = ["Bassin versant", "Réseau hydro (raster)", "Réseau hydro (lignes)", "Réseau hydro (continu)", "Réseau hydrographique", "Exutoire"];
-
-// Emprise [minX,minY,maxX,maxY] d'une géométrie GeoJSON (pour recentrer la carte).
-function geomBbox(g) {
-  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
-  const walk = (x) => { if (typeof x[0] === "number") { if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[0] > c) c = x[0]; if (x[1] > d) d = x[1]; return; } for (const k of x) walk(k); };
-  if (g?.coordinates) walk(g.coordinates);
-  return isFinite(a) ? [a, b, c, d] : null;
-}
+const WS_NAMES = ["Bassin versant", "Réseau hydrographique", "Exutoire"];
 const STEPS = [
   ["delin", "Délimitation du bassin (HydroSHEDS)"],
   ["net",   "Extraction du réseau hydrographique"],
   ["attr",  "Attributs : sol, relief, climat, nappe"],
 ];
 
-export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onAddRaster, onRemoveLayers }) {
+export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onRemoveLayers }) {
   const C = useThemeContext();
 
   const [tab, setTab]         = useState("outil");   // outil | info
@@ -50,25 +41,6 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
   const [res, setRes]         = useState(null);       // { attributes, notes, unavailable }
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
-
-  // Marqueur exutoire VISIBLE dès qu'un point est posé (clic ou coordonnées), et
-  // qui reste affiché — pas besoin d'attendre la délimitation.
-  const outletMarker = useRef(null);
-  useEffect(() => {
-    const m = mapObj();
-    if (!m) return;
-    const ok = outlet && !Number.isNaN(outlet.lat) && !Number.isNaN(outlet.lon);
-    if (!ok) { if (outletMarker.current) { outletMarker.current.remove(); outletMarker.current = null; } return; }
-    if (!outletMarker.current) {
-      const el = document.createElement("div");
-      el.style.cssText = "width:15px;height:15px;border-radius:50%;background:#e01e1e;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)";
-      el.title = "Exutoire";
-      outletMarker.current = new maplibregl.Marker({ element: el }).setLngLat([outlet.lon, outlet.lat]).addTo(m);
-    } else {
-      outletMarker.current.setLngLat([outlet.lon, outlet.lat]);
-    }
-  }, [outlet]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { if (outletMarker.current) outletMarker.current.remove(); }, []);
 
   const pick = () => {
     const m = mapObj();
@@ -114,32 +86,14 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
                       reseau_km: A0.reseau_km, sous_bassins: A0.sous_bassins },
       }] }, "Bassin versant", "analysis");
     }
-    // Raster de CONTRÔLE (toujours affiché, sous les lignes) — pour vérifier d'un
-    // coup d'œil que la numérisation en lignes est complète (aucun tronçon perdu).
-    if (delim.streams_tile) {
-      onAddRaster?.({ id: `ws-streams-r-${Date.now()}`, name: "Réseau hydro (raster)",
-        type: "wms", tileUrl: delim.streams_tile, opacity: 0.55 });
-    }
-    // Réseau VECTORISÉ en POLYLIGNES (LineString) — stylable + exportable.
-    if (delim.streams_vector?.features?.length) {
-      onAddLayerSilent?.(delim.streams_vector, "Réseau hydro (lignes)", "data",
-        { color: "#0d3fa8", opacity: 1, strokeWidth: 1.4, radius: 2 });
-    }
-    // Tronçons vecteur HydroRIVERS — TOUTES les lignes, sans simplification.
     if (delim.rivers?.features?.length) {
       onAddLayerSilent?.(delim.rivers, "Réseau hydrographique", "data",
-        { color: "#1a5fb4", opacity: 1, strokeWidth: 1.4, radius: 3 });
+        { color: "#2b83ba", opacity: 0.9, radius: 3 });
     }
     onAddLayerSilent?.({ type: "FeatureCollection", features: [{
       type: "Feature", geometry: { type: "Point", coordinates: [outlet.lon, outlet.lat] },
       properties: { type: "exutoire" },
     }] }, "Exutoire", "data", { color: "#e01e1e", radius: 7 });
-
-    // Recentre la carte sur le bassin délimité (sinon un grand bassin sort du cadre).
-    try {
-      const m = mapObj(); const bb = delim.boundary && geomBbox(delim.boundary);
-      if (m && bb) m.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 50, duration: 900, maxZoom: 12 });
-    } catch (_) {}
 
     setRes({ attributes: A0, notes: delim.notes || [], unavailable: delim.unavailable || [] });
 
@@ -386,49 +340,6 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
           </div>
 
           <div>
-            <div style={h}>Délimitation : la ligne de partage des eaux</div>
-            <p style={p}>
-              La limite suit la <b style={{ color: C.mut }}>ligne de partage des eaux</b> (crêtes,
-              interfluves) : de part et d'autre, l'eau part vers des exutoires différents. Tout point
-              du bassin s'écoule <b style={{ color: C.mut }}>par gravité</b> vers l'exutoire — eaux de
-              surface comme eaux souterraines.
-            </p>
-          </div>
-
-          <div>
-            <div style={h}>Réseau hydrographique</div>
-            <p style={p}>
-              À l'intérieur, l'eau se concentre dans les <b style={{ color: C.mut }}>talwegs</b>
-              (fonds de vallée) : ruisseaux → affluents → cours principal, formant un réseau
-              <b style={{ color: C.mut }}> hiérarchisé et continu</b> jusqu'à l'exutoire. Chaque
-              tronçon se raccorde au suivant à une <b style={{ color: C.mut }}>confluence</b> — un
-              réseau correct est donc sans rupture.
-            </p>
-            <p style={{ ...p, marginTop: 6 }}>
-              Deux réseaux sont fournis : <b style={{ color: C.mut }}>Réseau hydro (continu)</b> —
-              seuillage de l'<b style={{ color: C.mut }}>accumulation de flux</b> (MNT → direction →
-              accumulation), connecté par construction jusqu'à l'exutoire — et les
-              <b style={{ color: C.mut }}> tronçons HydroRIVERS</b> (vecteur), porteurs des attributs
-              d'ordre mais qui peuvent présenter des ruptures.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, background: C.amb + "12",
-                        border: `0.5px solid ${C.amb}33`, borderRadius: 7, padding: "8px 10px" }}>
-            <span style={{ color: C.amb, flexShrink: 0, marginTop: 1 }}><IcAlert size={13} /></span>
-            <div>
-              <div style={{ fontSize: 9.5, color: C.amb, fontWeight: 600, marginBottom: 2 }}>ZONES ARIDES & ENDORÉISME</div>
-              <p style={{ ...p, fontSize: 10.5 }}>
-                En milieu désertique (ex. amont de <b>Bakel</b>), l'écoulement peut être
-                <b> endoréique</b> (vers une dépression fermée, sans liaison à la mer) ou diffus : il
-                n'existe pas toujours de cours d'eau pérenne connecté. Le réseau n'affiche alors que
-                les tronçons réellement cartographiés (HydroRIVERS) ; les discontinuités reflètent le
-                terrain, non une erreur de tracé.
-              </p>
-            </div>
-          </div>
-
-          <div>
             <div style={h}>Niveaux de délimitation</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {[
@@ -472,7 +383,6 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
             <div style={h}>Sources</div>
             {[
               ["HydroSHEDS / HydroBASINS / HydroRIVERS (WWF)", "https://www.hydrosheds.org/"],
-              ["Le bassin versant — notion (blog Rirak)", "https://rirak.blogspot.com/2015/04/le-bassin-versant.html"],
               ["OpenLandMap — propriétés des sols", "https://openlandmap.org/"],
               ["CHIRPS — précipitations", "https://www.chc.ucsb.edu/data/chirps"],
             ].map(([label, href]) => (
