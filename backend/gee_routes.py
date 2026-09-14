@@ -2209,6 +2209,74 @@ class WatershedRequest(BaseModel):
 _WS_VECTOR_MAX_KM2 = 30000.0
 
 
+def _hydro_rasters(ee, geom):
+    """Rasters hydrologiques dérivés du MNT (méthode MNT → direction → accumulation →
+    ordre), façon script GEE de A. Carmona Arteaga (LinkedIn). On s'appuie sur MERIT
+    Hydro (~90 m) où direction (dir), accumulation (upa) et élévation (elv) sont DÉJÀ
+    calculés → pas de recalcul lourd. La palette est « cuite » dans les tuiles via
+    getMapId → couleurs exactes à l'affichage (sémiologie identique aux captures)."""
+    merit = ee.Image("MERIT/Hydro/v1_0_1")
+    out = []
+
+    def _tile(img, vis):
+        mid = img.clip(geom).getMapId(vis)
+        fx = mid.get("tile_fetcher")
+        return fx.url_format if (fx and hasattr(fx, "url_format")) else mid.get("urlFormat", "")
+
+    # 1) MNT / Élévation (m) — rampe terrain bleu(bas) → rouge(haut), étirée au bassin.
+    elv = merit.select("elv")
+    emin, emax = None, None
+    try:
+        mm = elv.reduceRegion(ee.Reducer.minMax(), geom, 200, bestEffort=True, maxPixels=int(1e9)).getInfo()
+        emin, emax = mm.get("elv_min"), mm.get("elv_max")
+    except Exception:
+        pass
+    if emin is None:
+        emin = 0
+    if emax is None or emax <= emin:
+        emax = emin + 1000
+    dem_pal = ["2c7bb6", "00a6ca", "90eb9d", "ffff8c", "f9d057", "f29e2e", "e76818", "d7191c"]
+    out.append({"name": "MNT (élévation)", "type": "wms", "opacity": 0.85,
+                "tileUrl": _tile(elv, {"min": emin, "max": emax, "palette": dem_pal}),
+                "visParams": {"min": round(emin), "max": round(emax), "palette": dem_pal},
+                "legend": [{"label": f"{round(emin)} m", "color": "#2c7bb6"},
+                           {"label": f"{round((emin + emax) / 2)} m", "color": "#ffff8c"},
+                           {"label": f"{round(emax)} m", "color": "#d7191c"}]})
+
+    # 2) Direction de flux (D8) — 8 classes catégorielles (remap 1,2,4…128 → 0..7).
+    d8 = merit.select("dir").remap([1, 2, 4, 8, 16, 32, 64, 128], [0, 1, 2, 3, 4, 5, 6, 7]).rename("d8")
+    dir_pal = ["e41a1c", "377eb8", "4daf4a", "984ea3", "ff7f00", "ffff33", "a65628", "f781bf"]
+    dir_lbl = ["E", "SE", "S", "SO", "O", "NO", "N", "NE"]
+    out.append({"name": "Direction de flux (D8)", "type": "wms", "opacity": 0.8,
+                "tileUrl": _tile(d8, {"min": 0, "max": 7, "palette": dir_pal}),
+                "visParams": {"min": 0, "max": 7, "palette": dir_pal},
+                "legend": [{"class_id": i, "label": dir_lbl[i], "color": "#" + dir_pal[i]} for i in range(8)]})
+
+    # 3) Accumulation de flux (km², échelle log) — blanc/bleu(faible) → rouge(chenaux).
+    acc = merit.select("upa").max(0.01).log10().rename("acc")
+    acc_pal = ["f7fbff", "c6dbef", "6baed6", "2171b5", "08306b", "fdae61", "d7191c"]
+    out.append({"name": "Accumulation de flux", "type": "wms", "opacity": 0.85,
+                "tileUrl": _tile(acc, {"min": -1, "max": 4, "palette": acc_pal}),
+                "visParams": {"min": -1, "max": 4, "palette": acc_pal},
+                "legend": [{"label": "faible", "color": "#c6dbef"},
+                           {"label": "moyen", "color": "#2171b5"},
+                           {"label": "fort (chenaux)", "color": "#d7191c"}]})
+
+    # 4) Ordre de rivière (approx. Strahler par classes d'accumulation) — réseau seul.
+    upa = merit.select("upa")
+    order = (ee.Image(0)
+             .where(upa.gte(1), 1).where(upa.gte(5), 2).where(upa.gte(25), 3)
+             .where(upa.gte(100), 4).where(upa.gte(500), 5).where(upa.gte(2500), 6))
+    order = order.updateMask(upa.gte(1)).rename("ord")
+    ord_pal = ["9ecae1", "6baed6", "4292c6", "2171b5", "084594", "d7191c"]
+    out.append({"name": "Ordre de rivière", "type": "wms", "opacity": 1.0,
+                "tileUrl": _tile(order, {"min": 1, "max": 6, "palette": ord_pal}),
+                "visParams": {"min": 1, "max": 6, "palette": ord_pal},
+                "legend": [{"class_id": i + 1, "label": f"ordre {i + 1}", "color": "#" + ord_pal[i]} for i in range(6)]})
+
+    return [r for r in out if r.get("tileUrl")]
+
+
 def _trace_streams_lines(ee, geom, thr_km2):
     """Réseau de drainage MERIT (~90 m NATIF) en vraies POLYLIGNES (LineString), jamais
     de polygones. On télécharge un petit raster COMPACT du bassin — direction de flux D8
@@ -2415,6 +2483,14 @@ def gee_watershed(req: WatershedRequest):
     except Exception as e:
         print(f"[watershed] réseau de drainage (MERIT upa) indisponible : {e}")
 
+    # ── 4. Rasters hydrologiques du traitement MNT (MNT, direction, accumulation,
+    # ordre) façon script GEE d'A. Carmona Arteaga, avec leur sémiologie. Non bloquant.
+    rasters = []
+    try:
+        rasters = _hydro_rasters(ee, geom)
+    except Exception as e:
+        print(f"[watershed] rasters hydrologiques indisponibles : {e}")
+
     # Étape 1 finie : géométrie + réseau. L'échantillonnage des indicateurs
     # (relief, sol, climat, nappe) est déporté sur /watershed/attributes pour
     # que le front affiche le bassin immédiatement, puis complète le tableau.
@@ -2424,6 +2500,7 @@ def gee_watershed(req: WatershedRequest):
         "rivers": rivers_gj,
         "streams_tile": streams_tile,
         "streams_vector": streams_vector,
+        "rasters": rasters,
         "attributes": attrs,
         "unavailable": unavailable,
         "notes": notes,

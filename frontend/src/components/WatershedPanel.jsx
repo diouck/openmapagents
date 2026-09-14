@@ -22,7 +22,8 @@ import {
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const WS_NAMES = ["Bassin versant", "Réseau hydrographique",
-                  "Réseau hydro (raster)", "Réseau hydro (lignes)", "Exutoire"];
+                  "Réseau hydro (raster)", "Réseau hydro (lignes)", "Exutoire",
+                  "MNT (élévation)", "Direction de flux (D8)", "Accumulation de flux", "Ordre de rivière"];
 
 // bbox d'une géométrie GeoJSON → [[west,south],[east,north]] pour fitBounds
 function geomBbox(g) {
@@ -76,7 +77,7 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
   // Étapes affichées : « attr » n'apparaît que si l'extraction des données est demandée.
   const STEPS = [
     ["delin", "Délimitation du bassin (HydroSHEDS)"],
-    ["net",   "Réseau de drainage (raster + polylignes)"],
+    ["net",   "Rasters hydro (MNT, direction, accumulation, ordre)"],
     ...(extract ? [["attr", "Extraction des données : sol, relief, climat, nappe"]] : []),
   ];
 
@@ -128,18 +129,15 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
       const m = mapObj();
       if (bb && m) { try { m.fitBounds(bb, { padding: 60, duration: 800, maxZoom: 12 }); } catch (_) {} }
     }
-    // Réseau HydroRIVERS (tronçons nommés — base historique) sous le drainage MERIT.
-    if (delim.rivers?.features?.length) {
-      onAddLayerSilent?.(delim.rivers, "Réseau hydrographique", "data",
-        { color: "#5b9bd5", opacity: 0.75, strokeWidth: 1 });
-    }
-    // RASTER de drainage « avant vectorisation » : couvre tout le bassin, aucune perte.
-    // Posé EN DESSOUS (semi-transparent) → sert de contrôle visuel pour la vectorisation.
-    if (delim.streams_tile) {
-      onAddRaster?.({ id: `ws-streams-r-${Date.now()}`, name: "Réseau hydro (raster)",
-        type: "wms", tileUrl: delim.streams_tile, opacity: 0.55 });
-    }
-    // POLYLIGNES vectorisées depuis ce même raster (native 90 m, connectées, peu simplifiées).
+    // RASTERS HYDROLOGIQUES du traitement MNT (MNT, direction, accumulation, ordre) —
+    // sémiologie « cuite » dans les tuiles GEE (couleurs exactes). Ajoutés du bas (MNT)
+    // vers le haut (ordre de rivière) ; ils s'affichent sous les vecteurs.
+    (delim.rasters || []).forEach((rst, i) => {
+      onAddRaster?.({ id: `ws-hydro-${i}-${Date.now()}`, name: rst.name, type: rst.type || "wms",
+        tileUrl: rst.tileUrl, opacity: rst.opacity ?? 0.85, visParams: rst.visParams, legend: rst.legend });
+    });
+    // POLYLIGNES vectorisées (le rendu vecteur est à revoir — les rasters ci-dessus
+    // servent de référence de contrôle en attendant).
     if (delim.streams_vector?.features?.length) {
       onAddLayerSilent?.(delim.streams_vector, "Réseau hydro (lignes)", "data",
         { color: "#0d3fa8", opacity: 1, strokeWidth: 1.4, radius: 2 });
@@ -419,6 +417,18 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
           </div>
 
           <div>
+            <div style={h}>Rasters hydrologiques (traitement MNT)</div>
+            <p style={p}>
+              Générés depuis <b style={{ color: C.mut }}>MERIT Hydro</b> (~90 m), à la manière du
+              traitement MNT → direction → accumulation → ordre : <b style={{ color: C.mut }}>MNT
+              (élévation)</b>, <b style={{ color: C.mut }}>direction de flux</b> (D8, 8 classes),
+              <b style={{ color: C.mut }}> accumulation de flux</b> (log) et <b style={{ color: C.mut }}>ordre
+              de rivière</b> (classes d'accumulation). Chaque couche garde sa sémiologie ; masquez /
+              affichez-les dans le menu Couches.
+            </p>
+          </div>
+
+          <div>
             <div style={h}>Attributs calculés</div>
             <p style={p}>
               Surface et périmètre (géométrie) ; longueur du réseau et ordre de rivière
@@ -446,6 +456,8 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
             <div style={h}>Sources</div>
             {[
               ["HydroSHEDS / HydroBASINS / HydroRIVERS (WWF)", "https://www.hydrosheds.org/"],
+              ["MERIT Hydro — MNT, direction, accumulation (~90 m)", "https://developers.google.com/earth-engine/datasets/catalog/MERIT_Hydro_v1_0_1"],
+              ["A. Carmona Arteaga — délimitation de cuencas (GEE)", "https://www.linkedin.com/pulse/delimitaci%C3%B3n-de-cuencas-y-redes-hidrogr%C3%A1ficas-en-abel-carmona-arteaga/"],
               ["OpenLandMap — propriétés des sols", "https://openlandmap.org/"],
               ["CHIRPS — précipitations", "https://www.chc.ucsb.edu/data/chirps"],
             ].map(([label, href]) => (
