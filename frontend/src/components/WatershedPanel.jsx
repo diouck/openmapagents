@@ -10,7 +10,8 @@
  * précédent sont retirées à chaque relance (onRemoveLayers). Clic capté par
  * `map.once`, sans toucher au clic central de la carte.
  */
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import maplibregl from "maplibre-gl";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { Sel, Lbl } from "./ui";
@@ -20,14 +21,23 @@ import {
 } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS_NAMES = ["Bassin versant", "Réseau hydrographique", "Exutoire"];
-const STEPS = [
-  ["delin", "Délimitation du bassin (HydroSHEDS)"],
-  ["net",   "Extraction du réseau hydrographique"],
-  ["attr",  "Attributs : sol, relief, climat, nappe"],
-];
+const WS_NAMES = ["Bassin versant", "Réseau hydrographique",
+                  "Réseau hydro (raster)", "Réseau hydro (lignes)", "Exutoire"];
 
-export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onRemoveLayers }) {
+// bbox d'une géométrie GeoJSON → [[west,south],[east,north]] pour fitBounds
+function geomBbox(g) {
+  let W = 180, S = 90, E = -180, N = -90;
+  const scan = (co) => {
+    if (typeof co[0] === "number") {
+      W = Math.min(W, co[0]); E = Math.max(E, co[0]);
+      S = Math.min(S, co[1]); N = Math.max(N, co[1]);
+    } else co.forEach(scan);
+  };
+  if (g?.coordinates) scan(g.coordinates);
+  return (E > W && N > S) ? [[W, S], [E, N]] : null;
+}
+
+export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerSilent, onAddRaster, onRemoveLayers }) {
   const C = useThemeContext();
 
   const [tab, setTab]         = useState("outil");   // outil | info
@@ -35,12 +45,40 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
   const [picking, setPicking] = useState(false);
   const [level, setLevel]     = useState(12);
   const [upstream, setUpstream] = useState(true);
+  const [extract, setExtract] = useState(false);     // extraction des données thématiques (OFF par défaut)
   const [step, setStep]       = useState(null);      // clé d'étape en cours, ou "done"
   const [busy, setBusy]       = useState(false);
   const [err, setErr]         = useState(null);
   const [res, setRes]         = useState(null);       // { attributes, notes, unavailable }
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
+
+  // Marqueur exutoire PERSISTANT (visible dès qu'un point est posé, avant même la
+  // délimitation, et conservé entre deux relances) → répond à « le point doit être visible ».
+  const outletMarker = useRef(null);
+  useEffect(() => {
+    const m = mapObj();
+    if (!m) return;
+    if (!outlet || Number.isNaN(outlet.lat) || Number.isNaN(outlet.lon)) {
+      if (outletMarker.current) { outletMarker.current.remove(); outletMarker.current = null; }
+      return;
+    }
+    if (!outletMarker.current) {
+      const el = document.createElement("div");
+      el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e01e1e;" +
+        "border:2.5px solid #fff;box-shadow:0 0 0 1.5px #e01e1e,0 1px 4px rgba(0,0,0,.4);cursor:default";
+      outletMarker.current = new maplibregl.Marker({ element: el, anchor: "center" });
+    }
+    outletMarker.current.setLngLat([outlet.lon, outlet.lat]).addTo(m);
+  }, [outlet, mapRef]);
+  useEffect(() => () => { if (outletMarker.current) outletMarker.current.remove(); }, []);
+
+  // Étapes affichées : « attr » n'apparaît que si l'extraction des données est demandée.
+  const STEPS = [
+    ["delin", "Délimitation du bassin (HydroSHEDS)"],
+    ["net",   "Réseau de drainage (raster + polylignes)"],
+    ...(extract ? [["attr", "Extraction des données : sol, relief, climat, nappe"]] : []),
+  ];
 
   const pick = () => {
     const m = mapObj();
@@ -76,7 +114,7 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
       if (!r.ok) throw new Error(delim.detail || `Erreur ${r.status}`);
     } catch (e) { setErr(e.message); setBusy(false); setStep(null); return; }
 
-    // Étape 1 finie → on affiche déjà limite + réseau + exutoire.
+    // Étape 1 finie → on affiche déjà limite + réseau de drainage (raster + lignes).
     setStep("net");
     const A0 = delim.attributes || {};
     if (delim.boundary) {
@@ -85,19 +123,33 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
         properties: { nom: "Bassin versant", surface_km2: A0.surface_km2, perimetre_km: A0.perimetre_km,
                       reseau_km: A0.reseau_km, sous_bassins: A0.sous_bassins },
       }] }, "Bassin versant", "analysis");
+      // Recentre la carte sur le bassin délimité (l'exutoire reste visible au centre).
+      const bb = geomBbox(delim.boundary);
+      const m = mapObj();
+      if (bb && m) { try { m.fitBounds(bb, { padding: 60, duration: 800, maxZoom: 12 }); } catch (_) {} }
     }
+    // Réseau HydroRIVERS (tronçons nommés — base historique) sous le drainage MERIT.
     if (delim.rivers?.features?.length) {
       onAddLayerSilent?.(delim.rivers, "Réseau hydrographique", "data",
-        { color: "#2b83ba", opacity: 0.9, radius: 3 });
+        { color: "#5b9bd5", opacity: 0.75, strokeWidth: 1 });
     }
-    onAddLayerSilent?.({ type: "FeatureCollection", features: [{
-      type: "Feature", geometry: { type: "Point", coordinates: [outlet.lon, outlet.lat] },
-      properties: { type: "exutoire" },
-    }] }, "Exutoire", "data", { color: "#e01e1e", radius: 7 });
+    // RASTER de drainage « avant vectorisation » : couvre tout le bassin, aucune perte.
+    // Posé EN DESSOUS (semi-transparent) → sert de contrôle visuel pour la vectorisation.
+    if (delim.streams_tile) {
+      onAddRaster?.({ id: `ws-streams-r-${Date.now()}`, name: "Réseau hydro (raster)",
+        type: "wms", tileUrl: delim.streams_tile, opacity: 0.55 });
+    }
+    // POLYLIGNES vectorisées depuis ce même raster (native 90 m, connectées, peu simplifiées).
+    if (delim.streams_vector?.features?.length) {
+      onAddLayerSilent?.(delim.streams_vector, "Réseau hydro (lignes)", "data",
+        { color: "#0d3fa8", opacity: 1, strokeWidth: 1.4, radius: 2 });
+    }
 
     setRes({ attributes: A0, notes: delim.notes || [], unavailable: delim.unavailable || [] });
 
-    // Étape 2 : attributs thématiques (échec non bloquant — le bassin reste utile).
+    // Étape 2 — EXTRACTION DES DONNÉES thématiques : uniquement si l'utilisateur l'a
+    // demandée (case décochée par défaut → délimitation rapide, sans échantillonnage).
+    if (!extract) { setStep("done"); setBusy(false); return; }
     setStep("attr");
     try {
       const r2 = await fetch(`${API}/api/gee/watershed/attributes`, {
@@ -226,6 +278,17 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
               <span style={{ display: "block", fontSize: 9.5, color: C.dim, lineHeight: 1.45, marginTop: 1 }}>
                 Le vrai bassin versant qui draine vers l'exutoire. Décoché : seulement le sous-bassin
                 local contenant le point (instantané).
+              </span>
+            </span>
+          </label>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 7, cursor: "pointer" }}>
+            <input type="checkbox" checked={extract} onChange={e => setExtract(e.target.checked)}
+              style={{ accentColor: C.acc, marginTop: 2, cursor: "pointer" }} />
+            <span>
+              <span style={{ fontSize: 10.5, color: C.txt }}>Extraire les données</span>
+              <span style={{ display: "block", fontSize: 9.5, color: C.dim, lineHeight: 1.45, marginTop: 1 }}>
+                Échantillonne sol, relief, climat et nappe sur le bassin (plus long). Décoché
+                par défaut : on ne fait que délimiter le bassin et son réseau.
               </span>
             </span>
           </label>

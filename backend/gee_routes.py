@@ -2202,6 +2202,68 @@ class WatershedRequest(BaseModel):
     include_upstream: Optional[bool] = True  # False → seulement le sous-bassin local
 
 
+# Surface max (km²) pour laquelle on VECTORISE le réseau à la résolution NATIVE 90 m.
+# Au-delà, le téléchargement du raster dir+upa devient trop lourd → seul le raster de
+# drainage (streams_tile) est fourni, mais il couvre TOUT le bassin (aucune perte à
+# l'affichage). En dessous, on trace des polylignes fidèles au raster (même seuil).
+_WS_VECTOR_MAX_KM2 = 30000.0
+
+
+def _trace_streams_lines(ee, geom, thr_km2):
+    """Réseau de drainage MERIT (~90 m NATIF) en vraies POLYLIGNES (LineString), jamais
+    de polygones. On télécharge un petit raster COMPACT du bassin — direction de flux D8
+    (int16) + masque « cours d'eau » binaire (uint8, upa ≥ seuil) — puis on relie chaque
+    cellule cours d'eau à sa cellule AVAL (direction D8) et on fusionne les segments
+    (linemerge) → réseau CONNECTÉ d'un seul tenant, sans simplification (fidèle au raster).
+
+    On reste à l'échelle NATIVE 90 m (pas de sous-échantillonnage : le rééchantillonnage
+    d'une donnée catégorielle comme la direction produit des directions fausses → lignes
+    en escalier incohérentes). Le même seuil `thr_km2` que le raster garantit que le
+    vecteur épouse exactement le réseau raster affiché."""
+    import urllib.request
+    import numpy as np
+    from rasterio.io import MemoryFile
+    from shapely.geometry import LineString, mapping
+    from shapely.ops import linemerge
+    merit = ee.Image("MERIT/Hydro/v1_0_1")
+    img = (merit.select("dir").toInt16().rename("dir")
+           .addBands(merit.select("upa").gte(thr_km2).rename("s").toUint8()))
+    url = img.getDownloadURL({"region": geom, "scale": 90, "format": "GEO_TIFF",
+                              "crs": "EPSG:4326", "filePerBand": False})
+    raw = urllib.request.urlopen(url, timeout=180).read()
+    with MemoryFile(raw) as mf:
+        with mf.open() as ds:
+            dirs = np.asarray(ds.read(1)); mask = np.asarray(ds.read(2)); tr = ds.transform
+    H, W = dirs.shape
+    # décalages D8 MERIT : 1=E,2=SE,4=S,8=SW,16=W,32=NW,64=N,128=NE
+    OFF = {1: (1, 0), 2: (1, 1), 4: (0, 1), 8: (-1, 1), 16: (-1, 0), 32: (-1, -1), 64: (0, -1), 128: (1, -1)}
+    a, b, c, d, e, f = tr.a, tr.b, tr.c, tr.d, tr.e, tr.f
+
+    def ctr(px, py):
+        return (c + a * (px + 0.5) + b * (py + 0.5), f + d * (px + 0.5) + e * (py + 0.5))
+
+    ys, xs = np.where(mask > 0)
+    segs = []
+    for py, px in zip(ys.tolist(), xs.tolist()):
+        o = OFF.get(int(dirs[py, px]))
+        if not o:
+            continue
+        nx, ny = px + o[0], py + o[1]
+        if 0 <= nx < W and 0 <= ny < H:
+            # CONNECTIVITÉ : on relie même si la cellule aval est juste sous le seuil,
+            # tant qu'elle draine (dir valide) → pas de rupture aux confluences/exutoire.
+            segs.append(LineString([ctr(px, py), ctr(nx, ny)]))
+    if not segs:
+        return None
+    merged = linemerge(segs)   # segments contigus → LineString / MultiLineString continu
+    from shapely.geometry import MultiLineString
+    if merged.geom_type == "LineString":
+        merged = MultiLineString([merged])
+    return {"type": "FeatureCollection",
+            "features": [{"type": "Feature", "geometry": mapping(merged),
+                          "properties": {"reseau": "drainage"}}]}
+
+
 @router.post("/watershed")
 def gee_watershed(req: WatershedRequest):
     if not init_gee():
@@ -2316,6 +2378,43 @@ def gee_watershed(req: WatershedRequest):
         print(f"[watershed] réseau hydro indisponible : {e}")
         notes.append("Réseau hydrographique HydroRIVERS indisponible sur ce bassin.")
 
+    # ── 3. Réseau de drainage MERIT Hydro (~90 m) : accumulation de flux seuillée ──
+    # Bien plus FIN et CONTINU que les tronçons vecteur HydroRIVERS (qui ont des
+    # ruptures aux confluences). On fournit DEUX représentations complémentaires :
+    #   • streams_tile  = raster de la maille de drainage, TOUJOURS (couvre tout le
+    #     bassin, aucune perte) → référence visuelle « avant vectorisation ».
+    #   • streams_vector = polylignes tracées depuis ce MÊME raster (même seuil), à la
+    #     résolution native 90 m → connecté, fidèle, peu simplifié. Fourni tant que le
+    #     bassin reste téléchargeable (≤ _WS_VECTOR_MAX_KM2) ; au-delà, raster seul.
+    streams_tile = None
+    streams_vector = None
+    try:
+        upa = ee.Image("MERIT/Hydro/v1_0_1").select("upa")
+        # Seuil basé sur la TAILLE du bassin (pas sur l'aire amont totale, énorme sur un
+        # grand fleuve → réseau trop pauvre). Petit bassin → ~1 km² (réseau DENSE) ;
+        # grand bassin → seuil relevé pour rester lisible ET vectorisable.
+        thr_val = max(1.0, round(area_km2 / 8000.0, 1))
+        thr = ee.Number(thr_val)
+        streams = upa.gte(thr).selfMask().clip(geom)
+        mid = streams.getMapId({"min": 0, "max": 1, "palette": ["1f78b4"]})
+        fetch = mid.get("tile_fetcher")
+        streams_tile = fetch.url_format if (fetch and hasattr(fetch, "url_format")) else mid.get("urlFormat", "")
+        attrs["seuil_drainage_km2"] = thr_val
+        if area_km2 <= _WS_VECTOR_MAX_KM2:
+            try:
+                streams_vector = _trace_streams_lines(ee, geom, thr_val)
+                if streams_vector and streams_vector.get("features"):
+                    attrs["reseau_type"] = "polylignes (LineString) ~90 m"
+            except Exception as e2:
+                print(f"[watershed] tracé polylignes indisponible : {e2}")
+        if not (streams_vector and streams_vector.get("features")):
+            attrs["reseau_type"] = "raster seul (bassin trop grand pour un vecteur natif)"
+            notes.append("Réseau vectorisé indisponible (bassin > %d km²) : seul le raster "
+                         "de drainage est fourni — il couvre tout le bassin sans perte." % int(_WS_VECTOR_MAX_KM2))
+        notes.append("Réseau de drainage = aire drainée MERIT Hydro (~90 m) seuillée à %s km²." % thr_val)
+    except Exception as e:
+        print(f"[watershed] réseau de drainage (MERIT upa) indisponible : {e}")
+
     # Étape 1 finie : géométrie + réseau. L'échantillonnage des indicateurs
     # (relief, sol, climat, nappe) est déporté sur /watershed/attributes pour
     # que le front affiche le bassin immédiatement, puis complète le tableau.
@@ -2323,6 +2422,8 @@ def gee_watershed(req: WatershedRequest):
         "outlet": {"lat": req.lat, "lon": req.lon},
         "boundary": boundary,
         "rivers": rivers_gj,
+        "streams_tile": streams_tile,
+        "streams_vector": streams_vector,
         "attributes": attrs,
         "unavailable": unavailable,
         "notes": notes,
