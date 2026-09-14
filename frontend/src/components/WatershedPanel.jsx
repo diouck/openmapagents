@@ -21,7 +21,7 @@ import {
 } from "../icons";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS_NAMES = ["Bassin versant", "Réseau hydro (continu)", "Réseau hydrographique", "Exutoire"];
+const WS_NAMES = ["Bassin versant", "Réseau hydro (raster)", "Réseau hydro (lignes)", "Réseau hydro (continu)", "Réseau hydrographique", "Exutoire"];
 
 // Emprise [minX,minY,maxX,maxY] d'une géométrie GeoJSON (pour recentrer la carte).
 function geomBbox(g) {
@@ -114,14 +114,16 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
                       reseau_km: A0.reseau_km, sous_bassins: A0.sous_bassins },
       }] }, "Bassin versant", "analysis");
     }
-    // Réseau CONTINU VECTORISÉ (accumulation de flux, 8-connexité) — exportable,
-    // sans perte, d'un seul tenant. Repli sur le raster si la vectorisation échoue.
+    // Raster de CONTRÔLE (toujours affiché, sous les lignes) — pour vérifier d'un
+    // coup d'œil que la numérisation en lignes est complète (aucun tronçon perdu).
+    if (delim.streams_tile) {
+      onAddRaster?.({ id: `ws-streams-r-${Date.now()}`, name: "Réseau hydro (raster)",
+        type: "wms", tileUrl: delim.streams_tile, opacity: 0.55 });
+    }
+    // Réseau VECTORISÉ en POLYLIGNES (LineString) — stylable + exportable.
     if (delim.streams_vector?.features?.length) {
-      onAddLayerSilent?.(delim.streams_vector, "Réseau hydro (continu)", "data",
-        { color: "#1565c0", outlineColor: "#1565c0", opacity: 1, strokeWidth: 1.1, radius: 2 });
-    } else if (delim.streams_tile) {
-      onAddRaster?.({ id: `ws-streams-${Date.now()}`, name: "Réseau hydro (continu)",
-        type: "wms", tileUrl: delim.streams_tile, opacity: 0.95 });
+      onAddLayerSilent?.(delim.streams_vector, "Réseau hydro (lignes)", "data",
+        { color: "#0d3fa8", opacity: 1, strokeWidth: 1.4, radius: 2 });
     }
     // Tronçons vecteur HydroRIVERS — TOUTES les lignes, sans simplification.
     if (delim.rivers?.features?.length) {

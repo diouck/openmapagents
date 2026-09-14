@@ -2212,13 +2212,17 @@ def _trace_streams_lines(ee, geom, thr_km2):
     from rasterio.io import MemoryFile
     from shapely.geometry import LineString, mapping
     from shapely.ops import linemerge
-    img = ee.Image("MERIT/Hydro/v1_0_1").select(["dir", "upa"])
+    # Bandes COMPACTES : direction (int16) + masque « cours d'eau » binaire (uint8),
+    # au lieu de l'aire drainée en float → téléchargement ~4× plus léger.
+    merit = ee.Image("MERIT/Hydro/v1_0_1")
+    img = merit.select("dir").toInt16().rename("dir") \
+        .addBands(merit.select("upa").gte(thr_km2).rename("s").toUint8())
     url = img.getDownloadURL({"region": geom, "scale": 90, "format": "GEO_TIFF",
                               "crs": "EPSG:4326", "filePerBand": False})
-    raw = urllib.request.urlopen(url, timeout=90).read()
+    raw = urllib.request.urlopen(url, timeout=120).read()
     with MemoryFile(raw) as mf:
         with mf.open() as ds:
-            dirs = ds.read(1); upa = ds.read(2); tr = ds.transform
+            dirs = ds.read(1); mask = ds.read(2); tr = ds.transform
     H, W = dirs.shape
     # décalages D8 MERIT : 1=E,2=SE,4=S,8=SW,16=W,32=NW,64=N,128=NE
     OFF = {1: (1, 0), 2: (1, 1), 4: (0, 1), 8: (-1, 1), 16: (-1, 0), 32: (-1, -1), 64: (0, -1), 128: (1, -1)}
@@ -2227,7 +2231,7 @@ def _trace_streams_lines(ee, geom, thr_km2):
     def ctr(px, py):
         return (c + a * (px + 0.5) + b * (py + 0.5), f + d * (px + 0.5) + e * (py + 0.5))
 
-    ys, xs = np.where(np.asarray(upa, dtype="float64") >= thr_km2)
+    ys, xs = np.where(np.asarray(mask) > 0)
     segs = []
     for py, px in zip(ys.tolist(), xs.tolist()):
         o = OFF.get(int(dirs[py, px]))
@@ -2382,10 +2386,12 @@ def gee_watershed(req: WatershedRequest):
         f = mid.get("tile_fetcher")
         streams_tile = f.url_format if (f and hasattr(f, "url_format")) else mid.get("urlFormat", "")
         attrs["seuil_drainage_km2"] = thr_val
-        # ── Réseau en vraies POLYLIGNES (LineString) via la DIRECTION DE FLUX ──
-        # (bassins raisonnables : petit raster téléchargé). Repli sur des polygones
-        # reduceToVectors si le tracé échoue ou si le bassin est trop grand.
-        if area_km2 <= 25000:
+        # Le RASTER (streams_tile) est TOUJOURS fourni → sert de contrôle visuel pour
+        # vérifier que la numérisation en lignes n'a rien perdu. En plus, on trace le
+        # réseau en vraies POLYLIGNES (LineString) via la direction de flux, tant que
+        # le raster 90 m du bassin reste téléchargeable (~≤ 30 000 km²). Au-delà, pas
+        # de vecteur (trop lourd) : seul le raster est affiché — PAS de polygones.
+        if area_km2 <= 30000:
             try:
                 streams_vector = _trace_streams_lines(ee, geom, thr_val)
                 if streams_vector and streams_vector.get("features"):
@@ -2393,16 +2399,7 @@ def gee_watershed(req: WatershedRequest):
             except Exception as e2:
                 print(f"[watershed] tracé polylignes indisponible : {e2}")
         if not (streams_vector and streams_vector.get("features")):
-            try:
-                sv = streams.reduceToVectors(
-                    geometry=geom, scale=95, geometryType="polygon",
-                    eightConnected=True, labelProperty="net", maxPixels=int(1e10))
-                sv = sv.map(lambda ft: ee.Feature(ft.geometry().simplify(30), {"net": ft.get("net")}))
-                streams_vector = sv.limit(8000).getInfo()
-                if streams_vector and streams_vector.get("features"):
-                    attrs["reseau_type"] = "polygones (repli, grand bassin)"
-            except Exception as e3:
-                print(f"[watershed] vectorisation réseau indisponible : {e3}")
+            attrs["reseau_type"] = "raster seul (bassin trop grand pour un vecteur dense)"
         notes.append("Réseau continu = aire drainée MERIT Hydro (~90 m) seuillée à %s km², tracée "
                      "en POLYLIGNES (LineString) via la direction de flux — connecté, sans rupture." % thr_val)
     except Exception as e:
