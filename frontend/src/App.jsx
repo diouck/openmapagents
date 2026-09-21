@@ -5,7 +5,7 @@ import * as turf from "@turf/turf";
 import { Link } from "react-router-dom";
 
 import { useTheme, ThemeContext, useThemeContext } from "./theme";
-import { F, M, API, MAP_STYLES, LAYER_COLORS, EXPORT_FORMATS, PLANETS, PLANET_KEYS } from "./config";
+import { F, M, API, MAP_STYLES, MAPLIBRE_STYLES, DEFAULT_BASEMAP, MINIMAP_STYLE, LAYER_COLORS, EXPORT_FORMATS, PLANETS, PLANET_KEYS } from "./config";
 import { buildClassification } from "./utils/classification";
 import { encodePermalink, decodePermalink, importFile, computeBounds, getPopupFields } from "./utils/helpers";
 import { executeSpatialOp } from "./utils/spatial";
@@ -693,7 +693,7 @@ export default function App() {
   const [pendingRestore, setPendingRestore] = useState(null); // viewport à restaurer après re-render
   const { user } = useAuth();
   const [timelapse,     setTimelapse]     = useState(null); // données timelapse pour modale
-  const [mapSt,  setMapSt]  = useState("positron");
+  const [mapSt,  setMapSt]  = useState(DEFAULT_BASEMAP);
   // Vue initiale : restaure la position sauvegardée avant un basculement de moteur
   // (MapLibre ⟷ Mapbox se fait par rechargement) pour ne pas « sauter ».
   const [vs,     setVs]     = useState(() => {
@@ -950,7 +950,7 @@ export default function App() {
   // ── Sélecteur de planète (Terre / Mars / Lune) ────────────
   // Une planète = un fond raster ; on la regarde en Globe. « Terre » restaure
   // le dernier fond terrestre utilisé.
-  const lastEarthRef = useRef("positron");
+  const lastEarthRef = useRef(DEFAULT_BASEMAP);
   useEffect(() => { if (!PLANET_KEYS.includes(mapSt)) lastEarthRef.current = mapSt; }, [mapSt]);
   const selectPlanet = useCallback((key) => {
     if (key === "earth") { setMapSt(lastEarthRef.current || "positron"); return; }
@@ -2546,7 +2546,7 @@ export default function App() {
         <ComparatorPanel
           layers={layers}
           vs={vs}
-          mapStyle={MAP_STYLES[mapSt]}
+          mapStyle={MAPLIBRE_STYLES[mapSt] || MINIMAP_STYLE}
         />
       </Embed>
     );
@@ -2665,7 +2665,7 @@ export default function App() {
         <div style={{display:"flex",gap:3,alignItems:"center"}}>
           {!isMobile&&<>
           {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>{
-            const lock = openPanels.has("shadow") && k!=="liberty";   // ombrage OUVERT → Liberty imposé (bâtiments) ; déverrouillé à la fermeture
+            const lock = MAP_ENGINE!=="mapbox" && openPanels.has("shadow") && k!=="liberty";   // ombrage OUVERT → Liberty imposé (bâtiments, MapLibre) ; pas de verrou sous Mapbox
             return (
             <button key={k} onClick={()=>{ if(!lock) setMapSt(k); }} disabled={lock} className="rib"
               title={lock ? "Ombrage : fond Liberty requis (bâtiments)" : undefined}
@@ -2968,7 +2968,7 @@ export default function App() {
             onLoad={()=>setMapReady(true)}
             onData={e=>{ if(e.dataType==="source" && e.sourceId && e.isSourceLoaded===false && layers.some(l=>e.sourceId.startsWith(l.id))) startLoad(); }}
             onIdle={()=>{ const m=mapRef.current?.getMap?.(); if(m && m.areTilesLoaded()) endLoad(); }}
-            style={{width:"100%",height:"100%",background:"transparent"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES["positron"]}
+            style={{width:"100%",height:"100%",background:"transparent"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES[DEFAULT_BASEMAP]}
             maplibreLogo={false} attributionControl={false} preserveDrawingBuffer={true}
             /* MapLibre plafonne l'inclinaison à 60° par défaut : impossible d'amener
                la ligne d'horizon dans le champ, donc de voir le ciel. 85° = maximum
@@ -3237,7 +3237,7 @@ export default function App() {
           </>)}
 
           <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL} onRemove={removeL}/>
-          {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAP_STYLES[mapSt]}/>}
+          {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAPLIBRE_STYLES[mapSt]||MINIMAP_STYLE}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(
             <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",color:C.dim,fontSize:13,pointerEvents:"none"}}>

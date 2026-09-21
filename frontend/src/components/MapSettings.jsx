@@ -12,18 +12,25 @@
  * Le composant ne fait QUE piloter l'état (remonté à App via props) : App applique
  * les handlers sur la carte et rend/masque les contrôles natifs.
  */
-import { F } from "../config";
-import { IcX, IcStack, IcSettings, IcEdit, IcCircleDot, IcRulerTool, IcPencil } from "../icons";
+import { F, MAPBOX_TOKEN } from "../config";
+import { MAP_ENGINE } from "../mapgl";
+import { IcX, IcStack, IcSettings, IcEdit, IcCircleDot, IcRulerTool, IcPencil, IcAlert } from "../icons";
 
 // Vignettes : les styles vecteur (OpenFreeMap) n'ont pas d'image statique → on
 // prend une tuile raster équivalente (CARTO/OSM) au même endroit. Les styles raster
-// (satellite, planètes) fournissent eux-mêmes leur miniature via leurs tuiles.
+// (satellite, planètes) fournissent eux-mêmes leur miniature via leurs tuiles. Les
+// styles Mapbox natifs (mapbox://) → tuile via l'API statique Mapbox (avec token).
 const EARTH_THUMB = {
   positron: "https://a.basemaps.cartocdn.com/light_all/4/8/5.png",
   dark:     "https://a.basemaps.cartocdn.com/dark_all/4/8/5.png",
   liberty:  "https://tile.openstreetmap.org/4/8/5.png",
 };
 function thumbFor(key, style) {
+  if (typeof style === "string" && style.startsWith("mapbox://styles/")) {
+    if (!MAPBOX_TOKEN) return null;
+    const path = style.replace("mapbox://styles/", "");   // owner/style-id
+    return `https://api.mapbox.com/styles/v1/${path}/tiles/256/2/2/1?access_token=${MAPBOX_TOKEN}`;
+  }
   if (EARTH_THUMB[key]) return EARTH_THUMB[key];
   if (style && typeof style === "object" && style.sources) {
     const s = Object.values(style.sources).find(v => v && v.type === "raster" && v.tiles && v.tiles[0]);
@@ -90,6 +97,13 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
       {/* ── Fonds de carte (vignettes) ── */}
       <div>
         <div style={secTitle}><IcStack size={11} /> Fonds de carte</div>
+        {MAP_ENGINE === "mapbox" && !MAPBOX_TOKEN && (
+          <div style={{ display: "flex", gap: 6, fontSize: 9.5, color: C.amb, background: C.amb + "14",
+                        border: `0.5px solid ${C.amb}44`, borderRadius: 6, padding: "6px 8px", marginBottom: 8, lineHeight: 1.4 }}>
+            <IcAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Les fonds Mapbox exigent un <b>token</b>. Ajoutez <b>VITE_MAPBOX_TOKEN</b> puis rebuild, ou repassez sur MapLibre.</span>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
           {[...earthKeys, ...planetOpts].map(k => {
             const active = mapSt === k;

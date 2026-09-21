@@ -20,7 +20,9 @@ export const M = "'JetBrains Mono',monospace";
 // Token Mapbox fourni au build via VITE_MAPBOX_TOKEN (jamais en dur — dépôt public).
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
-export const MAP_STYLES = {
+// Fonds MAPLIBRE (styles vecteur OpenFreeMap + rasters Esri/planètes). Ne
+// fonctionnent PAS sous Mapbox GL (spec/glyphs incompatibles) → jeu séparé ci-dessous.
+export const MAPLIBRE_STYLES = {
   dark: "https://tiles.openfreemap.org/styles/dark",
   liberty: "https://tiles.openfreemap.org/styles/liberty",
   positron: "https://tiles.openfreemap.org/styles/positron",
@@ -87,17 +89,44 @@ export const MAP_STYLES = {
   }
 };
 
+// Fonds MAPBOX natifs (mapbox://…) — n'apparaissent QUE lorsque le moteur Mapbox est
+// actif. Ils EXIGENT un token valide (VITE_MAPBOX_TOKEN) ; sans token, la carte reste
+// vide. À l'inverse, les fonds OpenFreeMap ne marchent que sous MapLibre.
+export const MAPBOX_STYLES = {
+  streets:   "mapbox://styles/mapbox/streets-v12",
+  outdoors:  "mapbox://styles/mapbox/outdoors-v12",
+  light:     "mapbox://styles/mapbox/light-v11",
+  dark:      "mapbox://styles/mapbox/dark-v11",
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+};
+
+// Moteur choisi au chargement (même logique que src/mapgl.js, sans import → pas de cycle).
+const _ENGINE = (() => {
+  try { return localStorage.getItem("mapEngine") === "mapbox" ? "mapbox" : "maplibre"; }
+  catch (_) { return "maplibre"; }
+})();
+
+// Jeu de fonds ACTIF selon le moteur + fond par défaut cohérent avec ce jeu.
+export const MAP_STYLES = _ENGINE === "mapbox" ? MAPBOX_STYLES : MAPLIBRE_STYLES;
+export const DEFAULT_BASEMAP = _ENGINE === "mapbox" ? "streets" : "positron";
+// Style MapLibre sûr pour les cartes secondaires (mini-carte, story) qui restent
+// toujours en MapLibre, même quand le moteur principal est Mapbox.
+export const MINIMAP_STYLE = MAPLIBRE_STYLES.positron;
+
 // Fonds « planète » (à séparer des fonds Terre dans le sélecteur).
 // Limités aux corps disposant de tuiles Web-Mercator publiques (OpenPlanetaryMap :
 // Terre, Mercure, Mars, Lune). Vénus et les géantes gazeuses n'ont pas de tuiles
 // slippy-map compatibles MapLibre (seulement des textures équirectangulaires).
-export const PLANETS = [
-  { key: "earth",   label: "Terre",   icon: "🌍" },
-  { key: "mercury", label: "Mercure", icon: "☿" },
-  { key: "mars",    label: "Mars",    icon: "🔴" },
-  { key: "moon",    label: "Lune",    icon: "🌕" },
-];
-export const PLANET_KEYS = ["mercury", "mars", "moon"];
+// Les globes « planète » sont des fonds raster MapLibre → indisponibles sous Mapbox.
+export const PLANETS = _ENGINE === "mapbox"
+  ? [{ key: "earth", label: "Terre", icon: "🌍" }]
+  : [
+      { key: "earth",   label: "Terre",   icon: "🌍" },
+      { key: "mercury", label: "Mercure", icon: "☿" },
+      { key: "mars",    label: "Mars",    icon: "🔴" },
+      { key: "moon",    label: "Lune",    icon: "🌕" },
+    ];
+export const PLANET_KEYS = _ENGINE === "mapbox" ? [] : ["mercury", "mars", "moon"];
 
 export const LAYER_COLORS = [
   "#EF9F27", "#378ADD", "#D4537E", "#1D9E75",
