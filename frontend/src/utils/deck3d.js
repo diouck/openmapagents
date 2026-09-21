@@ -263,15 +263,18 @@ export function list3DLayers() {
   }));
 }
 
-/** Bascule la projection globe / mercator (MapLibre GL v5). */
+/** Bascule la projection globe / mercator. Compatible MapLibre GL v5
+ *  (setProjection({type})) ET Mapbox GL v3 (setProjection('globe'|'mercator')). */
 export function setGlobe(map, on) {
-  try {
-    map.setProjection({ type: on ? "globe" : "mercator" });
-    return true;
-  } catch (e) {
-    console.warn("setGlobe:", e);
-    return false;
+  const name = on ? "globe" : "mercator";
+  const isMapbox = (typeof window !== "undefined" && window.__MAP_ENGINE__ === "mapbox");
+  // Ordre selon le moteur, avec repli sur l'autre forme (API très proches mais distinctes).
+  const forms = isMapbox ? [name, { name }, { type: name }] : [{ type: name }, name, { name }];
+  for (const f of forms) {
+    try { map.setProjection(f); return true; } catch (_) { /* on tente la forme suivante */ }
   }
+  console.warn("setGlobe: projection non appliquée");
+  return false;
 }
 
 export function isGlobe(map) {

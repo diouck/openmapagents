@@ -6,7 +6,7 @@
  * Couleurs par catégorie affichées sur la carte via expression MapLibre
  */
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+import { GLMarker } from "../mapgl";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { IcUtensils, IcCart, IcBag, IcHospital, IcLandmark, IcHotel,
@@ -286,7 +286,7 @@ export default function OsmPanel({ layers = [], onAddLayer, mapRef }) {
     markerRef.current?.remove();
     const el = document.createElement("div");
     el.innerHTML = `<svg viewBox="0 0 28 36" width="28" height="36"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22s14-12.667 14-22C28 6.268 21.732 0 14 0z" fill="#f59e0b" stroke="#fff" stroke-width="2"/><circle cx="14" cy="14" r="5" fill="#fff"/></svg>`;
-    markerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map);
+    markerRef.current = new GLMarker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map);
   }, [mapRef]);
   useEffect(() => () => markerRef.current?.remove(), []);
 

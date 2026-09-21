@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import Map, { Source, Layer, Popup, NavigationControl, ScaleControl } from "react-map-gl/maplibre";
-import "maplibre-gl/dist/maplibre-gl.css";
+import Map, { Source, Layer, Popup, NavigationControl, ScaleControl, MAP_ENGINE, setMapEngine } from "./mapgl";
 import * as turf from "@turf/turf";
 import { Link } from "react-router-dom";
 
@@ -694,7 +693,16 @@ export default function App() {
   const { user } = useAuth();
   const [timelapse,     setTimelapse]     = useState(null); // données timelapse pour modale
   const [mapSt,  setMapSt]  = useState("positron");
-  const [vs,     setVs]     = useState({ longitude: -1.55, latitude: 47.22, zoom: 12, pitch: 0, bearing: 0 });
+  // Vue initiale : restaure la position sauvegardée avant un basculement de moteur
+  // (MapLibre ⟷ Mapbox se fait par rechargement) pour ne pas « sauter ».
+  const [vs,     setVs]     = useState(() => {
+    const def = { longitude: -1.55, latitude: 47.22, zoom: 12, pitch: 0, bearing: 0 };
+    try {
+      const saved = localStorage.getItem("mapVS");
+      if (saved) { localStorage.removeItem("mapVS"); const p = JSON.parse(saved); if (p && Number.isFinite(p.longitude)) return { ...def, ...p }; }
+    } catch (_) {}
+    return def;
+  });
   const [popup,  setPopup]  = useState(null);
 
   // ── Sidebar gauche ────────────────────────────────────────
@@ -2671,6 +2679,18 @@ export default function App() {
             style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${C.bdr}`,background:"transparent",color:C.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
             <IcMap size={12}/> Projections
           </button>
+          <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
+          {/* Moteur de rendu cartographique : MapLibre GL (défaut) ⟷ Mapbox GL.
+              Bascule par RECHARGEMENT (imports statiques figés) ; la vue est préservée. */}
+          <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}} title="Moteur de rendu : MapLibre ⟷ Mapbox">
+            {[["MapLibre","maplibre"],["Mapbox","mapbox"]].map(([l,e],i)=>(
+              <button key={e} onClick={()=>{ if(MAP_ENGINE!==e) setMapEngine(e, vs); }} className="rib"
+                title={e==="mapbox"?"Basculer sur Mapbox GL (recharge la page)":"Basculer sur MapLibre GL (recharge la page)"}
+                style={{fontFamily:F,fontSize:10,padding:"3px 9px",border:"none",borderLeft:i?`0.5px solid ${C.bdr}`:"none",background:MAP_ENGINE===e?C.acc+"18":"transparent",color:MAP_ENGINE===e?C.acc:C.dim,cursor:"pointer"}}>
+                {l}
+              </button>
+            ))}
+          </div>
           </>}
 
           {/* Relief 3D + Ambiance : hors du `!isMobile` mais DANS le même groupe,

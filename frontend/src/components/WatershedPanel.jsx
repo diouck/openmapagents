@@ -11,7 +11,7 @@
  * `map.once`, sans toucher au clic central de la carte.
  */
 import { useState, useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+import { GLMarker } from "../mapgl";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { Sel, Lbl } from "./ui";
@@ -68,7 +68,7 @@ export default function WatershedPanel({ layers, mapRef, onAddLayer, onAddLayerS
       const el = document.createElement("div");
       el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e01e1e;" +
         "border:2.5px solid #fff;box-shadow:0 0 0 1.5px #e01e1e,0 1px 4px rgba(0,0,0,.4);cursor:default";
-      outletMarker.current = new maplibregl.Marker({ element: el, anchor: "center" });
+      outletMarker.current = new GLMarker({ element: el, anchor: "center" });
     }
     outletMarker.current.setLngLat([outlet.lon, outlet.lat]).addTo(m);
   }, [outlet, mapRef]);

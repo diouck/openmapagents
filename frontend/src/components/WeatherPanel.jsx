@@ -19,7 +19,7 @@ import {
   IcPlay, IcPause, IcInfo, IcAlert,
 } from "../icons";
 import { showFrame, setFrameOpacity, clearAnim } from "../utils/rasterAnim";
-import maplibregl from "maplibre-gl";
+import { GLPopup } from "../mapgl";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const RV_JSON = "https://api.rainviewer.com/public/weather-maps.json";
@@ -251,7 +251,7 @@ export default function WeatherPanel({ mapRef }) {
       const fr = nearestFrame(s.gfs, s.curT);
       const hours = (fr && fr.hours != null) ? fr.hours : 0;
       const vlabel = (GFS_VARS.find(v => v[0] === s.gfsVar) || [])[1] || s.gfsVar;
-      if (!popupRef.current) popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "240px" });
+      if (!popupRef.current) popupRef.current = new GLPopup({ closeButton: true, closeOnClick: false, maxWidth: "240px" });
       const pop = popupRef.current;
       pop.setLngLat([lng, lat]).setHTML(`<div style="font:12px system-ui;color:#111">Lecture…</div>`).addTo(m);
       try {

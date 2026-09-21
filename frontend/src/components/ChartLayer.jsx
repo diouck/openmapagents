@@ -13,7 +13,7 @@
  * et le niveau de zoom, dans une seule expression `interpolate`.
  */
 import { useMemo, useEffect } from "react";
-import { Source, Layer } from "react-map-gl/maplibre";
+import { Source, Layer } from "../mapgl";
 // Import depuis @turf/turf : dépendance DÉCLARÉE, déjà présente dans le bundle
 // principal (App.jsx l'importe), et dont la résolution est éprouvée ici. Le
 // sous-paquet @turf/point-on-feature n'est qu'une dépendance transitive : son
