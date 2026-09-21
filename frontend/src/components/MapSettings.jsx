@@ -51,6 +51,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
     ["rotate",     "Rotation / inclinaison"],
     ["pan",        "Déplacement (glisser)"],
     ["nav",        "Boutons zoom & boussole"],
+    ["search",     "Recherche (adresse)"],
     ["scale",      "Échelle"],
     ["geolocate",  "Géolocalisation"],
     ["fullscreen", "Plein écran"],
@@ -58,7 +59,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
   const TOOLS = [
     ["editor",  "Édition", IcEdit],
     ["buffer",  "Tampon",  IcCircleDot],
-    ["measure", "Mesure",  IcRulerTool],
+    ["measure_dist", "Mesure", IcRulerTool],
     ["draw",    "Dessin",  IcPencil],
   ];
 
@@ -79,7 +80,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
 
   return (
     <div style={{
-      position: "absolute", top: 52, left: 10, zIndex: 2900, width: 244, maxWidth: "calc(100vw - 24px)",
+      position: "absolute", top: 52, right: 10, zIndex: 2900, width: 244, maxWidth: "calc(100vw - 24px)",
       maxHeight: "calc(100vh - 130px)", overflowY: "auto",
       background: C.panel || C.bg, border: `0.5px solid ${C.bdr}`, borderRadius: 10,
       boxShadow: "0 8px 30px rgba(0,0,0,.28)", padding: 12,

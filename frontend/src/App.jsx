@@ -377,7 +377,7 @@ function GeocoderControl({ mapRef, C }) {
 
   return (
     <div style={{
-      position: "absolute", top: 100, right: 10, zIndex: 10,
+      position: "absolute", top: 150, right: 10, zIndex: 10,
       display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0,
     }}>
       {/* Bouton loupe — même style que NavigationControl */}
@@ -711,7 +711,7 @@ export default function App() {
   const [ctrlOpen, setCtrlOpen] = useState(false);   // panneau ⚙️ ouvert
   const [ctrls, setCtrls] = useState({               // contrôles activés (défaut = comportement actuel)
     zoom: true, rotate: true, pan: true,             // interactions
-    nav: true, scale: true, geolocate: false, fullscreen: false,  // contrôles UI
+    nav: true, search: true, scale: true, geolocate: false, fullscreen: false,  // contrôles UI
   });
   // Applique les INTERACTIONS (handlers) sur la carte — API identique MapLibre/Mapbox.
   useEffect(() => {
@@ -725,6 +725,27 @@ export default function App() {
     try { (ctrls.zoom || ctrls.rotate) ? m.touchZoomRotate.enable() : m.touchZoomRotate.disable(); } catch (_) {}
     try { (ctrls.zoom || ctrls.pan)    ? m.keyboard.enable()        : m.keyboard.disable();        } catch (_) {}
   }, [ctrls.zoom, ctrls.rotate, ctrls.pan, mapReady]);
+
+  // MAPBOX : remonte les couches de données AU-DESSUS du fond. Les styles v3 (Standard…)
+  // placent sinon les couches custom SOUS le fond → « la couche passe derrière ». On les
+  // déplace au sommet après chaque (re)chargement de style / changement de couches.
+  // (Aucun effet en MapLibre, où l'ordre est déjà correct.)
+  useEffect(() => {
+    if (MAP_ENGINE !== "mapbox") return;
+    const m = mapRef.current?.getMap?.(); if (!m) return;
+    const bump = () => {
+      try {
+        const st = m.getStyle?.(); if (!st?.layers) return;
+        const ids = st.layers.map(s => s.id);
+        layers.forEach(l => ids.forEach(id => {
+          if (id.startsWith(l.id) && m.getLayer(id)) { try { m.moveLayer(id); } catch (_) {} }
+        }));
+      } catch (_) {}
+    };
+    const t1 = setTimeout(bump, 400);   // après ajout des couches par react-map-gl
+    const t2 = setTimeout(bump, 1200);  // filet si le style est lent à charger
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [layers, mapReady, mapSt]);
 
   // ── Sidebar gauche ────────────────────────────────────────
   const [activeTool,   setActiveTool]   = useState("pointer");
@@ -2664,28 +2685,7 @@ export default function App() {
             écartée des autres au lieu de rester collée à « Projections ». */}
         <div style={{display:"flex",gap:3,alignItems:"center"}}>
           {!isMobile&&<>
-          {Object.keys(MAP_STYLES).filter(k=>!PLANET_KEYS.includes(k)).map(k=>{
-            const lock = MAP_ENGINE!=="mapbox" && openPanels.has("shadow") && k!=="liberty";   // ombrage OUVERT → Liberty imposé (bâtiments, MapLibre) ; pas de verrou sous Mapbox
-            return (
-            <button key={k} onClick={()=>{ if(!lock) setMapSt(k); }} disabled={lock} className="rib"
-              title={lock ? "Ombrage : fond Liberty requis (bâtiments)" : undefined}
-              style={{fontFamily:F,fontSize:10,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${mapSt===k?C.acc+"55":C.bdr}`,background:mapSt===k?C.acc+"15":"transparent",color:mapSt===k?C.acc:C.dim,cursor:lock?"not-allowed":"pointer",opacity:lock?0.4:1}}>
-              {k.charAt(0).toUpperCase() + k.slice(1)}
-            </button>
-            );
-          })}
-          <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
-          {/* Sélecteur de planète (liste déroulante) : une planète se voit en globe */}
-          <select value={currentPlanet} onChange={e=>{ const v=e.target.value; if(v==="__more__") activateItem("solarsystem"); else selectPlanet(v); }} className="rib"
-            title="Choisir un corps céleste (vue globe) — ou ouvrir le système solaire complet"
-            style={{fontFamily:F,fontSize:10,padding:"3px 6px",borderRadius:5,cursor:"pointer",
-              border:`0.5px solid ${currentPlanet!=="earth"?C.acc+"55":C.bdr}`,
-              background:currentPlanet!=="earth"?C.acc+"12":"transparent",
-              color:currentPlanet!=="earth"?C.acc:C.dim,outline:"none"}}>
-            {PLANETS.map(p=>(<option key={p.key} value={p.key}>{p.icon} {p.label}</option>))}
-            <option value="__more__">🪐 Plus de planètes… (système solaire 3D)</option>
-          </select>
-          <div style={{width:1,height:16,background:C.bdr,margin:"0 3px"}}/>
+          {/* Fonds de carte & planètes déplacés dans le panneau ⚙️ (bouton sur la carte). */}
           {/* Sélecteur de projection de la carte live : seuls Plan (Mercator) et Globe sont possibles sous MapLibre */}
           <div style={{display:"flex",border:`0.5px solid ${C.bdr}`,borderRadius:5,overflow:"hidden"}}>
             {[["Plan",false],["Globe",true]].map(([l,g])=>(
@@ -2987,8 +2987,8 @@ export default function App() {
               catch{setPopup({lng,lat,properties:{lat:lat.toFixed(5),lon:lng.toFixed(5)},layerName:"coords"});}
             }}>
 
-            {/* Geocoder flottant collé au NavigationControl */}
-            <GeocoderControl mapRef={mapRef} C={C} />
+            {/* Geocoder flottant (recherche d'adresse) — désactivable via le panneau ⚙️ */}
+            {ctrls.search && <GeocoderControl mapRef={mapRef} C={C} />}
             {/* Contrôles natifs — activables/désactivables via le panneau ⚙️ */}
             {ctrls.nav        && <NavigationControl position="top-right"/>}
             {ctrls.scale      && <ScaleControl position="bottom-left"/>}
@@ -3173,10 +3173,13 @@ export default function App() {
             {popup&&(<Popup longitude={popup.lng} latitude={popup.lat} anchor="bottom" onClose={()=>setPopup(null)} closeButton closeOnClick={false}><div style={{fontFamily:F,padding:"2px 0",minWidth:160,maxWidth:280}}>{(()=>{const fields=getPopupFields(popup.properties);const nf=fields.find(f=>f.isName);return<><div style={{fontSize:12,fontWeight:600,color:"#222",marginBottom:4}}>{nf?nf.value:"Sans nom"}</div>{fields.filter(f=>!f.isName).map(f=><div key={f.key} style={{fontSize:11,color:"#555",padding:"1px 0"}}><span style={{color:"#888"}}>{f.key}:</span> {f.value}</div>)}</>;})()}</div></Popup>)}
           </Map>
 
-          {/* ── Bouton ⚙️ Contrôles (haut-gauche, coin libre) + panneau ── */}
+          {/* ── Bouton ⚙️ Contrôles : AU-DESSUS des boutons de navigation (haut-droite).
+              Les contrôles natifs sont décalés vers le bas (CSS ctrl-top-right) pour
+              qu'ils ne se chevauchent pas avec le ⚙️. ── */}
+          <style>{`.maplibregl-ctrl-top-right,.mapboxgl-ctrl-top-right{margin-top:46px}`}</style>
           {!planet3D && (
             <button onClick={()=>setCtrlOpen(o=>!o)} title="Contrôles : fonds de carte, zoom, outils…"
-              style={{position:"absolute",top:10,left:10,zIndex:2901,width:34,height:34,borderRadius:8,
+              style={{position:"absolute",top:10,right:10,zIndex:2901,width:34,height:34,borderRadius:8,
                 border:`0.5px solid ${ctrlOpen?C.acc+"66":C.bdr}`,background:ctrlOpen?C.acc+"18":C.card,
                 color:ctrlOpen?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                 boxShadow:"0 1px 6px rgba(0,0,0,.18)"}}>

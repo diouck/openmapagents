@@ -93,6 +93,7 @@ export const MAPLIBRE_STYLES = {
 // actif. Ils EXIGENT un token valide (VITE_MAPBOX_TOKEN) ; sans token, la carte reste
 // vide. À l'inverse, les fonds OpenFreeMap ne marchent que sous MapLibre.
 export const MAPBOX_STYLES = {
+  standard:  "mapbox://styles/mapbox/standard",
   streets:   "mapbox://styles/mapbox/streets-v12",
   outdoors:  "mapbox://styles/mapbox/outdoors-v12",
   light:     "mapbox://styles/mapbox/light-v11",
