@@ -477,20 +477,44 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // MAPBOX (fond Standard) : pilote l'éclairage natif 3D selon l'heure → ombre portée
-  // des bâtiments rendue par Mapbox lui-même (dawn/day/dusk/night). L'analyse d'ombre
-  // fine (couche MapLibre) reste indisponible sous Mapbox.
+  // MAPBOX : VRAIE ombre portée par les bâtiments 3D de Mapbox (Standard). On pose une
+  // lumière DIRECTIONNELLE « soleil » (API setLights, mapbox-gl v3) dont la direction =
+  // position réelle du soleil (même calcul SunCalc que l'ombrage MapLibre), avec
+  // cast-shadows → les bâtiments projettent de vraies ombres qui bougent avec l'heure.
+  // anchor:"map" → azimut géographique (indépendant de la rotation de la carte).
   useEffect(() => {
     if (MAP_ENGINE !== "mapbox") return;
     const map = mapRef?.current?.getMap?.();
-    if (!map || !map.setConfigProperty) return;
-    const preset = hour < 7 ? "night" : hour < 9 ? "dawn" : hour < 17 ? "day" : hour < 20 ? "dusk" : "night";
-    if (map.__lightPreset === preset) return;   // évite de ré-appliquer 60×/s en lecture
-    map.__lightPreset = preset;
-    const apply = () => { try { map.setConfigProperty("basemap", "lightPreset", preset); } catch (_) {} };
+    if (!map || !map.setLights) return;
+    const apply = () => {
+      try {
+        const c = map.getCenter();
+        const ms = localMs(date, Number(hour), tzOffsetHours(c.lng, tzModeRef.current, date));
+        const { alt, az } = sunPosition(ms, c.lat, c.lng);       // az : depuis le SUD, +vers l'ouest
+        const altDeg = alt * 180 / Math.PI;
+        const azDeg  = az  * 180 / Math.PI;
+        // Mapbox directional (anchor map) : azimut 0°=Nord horaire ; polaire 0°=zénith, 90°=horizon.
+        // Cap solaire depuis le Nord = 180 + az(SUD,+O). (Si l'ombre part à l'envers → ±180.)
+        const azimuthal = (((180 + azDeg) % 360) + 360) % 360;
+        const polar = Math.max(0, Math.min(90, 90 - altDeg));
+        const day = altDeg > 0.5;                                // soleil au-dessus de l'horizon
+        // Anti-churn : n'actualise que si le soleil a bougé sensiblement (lecture fluide).
+        const prev = map.__sunDir;
+        if (prev && Math.abs(prev[0] - azimuthal) < 0.5 && Math.abs(prev[1] - polar) < 0.5 && prev[2] === day) return;
+        map.__sunDir = [azimuthal, polar, day];
+        map.setLights([
+          { id: "ambient", type: "ambient", properties: { color: "#ffffff", intensity: day ? 0.45 : 0.7 } },
+          { id: "sun", type: "directional", properties: {
+              color: "#ffffff", intensity: day ? 0.75 : 0,
+              direction: [azimuthal, polar],
+              "cast-shadows": true, "shadow-intensity": day ? 1 : 0,
+          } },
+        ]);
+      } catch (_) {}
+    };
     apply();
-    map.once?.("style.load", apply);   // au cas où le style Standard n'est pas encore chargé
-  }, [hour, mapRef]);
+    map.once?.("style.load", apply);   // si le style Standard n'est pas encore chargé
+  }, [hour, date, mapRef]);
 
   const layerOptions = useMemo(() =>
     layers.filter((l) => l && (Array.isArray(l.bbox) || l.geojson?.features?.length))
