@@ -14,6 +14,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as turf from "@turf/turf";
 import { useThemeContext } from "../theme";
 import { F, M, API } from "../config";
+import { MAP_ENGINE } from "../mapgl";
 import ShadowDashboard from "./ShadowDashboard";
 import { importFile } from "../utils/helpers";
 import { geocodeAddress } from "../utils/routing";
@@ -459,14 +460,37 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   //    imposée — l'utilisateur incline/pivote à la souris s'il le souhaite) ───
   useEffect(() => {
     prevBaseRef.current = basemap;
-    if (basemap !== "liberty") setBasemap?.("liberty");
     const map = mapRef?.current?.getMap?.();
+    // MAPBOX : NE PAS forcer "liberty" (fond MapLibre inexistant sous Mapbox → écran
+    // blanc). On s'appuie sur le fond Standard 3D, dont l'éclairage natif projette
+    // déjà l'ombre des bâtiments (voir l'effet lightPreset ci-dessous). On incline la
+    // caméra pour révéler la 3D.
+    if (MAP_ENGINE === "mapbox") {
+      if (map) { try { map.easeTo({ pitch: Math.max(map.getPitch(), 55), zoom: Math.max(map.getZoom(), 15.5), duration: 800 }); } catch (_) {} }
+      return;
+    }
+    if (basemap !== "liberty") setBasemap?.("liberty");
     if (map && map.getZoom() < 15) { try { map.easeTo({ zoom: BLD_ZOOM, duration: 800 }); } catch (_) {} }
     return () => {
       if (prevBaseRef.current && prevBaseRef.current !== "liberty") setBasemap?.(prevBaseRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // MAPBOX (fond Standard) : pilote l'éclairage natif 3D selon l'heure → ombre portée
+  // des bâtiments rendue par Mapbox lui-même (dawn/day/dusk/night). L'analyse d'ombre
+  // fine (couche MapLibre) reste indisponible sous Mapbox.
+  useEffect(() => {
+    if (MAP_ENGINE !== "mapbox") return;
+    const map = mapRef?.current?.getMap?.();
+    if (!map || !map.setConfigProperty) return;
+    const preset = hour < 7 ? "night" : hour < 9 ? "dawn" : hour < 17 ? "day" : hour < 20 ? "dusk" : "night";
+    if (map.__lightPreset === preset) return;   // évite de ré-appliquer 60×/s en lecture
+    map.__lightPreset = preset;
+    const apply = () => { try { map.setConfigProperty("basemap", "lightPreset", preset); } catch (_) {} };
+    apply();
+    map.once?.("style.load", apply);   // au cas où le style Standard n'est pas encore chargé
+  }, [hour, mapRef]);
 
   const layerOptions = useMemo(() =>
     layers.filter((l) => l && (Array.isArray(l.bbox) || l.geojson?.features?.length))

@@ -985,6 +985,10 @@ export default function App() {
     const map = mapRef.current?.getMap?.();
     if (!map) return;
     const style = MAP_STYLES[mapSt];
+    // GARDE-FOU : ne JAMAIS appeler setStyle(undefined) — cela vide la carte (écran
+    // blanc). Cas typique : un module force un fond MapLibre (ex. "liberty") alors que
+    // le moteur Mapbox est actif → clé absente de MAP_STYLES. On ignore alors le change.
+    if (!style) return;
     try {
       map.setStyle(style);
       // setStyle réinitialise projection, terrain ET ciel → on les réapplique une

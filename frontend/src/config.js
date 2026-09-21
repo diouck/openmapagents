@@ -109,7 +109,7 @@ const _ENGINE = (() => {
 
 // Jeu de fonds ACTIF selon le moteur + fond par défaut cohérent avec ce jeu.
 export const MAP_STYLES = _ENGINE === "mapbox" ? MAPBOX_STYLES : MAPLIBRE_STYLES;
-export const DEFAULT_BASEMAP = _ENGINE === "mapbox" ? "streets" : "positron";
+export const DEFAULT_BASEMAP = _ENGINE === "mapbox" ? "standard" : "positron";
 // Style MapLibre sûr pour les cartes secondaires (mini-carte, story) qui restent
 // toujours en MapLibre, même quand le moteur principal est Mapbox.
 export const MINIMAP_STYLE = MAPLIBRE_STYLES.positron;
