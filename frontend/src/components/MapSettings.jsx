@@ -13,7 +13,7 @@
  * les handlers sur la carte et rend/masque les contrôles natifs.
  */
 import { F } from "../config";
-import { IcX, IcLayers, IcSettings, IcEdit, IcCircleDot, IcRuler, IcPencil } from "../icons";
+import { IcX, IcStack, IcSettings, IcEdit, IcCircleDot, IcRulerTool, IcPencil } from "../icons";
 
 // Vignettes : les styles vecteur (OpenFreeMap) n'ont pas d'image statique → on
 // prend une tuile raster équivalente (CARTO/OSM) au même endroit. Les styles raster
@@ -51,7 +51,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
   const TOOLS = [
     ["editor",  "Édition", IcEdit],
     ["buffer",  "Tampon",  IcCircleDot],
-    ["measure", "Mesure",  IcRuler],
+    ["measure", "Mesure",  IcRulerTool],
     ["draw",    "Dessin",  IcPencil],
   ];
 
@@ -89,7 +89,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
 
       {/* ── Fonds de carte (vignettes) ── */}
       <div>
-        <div style={secTitle}><IcLayers size={11} /> Fonds de carte</div>
+        <div style={secTitle}><IcStack size={11} /> Fonds de carte</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
           {[...earthKeys, ...planetOpts].map(k => {
             const active = mapSt === k;
