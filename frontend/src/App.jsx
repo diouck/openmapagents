@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import Map, { Source, Layer, Popup, NavigationControl, ScaleControl, MAP_ENGINE, setMapEngine } from "./mapgl";
+import Map, { Source, Layer, Popup, NavigationControl, ScaleControl, GeolocateControl, FullscreenControl, MAP_ENGINE, setMapEngine } from "./mapgl";
+import MapSettings from "./components/MapSettings";
 import * as turf from "@turf/turf";
 import { Link } from "react-router-dom";
 
@@ -87,7 +88,7 @@ import {
   IcMountain, IcCube, IcEdit, IcFilm, IcDiff, IcCompare, IcOSM, IcLeaf, IcClassif,
   IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap,
   IcCloudRain, IcSnowflake, IcChevronDown, IcTable, IcFlame, IcDroplets, IcBoxes, IcInfo,
-  IcGrid, IcAlert,
+  IcGrid, IcAlert, IcSettings,
 } from "./icons";
 
 // ─── Configuration du rail — groupes logiques, icônes uniques ─
@@ -704,6 +705,26 @@ export default function App() {
     return def;
   });
   const [popup,  setPopup]  = useState(null);
+
+  // ── Panneau ⚙️ Contrôles (fonds de carte + contrôles natifs + outils) ──
+  const [mapReady, setMapReady] = useState(false);   // carte chargée → appliquer les handlers
+  const [ctrlOpen, setCtrlOpen] = useState(false);   // panneau ⚙️ ouvert
+  const [ctrls, setCtrls] = useState({               // contrôles activés (défaut = comportement actuel)
+    zoom: true, rotate: true, pan: true,             // interactions
+    nav: true, scale: true, geolocate: false, fullscreen: false,  // contrôles UI
+  });
+  // Applique les INTERACTIONS (handlers) sur la carte — API identique MapLibre/Mapbox.
+  useEffect(() => {
+    const m = mapRef.current?.getMap?.(); if (!m) return;
+    const tog = (h, on) => { try { if (h) on ? h.enable() : h.disable(); } catch (_) {} };
+    tog(m.scrollZoom,      ctrls.zoom);
+    tog(m.doubleClickZoom, ctrls.zoom);
+    tog(m.boxZoom,         ctrls.zoom);
+    tog(m.dragRotate,      ctrls.rotate);
+    tog(m.dragPan,         ctrls.pan);
+    try { (ctrls.zoom || ctrls.rotate) ? m.touchZoomRotate.enable() : m.touchZoomRotate.disable(); } catch (_) {}
+    try { (ctrls.zoom || ctrls.pan)    ? m.keyboard.enable()        : m.keyboard.disable();        } catch (_) {}
+  }, [ctrls.zoom, ctrls.rotate, ctrls.pan, mapReady]);
 
   // ── Sidebar gauche ────────────────────────────────────────
   const [activeTool,   setActiveTool]   = useState("pointer");
@@ -2944,6 +2965,7 @@ export default function App() {
           {/* Fond spatial (étoiles + filantes) visible dans l'espace autour du globe */}
           {globeOn && <StarField />}
           <Map ref={mapRef} {...vs} onMove={e=>setVs(e.viewState)}
+            onLoad={()=>setMapReady(true)}
             onData={e=>{ if(e.dataType==="source" && e.sourceId && e.isSourceLoaded===false && layers.some(l=>e.sourceId.startsWith(l.id))) startLoad(); }}
             onIdle={()=>{ const m=mapRef.current?.getMap?.(); if(m && m.areTilesLoaded()) endLoad(); }}
             style={{width:"100%",height:"100%",background:"transparent"}} mapStyle={typeof MAP_STYLES[mapSt]==="string"?MAP_STYLES[mapSt]:MAP_STYLES["positron"]}
@@ -2967,8 +2989,11 @@ export default function App() {
 
             {/* Geocoder flottant collé au NavigationControl */}
             <GeocoderControl mapRef={mapRef} C={C} />
-            <NavigationControl position="top-right"/>
-            <ScaleControl position="bottom-left"/>
+            {/* Contrôles natifs — activables/désactivables via le panneau ⚙️ */}
+            {ctrls.nav        && <NavigationControl position="top-right"/>}
+            {ctrls.scale      && <ScaleControl position="bottom-left"/>}
+            {ctrls.geolocate  && <GeolocateControl position="top-right" trackUserLocation showUserHeading/>}
+            {ctrls.fullscreen && <FullscreenControl position="top-right"/>}
 
             {/* Layers — inchangés */}
             {/* ── Notification éphémère (erreurs GEE, etc.) ── */}
@@ -3147,6 +3172,23 @@ export default function App() {
             {/* Popup */}
             {popup&&(<Popup longitude={popup.lng} latitude={popup.lat} anchor="bottom" onClose={()=>setPopup(null)} closeButton closeOnClick={false}><div style={{fontFamily:F,padding:"2px 0",minWidth:160,maxWidth:280}}>{(()=>{const fields=getPopupFields(popup.properties);const nf=fields.find(f=>f.isName);return<><div style={{fontSize:12,fontWeight:600,color:"#222",marginBottom:4}}>{nf?nf.value:"Sans nom"}</div>{fields.filter(f=>!f.isName).map(f=><div key={f.key} style={{fontSize:11,color:"#555",padding:"1px 0"}}><span style={{color:"#888"}}>{f.key}:</span> {f.value}</div>)}</>;})()}</div></Popup>)}
           </Map>
+
+          {/* ── Bouton ⚙️ Contrôles (haut-gauche, coin libre) + panneau ── */}
+          {!planet3D && (
+            <button onClick={()=>setCtrlOpen(o=>!o)} title="Contrôles : fonds de carte, zoom, outils…"
+              style={{position:"absolute",top:10,left:10,zIndex:2901,width:34,height:34,borderRadius:8,
+                border:`0.5px solid ${ctrlOpen?C.acc+"66":C.bdr}`,background:ctrlOpen?C.acc+"18":C.card,
+                color:ctrlOpen?C.acc:C.mut,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                boxShadow:"0 1px 6px rgba(0,0,0,.18)"}}>
+              <IcSettings size={17}/>
+            </button>
+          )}
+          {ctrlOpen && !planet3D && (
+            <MapSettings C={C} mapStyles={MAP_STYLES} planetKeys={PLANET_KEYS} mapSt={mapSt}
+              onBasemap={(k)=>{ PLANET_KEYS.includes(k) ? selectPlanet(k) : setMapSt(k); }}
+              ctrls={ctrls} setCtrls={setCtrls}
+              activeTool={activeTool} onTool={(id)=>activateItem(id)} onClose={()=>setCtrlOpen(false)} />
+          )}
 
           {/* Badge mesure */}
           {measureRes&&(
