@@ -880,8 +880,16 @@ export default function App() {
   };
 
   const refreshSky = useCallback((map) => {
-    const m = map || mapRef.current?.getMap?.(); if (!m?.setSky) return;
+    const m = map || mapRef.current?.getMap?.(); if (!m) return;
     const { globe, terrain, moment, weather: w } = skyRef.current;
+    // MAPBOX : pas de setSky. L'ambiance (jour / aube / crépuscule / nuit) passe par le
+    // lightPreset du fond Standard 3D — il change le ciel, la lumière ET les ombres.
+    // Les clés day/dawn/dusk/night correspondent exactement aux presets Mapbox.
+    if (MAP_ENGINE === "mapbox") {
+      try { if (m.setConfigProperty) m.setConfigProperty("basemap", "lightPreset", moment || "day"); } catch (_) {}
+      return;
+    }
+    if (!m.setSky) return;
     try {
       if (globe) {
         // Espace transparent : sans ça le ciel par défaut (bleu, atmosphere-blend
