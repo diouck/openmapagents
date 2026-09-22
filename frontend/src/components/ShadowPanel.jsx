@@ -405,7 +405,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [treeMode, setTreeMode] = useState("flat"); // arbres du couloir : "flat" (dégradé à plat, défaut) | "3d"
   const [maskPct, setMaskPct] = useState(80);        // intensité du voile hors couloir (0 = rien, 100 = tout masqué)
   const [relief, setRelief] = useState(false);       // relief 3D (terrain MapLibre)
-  const [showNature, setShowNature] = useState(true); // met en valeur végétation + eau (tuiles)
+  const [showNature, setShowNature] = useState(MAP_ENGINE !== "mapbox"); // végétation + eau : décoché par défaut sous Mapbox (comme la canopée)
   const natureOnRef = useRef(true);
   natureOnRef.current = showNature;
   const [addr, setAddr] = useState({ a: "", b: "" });     // adresses saisies A/B
