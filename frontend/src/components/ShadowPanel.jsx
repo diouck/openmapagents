@@ -590,7 +590,15 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // le couloir (le masque estompe le reste). Visibilité pilotée par `natureOnRef`.
   const ensureNatureLayers = (map) => {
     const sl = map.getStyle().layers || [];
-    const src = (sl.find((l) => (l["source-layer"] === "water" || l["source-layer"] === "landcover" || l["source-layer"] === "landuse") && l.source) || {}).source;
+    const mapbox = MAP_ENGINE === "mapbox";
+    // Schémas de tuiles différents : OpenMapTiles (MapLibre) vs Mapbox Streets ("composite").
+    const wanted = mapbox ? ["water", "waterway", "landuse", "landuse_overlay"] : ["water", "landcover", "landuse"];
+    let src = (sl.find((l) => wanted.includes(l["source-layer"]) && l.source) || {}).source;
+    if (!src && mapbox && map.getSource("composite")) src = "composite";   // Standard : source non exposée dans layers
+    if (!src) {   // dernier recours : première source vecteur
+      const srcs = map.getStyle().sources || {};
+      for (const id of Object.keys(srcs)) { if (srcs[id]?.type === "vector") { src = id; break; } }
+    }
     if (!src || !map.getSource(src)) return;
     const before = beforeId(map);
     const add = (id, sourceLayer, type, filter, paint) => {
@@ -599,8 +607,18 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     };
     add(NAT_WATER, "water", "fill", ["all"], { "fill-color": "#2b8fd6", "fill-opacity": 0.4 });
     add(NAT_WWAY, "waterway", "line", ["all"], { "line-color": "#2b8fd6", "line-opacity": 0.75, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3] });
-    add(NAT_LC, "landcover", "fill", ["match", ["get", "class"], ["wood", "grass", "wetland", "scrub", "tree", "forest"], true, false], { "fill-color": "#3faa5a", "fill-opacity": 0.34 });
-    add(NAT_LU, "landuse", "fill", ["match", ["get", "class"], ["park", "garden", "recreation_ground", "cemetery", "forest", "meadow", "grass", "village_green", "golf_course", "allotments", "pitch"], true, false], { "fill-color": "#43a047", "fill-opacity": 0.3 });
+    if (mapbox) {
+      // Mapbox Streets v8 : végétation dans "landuse" (class park/wood/grass/scrub/pitch…)
+      // + "landuse_overlay" (wetland / national_park).
+      add(NAT_LU, "landuse", "fill", ["match", ["get", "class"],
+        ["park", "wood", "grass", "scrub", "pitch", "cemetery", "garden", "agriculture", "piste", "recreation_ground", "golf_course", "village_green", "grave_yard"], true, false],
+        { "fill-color": "#43a047", "fill-opacity": 0.3 });
+      add(NAT_LC, "landuse_overlay", "fill", ["match", ["get", "class"], ["wetland", "national_park", "nature_reserve"], true, false],
+        { "fill-color": "#3faa5a", "fill-opacity": 0.34 });
+    } else {
+      add(NAT_LC, "landcover", "fill", ["match", ["get", "class"], ["wood", "grass", "wetland", "scrub", "tree", "forest"], true, false], { "fill-color": "#3faa5a", "fill-opacity": 0.34 });
+      add(NAT_LU, "landuse", "fill", ["match", ["get", "class"], ["park", "garden", "recreation_ground", "cemetery", "forest", "meadow", "grass", "village_green", "golf_course", "allotments", "pitch"], true, false], { "fill-color": "#43a047", "fill-opacity": 0.3 });
+    }
   };
 
   // canopée : K copies d'ombre (base→plein) + affichage vert par-dessus
@@ -1232,7 +1250,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         tctx.drawImage(img, X(cw), Y(cn), (ce - cw) / (e - w) * W, (cn - cs) / (n - s) * Hh);
         const td = tctx.getImageData(0, 0, W, Hh).data;
         const mPerPxX = Math.max(0.5, (e - w) * 111320 * Math.cos(c.lat * RAD) / W);
-        const rad = Math.max(1, Math.round(12 / mPerPxX));   // ~12 m de proximité
+        const rad = Math.max(1, Math.round(16 / mPerPxX));   // ~16 m de proximité (allées bordées d'arbres)
         const pres = new Uint8Array(W * Hh);
         for (let i = 0; i < W * Hh; i++) pres[i] = td[i * 4 + 3] > 10 ? 1 : 0;
         // dilatation séparable (max-filter) : « à moins de ~12 m d'un arbre »
