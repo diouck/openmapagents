@@ -1250,7 +1250,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         tctx.drawImage(img, X(cw), Y(cn), (ce - cw) / (e - w) * W, (cn - cs) / (n - s) * Hh);
         const td = tctx.getImageData(0, 0, W, Hh).data;
         const mPerPxX = Math.max(0.5, (e - w) * 111320 * Math.cos(c.lat * RAD) / W);
-        const rad = Math.max(1, Math.round(16 / mPerPxX));   // ~16 m de proximité (allées bordées d'arbres)
+        const rad = Math.max(1, Math.round(20 / mPerPxX));   // ~20 m de proximité (comble les trous entre arbres + abords de l'arrivée)
         const pres = new Uint8Array(W * Hh);
         for (let i = 0; i < W * Hh; i++) pres[i] = td[i * 4 + 3] > 10 ? 1 : 0;
         // dilatation séparable (max-filter) : « à moins de ~12 m d'un arbre »
