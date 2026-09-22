@@ -102,11 +102,19 @@ function convexHull(pts) {
 function queryTiles(map, name) {
   const sl = map.getStyle().layers || [];
   const lyr = sl.find((l) => l["source-layer"] === name && l.source);
-  try {
-    let f = lyr ? map.querySourceFeatures(lyr.source, { sourceLayer: name }) : [];
-    if (!f.length) f = map.querySourceFeatures("openmaptiles", { sourceLayer: name });
-    return f || [];
-  } catch (_) { return []; }
+  const tryS = (src) => { try { return src ? (map.querySourceFeatures(src, { sourceLayer: name }) || []) : []; } catch (_) { return []; } };
+  let f = lyr ? tryS(lyr.source) : [];
+  if (!f.length) f = tryS("openmaptiles");   // MapLibre / OpenFreeMap (schéma OpenMapTiles)
+  if (!f.length) f = tryS("composite");      // Mapbox Streets / Standard (source "composite")
+  if (!f.length) {
+    // Dernier recours : balaye toutes les sources vecteur du style (moteur Mapbox, où la
+    // source du bâti n'est pas exposée dans getStyle().layers pour le fond Standard).
+    const srcs = map.getStyle().sources || {};
+    for (const id of Object.keys(srcs)) {
+      if (srcs[id]?.type === "vector") { f = tryS(id); if (f.length) break; }
+    }
+  }
+  return f || [];
 }
 
 function layerBbox(l) {
@@ -193,7 +201,11 @@ const MAX_BLD = 12000, BLD_ZOOM = 16;   // plafond haut : la fenêtre visible bo
 const MIN_SHADOW_ZOOM = 14;             // sous ce zoom, ombres bâtiments masquées (sinon lavis gris)
 // opacité des ombres bâtiments atténuée à zoom moyen (bâtiments nombreux = lavis gris),
 // pleine au niveau rue → fondu progressif MIN_SHADOW_ZOOM → 16.
-const shadowOpacityExpr = (op) => ["interpolate", ["linear"], ["zoom"], MIN_SHADOW_ZOOM, op * 0.3, 16, op];
+// MAPBOX : polygones d'ombre analytiques TRANSPARENTS (le visuel vient des ombres 3D
+// natives Mapbox via setLights) ; ils restent calculés pour la part d'ombre. MapLibre : rendu normal.
+const shadowOpacityExpr = (op) => (MAP_ENGINE === "mapbox")
+  ? 0
+  : ["interpolate", ["linear"], ["zoom"], MIN_SHADOW_ZOOM, op * 0.3, 16, op];
 
 /* Distance géodésique (m) entre deux [lng,lat]. */
 function haversine(a, b) {
@@ -498,23 +510,24 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
         const azimuthal = (((180 + azDeg) % 360) + 360) % 360;
         const polar = Math.max(0, Math.min(90, 90 - altDeg));
         const day = altDeg > 0.5;                                // soleil au-dessus de l'horizon
-        // Anti-churn : n'actualise que si le soleil a bougé sensiblement (lecture fluide).
+        const shInt = day ? Math.max(0.05, Math.min(1, Number(opacity))) : 0;   // curseur "opacité de l'ombre"
+        // Anti-churn : n'actualise que si soleil OU opacité ont bougé sensiblement (lecture fluide).
         const prev = map.__sunDir;
-        if (prev && Math.abs(prev[0] - azimuthal) < 0.5 && Math.abs(prev[1] - polar) < 0.5 && prev[2] === day) return;
-        map.__sunDir = [azimuthal, polar, day];
+        if (prev && Math.abs(prev[0] - azimuthal) < 0.5 && Math.abs(prev[1] - polar) < 0.5 && prev[2] === day && Math.abs(prev[3] - shInt) < 0.02) return;
+        map.__sunDir = [azimuthal, polar, day, shInt];
         map.setLights([
           { id: "ambient", type: "ambient", properties: { color: "#ffffff", intensity: day ? 0.45 : 0.7 } },
           { id: "sun", type: "directional", properties: {
               color: "#ffffff", intensity: day ? 0.75 : 0,
               direction: [azimuthal, polar],
-              "cast-shadows": true, "shadow-intensity": day ? 1 : 0,
+              "cast-shadows": true, "shadow-intensity": shInt,
           } },
         ]);
       } catch (_) {}
     };
     apply();
     map.once?.("style.load", apply);   // si le style Standard n'est pas encore chargé
-  }, [hour, date, mapRef]);
+  }, [hour, date, opacity, mapRef]);
 
   const layerOptions = useMemo(() =>
     layers.filter((l) => l && (Array.isArray(l.bbox) || l.geojson?.features?.length))
@@ -535,6 +548,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   // La vue « Canopée 3D » de l'onglet Ombrage force la 3D quand elle est active.
   const setC3DVis = (map, on) => {
     if (!map) return;
+    if (MAP_ENGINE === "mapbox") on = false;   // Mapbox : arbres 3D natifs de Standard, pas les crowns Meta
     // « à plat » = raster canopée (géré par compute) ; le fill vectoriel n'est plus utilisé.
     const use3D = canopy3dRef.current || treeModeRef.current === "3d";
     setVis(map, C3D_FLAT, false);
@@ -677,7 +691,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Arbres : « à plat » (défaut) = RASTER canopée nuancé + son ombre ; « 3D » = extrusion.
     // Le raster est le rendu par défaut (y compris dans le couloir) ; la 3D le remplace.
     const wantC3D = canopy3dRef.current || (corridor && treeModeRef.current === "3d");
-    const canOnDisp = canOn && !wantC3D;                      // raster canopée (à plat, avec ombre)
+    // MAPBOX : ne JAMAIS afficher le raster canopée Meta/WRI ("facebook") sur la carte
+    // (la donnée sert au calcul, le visuel vient des arbres 3D natifs Mapbox).
+    const canOnDisp = canOn && !wantC3D && MAP_ENGINE !== "mapbox";  // raster canopée (à plat, avec ombre)
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
@@ -881,10 +897,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const fetchCanopy = useCallback(async () => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
-    // MAPBOX : on N'UTILISE PAS le raster canopée Meta/WRI ("couche facebook"). Sous
-    // Mapbox, les ARBRES 3D natifs du fond Standard projettent déjà de vraies ombres
-    // (via la lumière soleil setLights) → c'est leur position + ombre qui font foi.
-    if (MAP_ENGINE === "mapbox") return;
+    // MAPBOX : on récupère quand même la DONNÉE canopée (Meta/WRI) pour CALCULER la part
+    // d'ombre des arbres, mais le raster n'est PAS affiché sur la carte (voir IMG_DISP,
+    // masqué sous Mapbox) et les polygones d'ombre analytiques sont transparents (le
+    // visuel vient des ombres natives Mapbox). « prendre les deux, sans afficher facebook ».
     let bbox = scopeBboxRef.current;
     if (!bbox) {
       // Vue courante : on récupère une emprise un peu PLUS LARGE que l'écran
@@ -960,7 +976,6 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const fetchCanopy3D = useCallback(async () => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
-    if (MAP_ENGINE === "mapbox") return;   // Mapbox : arbres 3D natifs de Standard, pas la canopée Meta/WRI
     let bbox = scopeBboxRef.current;
     if (!bbox) { const b = map.getBounds(); if (!b) return; const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth(); const px = (e - w) * 0.15, py = (n - s) * 0.15; bbox = [w - px, s - py, e + px, n + py]; }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }
@@ -1845,6 +1860,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <input type="range" min={0.1} max={0.8} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} style={{ flex: 1 }} />
             <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{Math.round(opacity * 100)}%</span>
           </div>
+          {MAP_ENGINE === "mapbox" ? (
+            <div style={{ fontFamily: F, fontSize: 10.5, color: C.mut, lineHeight: 1.45, paddingLeft: 2 }}>
+              🌳 <b style={{ color: C.txt }}>Arbres & bâtiments</b> : ombres 3D <b>natives de Mapbox</b> (fond Standard).
+              La canopée Meta n'est <b>pas affichée</b> sur la carte, mais sa donnée sert au <b>calcul</b> de la part d'ombre.
+            </div>
+          ) : (<>
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
             <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
             🌳 Canopée <span style={{ color: C.dim }}>(Meta ~1 m)</span>
@@ -1865,6 +1886,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
                 : canopyMsg.ok ? <span>Canopée chargée{canopyMsg.meanH ? ` · h. moy. ${canopyMsg.meanH} m` : ""}.</span> : null}
             </div>
           )}
+          </>)}
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11, color: C.txt, cursor: "pointer" }}>
             <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} /> ⛰️ Relief 3D (terrain)
           </label>
