@@ -98,7 +98,8 @@ export const MAPBOX_STYLES = {
   outdoors:  "mapbox://styles/mapbox/outdoors-v12",
   light:     "mapbox://styles/mapbox/light-v11",
   dark:      "mapbox://styles/mapbox/dark-v11",
-  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",  // imagerie + rues/labels
+  imagery:   "mapbox://styles/mapbox/satellite-v9",           // imagerie SEULE (sans label)
 };
 
 // Moteur choisi au chargement (même logique que src/mapgl.js, sans import → pas de cycle).

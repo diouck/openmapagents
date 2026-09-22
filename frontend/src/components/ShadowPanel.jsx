@@ -881,6 +881,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const fetchCanopy = useCallback(async () => {
     const map = mapRef?.current?.getMap?.();
     if (!map) return;
+    // MAPBOX : on N'UTILISE PAS le raster canopée Meta/WRI ("couche facebook"). Sous
+    // Mapbox, les ARBRES 3D natifs du fond Standard projettent déjà de vraies ombres
+    // (via la lumière soleil setLights) → c'est leur position + ombre qui font foi.
+    if (MAP_ENGINE === "mapbox") return;
     let bbox = scopeBboxRef.current;
     if (!bbox) {
       // Vue courante : on récupère une emprise un peu PLUS LARGE que l'écran
@@ -956,6 +960,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
   const fetchCanopy3D = useCallback(async () => {
     const map = mapRef?.current?.getMap?.(); if (!map) return;
+    if (MAP_ENGINE === "mapbox") return;   // Mapbox : arbres 3D natifs de Standard, pas la canopée Meta/WRI
     let bbox = scopeBboxRef.current;
     if (!bbox) { const b = map.getBounds(); if (!b) return; const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth(); const px = (e - w) * 0.15, py = (n - s) * 0.15; bbox = [w - px, s - py, e + px, n + py]; }
     if ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 0.25) { setCanopyMsg({ err: "Zoomez pour la canopée 3D (emprise trop grande)." }); return; }

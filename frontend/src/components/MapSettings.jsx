@@ -25,6 +25,13 @@ const EARTH_THUMB = {
   dark:     "https://a.basemaps.cartocdn.com/dark_all/4/8/5.png",
   liberty:  "https://tile.openstreetmap.org/4/8/5.png",
 };
+// Libellés lisibles des fonds (clé -> nom affiché sous la vignette).
+const BM_LABEL = {
+  positron: "Clair", dark: "Sombre", liberty: "Rues", satellite: "Satellite",
+  standard: "Standard 3D", streets: "Rues", outdoors: "Plein air", light: "Clair",
+  imagery: "Satellite (sans label)",
+  earth: "Terre", mars: "Mars", moon: "Lune", mercury: "Mercure",
+};
 function thumbFor(key, style) {
   if (typeof style === "string" && style.startsWith("mapbox://styles/")) {
     if (!MAPBOX_TOKEN) return null;
@@ -123,7 +130,7 @@ export default function MapSettings({ C, mapStyles, planetKeys, mapSt, onBasemap
                 </div>
                 <span style={{ fontSize: 8.5, color: active ? C.acc : C.mut, textAlign: "center",
                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                               textTransform: "capitalize" }}>{k}</span>
+                               textTransform: BM_LABEL[k] ? "none" : "capitalize" }}>{BM_LABEL[k] || k}</span>
               </button>
             );
           })}
