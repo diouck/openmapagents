@@ -594,8 +594,17 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Schémas de tuiles différents : OpenMapTiles (MapLibre) vs Mapbox Streets ("composite").
     const wanted = mapbox ? ["water", "waterway", "landuse", "landuse_overlay"] : ["water", "landcover", "landuse"];
     let src = (sl.find((l) => wanted.includes(l["source-layer"]) && l.source) || {}).source;
-    if (!src && mapbox && map.getSource("composite")) src = "composite";   // Standard : source non exposée dans layers
-    if (!src) {   // dernier recours : première source vecteur
+    if (mapbox) {
+      // Le fond Standard n'expose PAS de source vecteur interrogeable → on ajoute
+      // explicitement la source Mapbox Streets (le token est déjà défini) pour disposer
+      // des couches water / landuse / landuse_overlay quel que soit le fond Mapbox.
+      if (!src && map.getSource("composite")) src = "composite";
+      if (!src || !map.getSource(src)) {
+        const MB = "oma-mb-streets";
+        if (!map.getSource(MB)) { try { map.addSource(MB, { type: "vector", url: "mapbox://mapbox.mapbox-streets-v8" }); } catch (_) {} }
+        if (map.getSource(MB)) src = MB;
+      }
+    } else if (!src) {   // MapLibre : dernier recours, première source vecteur
       const srcs = map.getStyle().sources || {};
       for (const id of Object.keys(srcs)) { if (srcs[id]?.type === "vector") { src = id; break; } }
     }
