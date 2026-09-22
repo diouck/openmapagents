@@ -368,6 +368,12 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   const [opacity, setOpacity] = useState(0.8);
   const [defH, setDefH] = useState(9);
   const [trees, setTrees] = useState(true);
+  // Mapbox : AFFICHAGE du raster canopée (dégradé) — décoché par défaut. La donnée est
+  // toujours chargée (trees reste vrai) et compte dans le calcul de la part d'ombre ;
+  // ce toggle ne fait qu'afficher/masquer le vert sur la carte.
+  const [canopyShow, setCanopyShow] = useState(false);
+  const canopyShowRef = useRef(false);
+  canopyShowRef.current = canopyShow;
   const [canopy3d, setCanopy3d] = useState(false);   // canopée en 3D (fill-extrusion, contour exact)
   const [playing, setPlaying] = useState(false);
   const [scope, setScope] = useState("view");
@@ -718,10 +724,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Arbres : « à plat » (défaut) = RASTER canopée nuancé + son ombre ; « 3D » = extrusion.
     // Le raster est le rendu par défaut (y compris dans le couloir) ; la 3D le remplace.
     const wantC3D = canopy3dRef.current || (corridor && treeModeRef.current === "3d");
-    // Raster canopée Meta AFFICHÉ (dégradé par hauteur) sur les deux moteurs : sous
-    // Mapbox il complète les arbres 3D natifs (absents par endroits) → on voit la
-    // canopée là où le parcours est ombragé même sans arbre 3D Mapbox.
-    const canOnDisp = canOn && !wantC3D;   // raster canopée (à plat, avec ombre)
+    // Raster canopée Meta (dégradé par hauteur). MapLibre : suit `trees`. Mapbox :
+    // affiché seulement si la case « Canopée » est cochée (décochée par défaut) — la
+    // DONNÉE reste utilisée pour le calcul même quand l'affichage est masqué.
+    const canOnDisp = canOn && !wantC3D && (MAP_ENGINE !== "mapbox" || canopyShowRef.current);
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
@@ -917,6 +923,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
   }, [relief]);
   // (dés)active la mise en valeur végétation + eau
   useEffect(() => { computeRef.current?.(); }, [showNature]);
+  useEffect(() => { computeRef.current?.(); }, [canopyShow]);   // Mapbox : affiche/masque le dégradé canopée
   // le changement de fuseau modifie l'heure UTC → recalcule ombres + soleil
   useEffect(() => { const t = requestAnimationFrame(() => { compute(); refreshSun(); }); return () => cancelAnimationFrame(t); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzMode]);
@@ -1274,7 +1281,7 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
 
     // ── NUIT : pas d'ombre portée exploitable, mais le couvert arboré compte ───
     if (alt <= 0.02) {
-      const shadeAt = (lng, lat) => nearTree(lng, lat) ? 0.5 : 0;
+      const shadeAt = (lng, lat) => nearTree(lng, lat) ? 0.7 : 0;
       return { shadeAt, shaded: (lng, lat) => nearTree(lng, lat), night: true };
     }
 
@@ -1310,8 +1317,9 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     }
     const data = ctx.getImageData(0, 0, W, Hh).data;
     const castShaded = (lng, lat) => { const x = Math.floor(X(lng)), y = Math.floor(Y(lat)); if (x < 0 || y < 0 || x >= W || y >= Hh) return false; return data[(y * W + x) * 4 + 3] > 10; };
-    // ombre portée (bâti/arbre) = 100 % ; simple proximité d'un arbre = plancher 50 %
-    const shadeAt = (lng, lat) => Math.max(castShaded(lng, lat) ? 1 : 0, nearTree(lng, lat) ? 0.5 : 0);
+    // ombre portée (bâti/arbre) = 100 % ; sous couvert arboré (parc, allée) = plancher
+    // élevé (70 %) → « en plein jardin, tout est vert » comme attendu.
+    const shadeAt = (lng, lat) => Math.max(castShaded(lng, lat) ? 1 : 0, nearTree(lng, lat) ? 0.7 : 0);
     return { shadeAt, shaded: (lng, lat) => shadeAt(lng, lat) > 0, night: false };
   }, [mapRef, date, hour, defH, trees]);
 
@@ -1890,15 +1898,14 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
           </div>
           {MAP_ENGINE === "mapbox" ? (<>
             <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
-              <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
-              🌳 Canopée <span style={{ color: C.dim }}>(dégradé, Meta ~1 m)</span>
+              <input type="checkbox" checked={canopyShow} onChange={(e) => setCanopyShow(e.target.checked)} />
+              🌳 Afficher la canopée <span style={{ color: C.dim }}>(dégradé, Meta ~1 m)</span>
             </label>
             <div style={{ fontFamily: F, fontSize: 9.5, color: C.dim, lineHeight: 1.4, paddingLeft: 22 }}>
-              Affichée en dégradé sous les arbres 3D natifs de Mapbox — utile là où Mapbox n'a pas
-              d'arbre 3D. Ombres 3D (bâtiments + arbres) rendues par Mapbox ; la canopée compte aussi
-              dans le calcul de la part d'ombre.
+              Décoché par défaut. La canopée compte <b>toujours</b> dans le calcul de la part d'ombre
+              (le trajet passe au vert sous les arbres) ; cette case n'affiche/masque que le dégradé vert.
             </div>
-            {trees && canopyMsg && canopyMsg.busy && (
+            {canopyMsg && canopyMsg.busy && (
               <div style={{ fontFamily: F, fontSize: 10, paddingLeft: 22, color: C.mut }}>⏳ Chargement canopée…</div>
             )}
           </>) : (<>
