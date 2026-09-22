@@ -709,6 +709,22 @@ export default function App() {
   });
   const [popup,  setPopup]  = useState(null);
 
+  // ── Recalage de la carte quand son conteneur change de taille (panneau thématique
+  // qui se déplie/replie, redimensionnement…). react-map-gl ne recale pas toujours la
+  // carte Mapbox → « vide » à droite. Un ResizeObserver + map.resize() corrige les deux moteurs.
+  const mapWrapRef = useRef(null);
+  useEffect(() => {
+    const el = mapWrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => { try { mapRef.current?.getMap?.()?.resize(); } catch (_) {} });
+    });
+    ro.observe(el);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, []);
+
   // ── Panneau ⚙️ Contrôles (fonds de carte + contrôles natifs + outils) ──
   const [mapReady, setMapReady] = useState(false);   // carte chargée → appliquer les handlers
   const [ctrlOpen, setCtrlOpen] = useState(false);   // panneau ⚙️ ouvert
@@ -2976,7 +2992,7 @@ export default function App() {
         {/* Sidebar étendue retirée — modules dans FloatingPanels sur la carte */}
 
         {/* ── CARTE ── */}
-        <div style={{flex:1,position:"relative",minWidth:0,background:globeOn?"#010206":undefined}}>
+        <div ref={mapWrapRef} style={{flex:1,position:"relative",minWidth:0,background:globeOn?"#010206":undefined}}>
           {/* Fond spatial (étoiles + filantes) visible dans l'espace autour du globe */}
           {globeOn && <StarField />}
           <Map ref={mapRef} {...vs} onMove={e=>setVs(e.viewState)}

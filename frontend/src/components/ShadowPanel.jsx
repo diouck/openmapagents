@@ -718,9 +718,10 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
     // Arbres : « à plat » (défaut) = RASTER canopée nuancé + son ombre ; « 3D » = extrusion.
     // Le raster est le rendu par défaut (y compris dans le couloir) ; la 3D le remplace.
     const wantC3D = canopy3dRef.current || (corridor && treeModeRef.current === "3d");
-    // MAPBOX : ne JAMAIS afficher le raster canopée Meta/WRI ("facebook") sur la carte
-    // (la donnée sert au calcul, le visuel vient des arbres 3D natifs Mapbox).
-    const canOnDisp = canOn && !wantC3D && MAP_ENGINE !== "mapbox";  // raster canopée (à plat, avec ombre)
+    // Raster canopée Meta AFFICHÉ (dégradé par hauteur) sur les deux moteurs : sous
+    // Mapbox il complète les arbres 3D natifs (absents par endroits) → on voit la
+    // canopée là où le parcours est ombragé même sans arbre 3D Mapbox.
+    const canOnDisp = canOn && !wantC3D;   // raster canopée (à plat, avec ombre)
     setVis(map, IMG_DISP, canOnDisp);
     for (let i = 0; i < SHAD_K; i++) setVis(map, shadId(i), false);
 
@@ -1887,12 +1888,20 @@ export default function ShadowPanel({ mapRef, layers = [], basemap, setBasemap }
             <input type="range" min={0.1} max={0.8} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} style={{ flex: 1 }} />
             <span style={{ fontFamily: M, minWidth: 34, textAlign: "right", color: C.mut }}>{Math.round(opacity * 100)}%</span>
           </div>
-          {MAP_ENGINE === "mapbox" ? (
-            <div style={{ fontFamily: F, fontSize: 10.5, color: C.mut, lineHeight: 1.45, paddingLeft: 2 }}>
-              🌳 <b style={{ color: C.txt }}>Arbres & bâtiments</b> : ombres 3D <b>natives de Mapbox</b> (fond Standard).
-              La canopée Meta n'est <b>pas affichée</b> sur la carte, mais sa donnée sert au <b>calcul</b> de la part d'ombre.
+          {MAP_ENGINE === "mapbox" ? (<>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
+              <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
+              🌳 Canopée <span style={{ color: C.dim }}>(dégradé, Meta ~1 m)</span>
+            </label>
+            <div style={{ fontFamily: F, fontSize: 9.5, color: C.dim, lineHeight: 1.4, paddingLeft: 22 }}>
+              Affichée en dégradé sous les arbres 3D natifs de Mapbox — utile là où Mapbox n'a pas
+              d'arbre 3D. Ombres 3D (bâtiments + arbres) rendues par Mapbox ; la canopée compte aussi
+              dans le calcul de la part d'ombre.
             </div>
-          ) : (<>
+            {trees && canopyMsg && canopyMsg.busy && (
+              <div style={{ fontFamily: F, fontSize: 10, paddingLeft: 22, color: C.mut }}>⏳ Chargement canopée…</div>
+            )}
+          </>) : (<>
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: F, fontSize: 11.5, color: C.txt, cursor: "pointer" }}>
             <input type="checkbox" checked={trees} onChange={(e) => setTrees(e.target.checked)} />
             🌳 Canopée <span style={{ color: C.dim }}>(Meta ~1 m)</span>
