@@ -1020,7 +1020,7 @@ def get_config():
     }
 
 
-from fastapi import Header
+from fastapi import Header, Request, HTTPException
 
 @app.post("/api/chat")
 def chat(req: ChatRequest, x_session_id: str = Header(None), request: Request = None):
