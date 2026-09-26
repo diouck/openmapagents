@@ -71,6 +71,11 @@ services:
     depends_on:
       backend:
         condition: service_started
+    # Lit backend/.env pour injecter le token Mapbox au runtime (VITE_MAPBOX_TOKEN
+    # ou MAPBOX_ACCESS_TOKEN) dans /env.js au demarrage. Seul le token est expose au
+    # navigateur ; les autres variables restent dans l'environnement du conteneur.
+    env_file:
+      - backend/.env
     environment:
       BACKEND_UPSTREAM: http://backend:8000
     ports:

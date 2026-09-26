@@ -17,8 +17,12 @@ export const CHAT_INPUT_ENABLED = !["false", "0", "off", "no"].includes(
 );
 export const F = "'DM Sans',system-ui,sans-serif";
 export const M = "'JetBrains Mono',monospace";
-// Token Mapbox fourni au build via VITE_MAPBOX_TOKEN (jamais en dur — dépôt public).
-export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || "";
+// Token Mapbox : priorité au runtime (window.__ENV__, injecté par /env.js depuis
+// backend/.env au démarrage du conteneur), sinon le build (VITE_MAPBOX_TOKEN).
+// Jamais en dur — dépôt public.
+export const MAPBOX_TOKEN =
+  (typeof window !== "undefined" && window.__ENV__ && window.__ENV__.MAPBOX_TOKEN) ||
+  import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 // Fonds MAPLIBRE (styles vecteur OpenFreeMap + rasters Esri/planètes). Ne
 // fonctionnent PAS sous Mapbox GL (spec/glyphs incompatibles) → jeu séparé ci-dessous.

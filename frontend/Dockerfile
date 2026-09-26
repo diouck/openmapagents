@@ -40,6 +40,10 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 COPY frontend/nginx.conf.template /etc/nginx/templates/openmapagents.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Injection de la config runtime (/env.js) au démarrage — token Mapbox depuis l'env.
+COPY frontend/docker-entrypoint.d/40-runtime-env.sh /docker-entrypoint.d/40-runtime-env.sh
+RUN chmod +x /docker-entrypoint.d/40-runtime-env.sh
+
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

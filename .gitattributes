@@ -1,0 +1,3 @@
+# Les scripts shell doivent rester en LF (CRLF casse /bin/sh dans les conteneurs Linux).
+*.sh text eol=lf
+docker-entrypoint.d/* text eol=lf
