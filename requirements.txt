@@ -31,6 +31,15 @@ SQLAlchemy>=2.0.0
 psycopg2-binary>=2.9.0
 redis>=5.0.0
 
+# --- Auth (JWT + hash mots de passe + formulaires/upload) ---
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+
+# --- Divers (imagerie timelapse, donnees pays) ---
+imageio>=2.31.0
+pycountry>=23.12.11
+
 # --- LLM / agents / MCP ---
 litellm>=1.50.0
 mcp>=1.0.0
