@@ -1,0 +1,41 @@
+# OpenMapAgents frontend — served inside the container on :80.
+# SSL is terminated upstream (host reverse proxy / load balancer).
+# ${BACKEND_UPSTREAM} is substituted at container start (default http://backend:8000).
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 1024M;
+    client_body_timeout 600s;
+
+    # --- SEO static files ---
+    location = /robots.txt { try_files $uri =404; }
+    location = /sitemap.xml { try_files $uri =404; }
+
+    # --- Homepage: serve index.html for exactly / ---
+    location = / { try_files /index.html =404; }
+
+    # --- Clean URL /doc -> doc.html ---
+    location = /doc { try_files /doc.html =404; }
+
+    # --- API proxy to the backend container ---
+    location /api/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_connect_timeout 900s;
+    }
+
+    # --- Explicit HTML pages ---
+    location ~ ^/(index\.html|app\.html|doc\.html)$ { try_files $uri =404; }
+
+    # --- Assets (js/css/images/textures) + everything else -> 404 if not a real file ---
+    location / { try_files $uri =404; }
+}

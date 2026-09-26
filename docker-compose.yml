@@ -1,0 +1,35 @@
+# OpenMapAgents — run the published GHCR images (backend + frontend).
+# Postgres / Redis are external (host or managed) and configured via backend/.env.
+#
+#   export IMAGE_TAG=latest        # or a git sha / semver tag
+#   docker compose pull
+#   docker compose up -d
+#
+# The frontend listens on :8080 (host) and proxies /api to the backend service.
+services:
+  backend:
+    image: ghcr.io/diouck/openmapagents-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      BACKEND_PORT: 8000
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/openapi.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  frontend:
+    image: ghcr.io/diouck/openmapagents-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      BACKEND_UPSTREAM: http://backend:8000
+    ports:
+      - "8080:80"

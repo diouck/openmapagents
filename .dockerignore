@@ -1,0 +1,39 @@
+# Git / CI
+.git
+.gitignore
+.github
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.venv
+**/venv
+
+# Node / build artifacts
+**/node_modules
+frontend/dist
+
+# Secrets (never bake into an image) — keep the examples
+**/.env
+**/*.env
+!**/.env.example
+
+# Data cache / logs
+data/cache
+backend/data/cache
+logs
+**/*.log
+
+# Docs / heavy assets not needed at build time
+docs/captures
+images
+*.odt
+overture_explorer.jsx
+
+# Editor / OS
+.claude
+.vscode
+.idea
+.DS_Store
+Thumbs.db
