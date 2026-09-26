@@ -18,6 +18,9 @@ node_modules/
 dist/
 frontend/dist/
 
+# Overrides docker specifiques a la machine (montages GEE, etc.)
+docker-compose.override.yml
+
 # Data / cache / logs
 backend/data/cache/
 logs/
