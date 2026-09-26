@@ -5,7 +5,34 @@
 
 **Stack :** React 18 + Vite · FastAPI · DuckDB · LiteLLM · MapLibre GL · Turf.js · MCP Server · Google Earth Engine
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Publish containers](https://github.com/diouck/openmapagents/actions/workflows/publish-containers.yml/badge.svg)](https://github.com/diouck/openmapagents/actions/workflows/publish-containers.yml)
+[![Docker · GHCR](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/diouck?tab=packages)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+
 [![Voir la démo](./images/map.png)](https://openmapagents.geoafrica.fr/)
+---
+
+## 🐳 Déploiement Docker (1 commande)
+
+Le plus rapide. Prérequis : **Docker** + **Docker Compose**.
+
+```bash
+git clone https://github.com/diouck/openmapagents.git
+cd openmapagents
+cp backend/.env.example backend/.env   # renseignez au moins une clé LLM
+docker compose up -d                    # → http://localhost:8080
+```
+
+Le stack complet démarre en conteneurs : **frontend** (nginx), **backend** (FastAPI),
+**PostgreSQL/pgvector** et **Redis** (données persistées en volumes). Aucune compilation :
+`docker compose` récupère les images publiées sur GHCR par GitHub Actions.
+
+- Images : `ghcr.io/diouck/openmapagents-backend` · `ghcr.io/diouck/openmapagents-frontend`
+- Mapbox 3D (optionnel) : ajoutez le secret repo `VITE_MAPBOX_TOKEN` et relancez le workflow — MapLibre fonctionne sans.
+- Google Earth Engine (optionnel) : montez vos credentials et pointez `GOOGLE_APPLICATION_CREDENTIALS` vers un chemin du conteneur.
+
 ---
 
 ## ⚡ Démarrage rapide (local)
@@ -381,6 +408,13 @@ cd frontend && npm install && npm run build
 # Backend : redémarrer le service
 sudo systemctl restart openmapagents
 ```
+
+---
+
+## Licence
+
+Distribué sous licence **MIT** — voir [LICENSE](LICENSE). Libre de réutilisation,
+modification et distribution, y compris commerciale, sous réserve de conserver la notice.
 
 ---
 
