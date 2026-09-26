@@ -6,11 +6,12 @@
 FROM node:20-slim AS build
 WORKDIR /app
 
-# Prefer the reproducible lockfile install; fall back to npm install if the
-# Windows-authored lockfile drifts from package.json (keeps CI unblocked).
+# Prefer the reproducible lockfile install; fall back to a full npm install if the
+# lockfile drifts from package.json. NB: no --legacy-peer-deps — deck.gl/geo-layers
+# needs @deck.gl/extensions as a peer dep, which that flag would skip.
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund \
-    || npm install --no-audit --no-fund --legacy-peer-deps
+    || npm install --no-audit --no-fund
 
 # Public build-time config baked into the Vite bundle (optional; empty by default).
 # Vite exposes process.env vars prefixed VITE_ to import.meta.env at build.
