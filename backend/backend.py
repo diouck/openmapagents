@@ -3,6 +3,7 @@ Overture Maps Explorer — FastAPI Backend
 Moteur DuckDB pour requêtes directes sur S3 GeoParquet
 """
 import os
+import re
 import json
 import hashlib
 from pathlib import Path
@@ -55,11 +56,14 @@ class DuckDBEngine:
         self.conn.execute(f"SET threads={DUCKDB_THREADS};")
         return self
 
-    def query(self, sql: str) -> pd.DataFrame:
+    def query(self, sql: str, params=None) -> pd.DataFrame:
+        # params (liste) → requête préparée DuckDB (protège des injections SQL)
+        if params is not None:
+            return self.conn.execute(sql, params).fetchdf()
         return self.conn.execute(sql).fetchdf()
 
-    def query_geojson(self, sql: str) -> dict:
-        df = self.query(sql)
+    def query_geojson(self, sql: str, params=None) -> dict:
+        df = self.query(sql, params)
         features = []
         for _, row in df.iterrows():
             props = {k: v for k, v in row.items() if k != "geometry"}
@@ -88,19 +92,19 @@ db = DuckDBEngine()
 
 
 # ─── CACHE ───────────────────────────────────────────────────────
-def cache_key(sql: str) -> str:
-    return hashlib.md5(sql.encode()).hexdigest()
+def cache_key(sql: str, params=None) -> str:
+    return hashlib.md5((sql + repr(params or [])).encode()).hexdigest()
 
 
-def get_cached(sql: str) -> Optional[dict]:
-    path = CACHE_DIR / f"{cache_key(sql)}.json"
+def get_cached(sql: str, params=None) -> Optional[dict]:
+    path = CACHE_DIR / f"{cache_key(sql, params)}.json"
     if path.exists():
         return json.loads(path.read_text())
     return None
 
 
-def set_cache(sql: str, data: dict):
-    path = CACHE_DIR / f"{cache_key(sql)}.json"
+def set_cache(sql: str, data: dict, params=None):
+    path = CACHE_DIR / f"{cache_key(sql, params)}.json"
     path.write_text(json.dumps(data))
 
 
@@ -144,7 +148,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
+    allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -197,14 +201,14 @@ def query_theme(
     }
     columns = cols_map.get(theme, "id, geometry")
 
-    where_clauses = [
-        f"bbox.xmin BETWEEN {xmin} AND {xmax}",
-        f"bbox.ymin BETWEEN {ymin} AND {ymax}",
-    ]
+    # WHERE parametre (?) — category (entree utilisateur) n'est jamais interpole.
+    # xmin/ymin/xmax/ymax/limit/min_confidence sont types (float/int) par FastAPI : surs.
+    where_clauses = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params = [xmin, xmax, ymin, ymax]
     if category and theme == "places":
-        where_clauses.append(f"categories.primary = '{category}'")
+        where_clauses.append("categories.primary = ?"); params.append(category)
     if min_confidence > 0 and theme == "places":
-        where_clauses.append(f"confidence >= {min_confidence}")
+        where_clauses.append("confidence >= ?"); params.append(min_confidence)
 
     sql = f"""
     SELECT {columns}
@@ -214,13 +218,13 @@ def query_theme(
     """
 
     # Vérifier le cache
-    cached = get_cached(sql)
+    cached = get_cached(sql, params)
     if cached:
         return cached
 
     try:
-        result = db.query_geojson(sql)
-        set_cache(sql, result)
+        result = db.query_geojson(sql, params)
+        set_cache(sql, result, params)
         return result
     except Exception as e:
         raise HTTPException(500, f"Erreur DuckDB: {str(e)}")
@@ -328,6 +332,12 @@ def export_data(req: ExportRequest):
     ptype = THEMES[req.theme][0]
     parquet_path = f"{S3_BASE}/theme={req.theme}/type={ptype}/*"
 
+    # Les identifiants de colonnes ne peuvent pas etre parametres : on valide chaque
+    # nom (identifiant pointe + alias AS optionnel). Bloque UNION / sous-requetes / ; / quotes.
+    _COL = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*(\s+[Aa][Ss]\s+[A-Za-z_][A-Za-z0-9_]*)?$")
+    for c in req.columns:
+        if not _COL.match(c.strip()):
+            raise HTTPException(400, f"Colonne invalide: {c}")
     columns = ", ".join(req.columns)
     output_name = f"export_{req.theme}_{cache_key(str(req.bbox))}"
 
@@ -385,18 +395,9 @@ def export_data(req: ExportRequest):
         raise HTTPException(500, f"Erreur export: {str(e)}")
 
 
-@app.get("/api/sql")
-def raw_sql(sql: str = Query(..., description="Requête SQL DuckDB")):
-    """Exécution de requêtes SQL brutes (attention: dangereux en prod)."""
-    try:
-        df = db.query(sql)
-        return {
-            "columns": list(df.columns),
-            "rows": df.head(1000).to_dict(orient="records"),
-            "total_rows": len(df),
-        }
-    except Exception as e:
-        raise HTTPException(500, f"Erreur SQL: {str(e)}")
+# NB : l'ancien endpoint GET /api/sql (exécution de SQL arbitraire) a été retiré —
+# faille critique. Pour explorer la base, passez par les endpoints typés (/api/query,
+# /api/h3, /api/export) qui utilisent des requêtes préparées.
 
 
 if __name__ == "__main__":
