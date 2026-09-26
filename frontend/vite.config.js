@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),   // landing page → /
         app:  resolve(__dirname, "app.html"),      // React app   → /app.html
+        doc:  resolve(__dirname, "doc.html"),      // docs page   → /doc
       },
       output: {
         // Regroupe deck.gl + luma.gl + loaders.gl + math.gl dans un seul chunk

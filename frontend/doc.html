@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation — OpenMapAgents</title>
+  <meta name="description" content="Documentation complète : installation, API, modules MCP, exemples d'utilisation, guides de développement." />
+  <link rel="canonical" href="https://openmapagents.geoafrica.fr/doc" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #060d08;
+      --bg2:     #091210;
+      --card:    #0c1a10;
+      --border:  #1a3320;
+      --green:   #22c55e;
+      --text:    #e2faea;
+      --text2:   #7ab88a;
+      --radius:  14px;
+    }
+    html { scroll-behavior: smooth; overflow-x: hidden; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: var(--green); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header {
+      background: linear-gradient(135deg, var(--bg2), var(--card));
+      border-bottom: 1px solid var(--border);
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    header p { color: var(--text2); font-size: 1.1rem; }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 2rem 4rem;
+    }
+
+    section {
+      margin: 3rem 0;
+      padding: 2rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    section h2 { font-size: 1.8rem; margin-bottom: 1rem; color: var(--green); }
+    section h3 { font-size: 1.3rem; margin: 1.5rem 0 0.5rem; }
+    section p, section li { margin: 0.8rem 0; }
+    section ul, section ol { margin-left: 2rem; }
+
+    code {
+      background: var(--bg);
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
+      color: var(--green);
+    }
+
+    pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code { padding: 0; background: none; color: var(--text); }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      border-top: 1px solid var(--border);
+      color: var(--text2);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📖 Documentation OpenMapAgents</h1>
+    <p>Guides complets, API, exemples et ressources de développement.</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Installation</h2>
+      <h3>Prérequis</h3>
+      <ul>
+        <li>Python 3.10+</li>
+        <li>Node.js 18+</li>
+        <li>PostgreSQL 13+ (optionnel, pour PostGIS)</li>
+      </ul>
+      <h3>Démarrage rapide</h3>
+      <pre><code>git clone https://github.com/diouck/openmapagents
+cd openmapagents
+./install.sh  # ou install_deps.ps1 sur Windows
+cd frontend && npm run build && cd ..
+bash start.sh</code></pre>
+      <p>L'app est disponible à <code>http://localhost:8000</code>.</p>
+    </section>
+
+    <section>
+      <h2>Modules</h2>
+      <h3>Imagerie satellite</h3>
+      <p>Données Google Earth Engine : NDVI, LST, NDWI, EVI, timelapse, détection de changement.</p>
+
+      <h3>Données vectorielles</h3>
+      <ul>
+        <li><strong>Overture Maps</strong> : 5 milliards d'objets géospatiaux via DuckDB S3.</li>
+        <li><strong>OpenStreetMap</strong> : POI, routes, parcs via Overpass API.</li>
+        <li><strong>PostGIS</strong> : Jointures spatiales personnalisées.</li>
+      </ul>
+
+      <h3>Analyse</h3>
+      <ul>
+        <li>Isochrones (5, 10, 15, 30 min).</li>
+        <li>Routing multi-mode (pied, vélo, voiture).</li>
+        <li>Import shapefile/GeoJSON/GPX/KML.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>API & MCP</h2>
+      <p>45+ outils MCP exposés directement dans Claude Desktop et Cursor via le <strong>Model Context Protocol</strong>.</p>
+      <h3>Endpoints principaux</h3>
+      <ul>
+        <li><code>GET /api/config</code> : Configuration du LLM actif.</li>
+        <li><code>GET /api/themes</code> : Liste des thématiques.</li>
+        <li><code>POST /api/query/{theme}</code> : Calcul d'indice ou d'analyse.</li>
+        <li><code>GET /api/h3/{theme}</code> : Agrégation H3 spatiale.</li>
+      </ul>
+      <p>Documentation OpenAPI complète : <code>/api/docs</code> (Swagger UI).</p>
+    </section>
+
+    <section>
+      <h2>Architecture</h2>
+      <h3>Backend (Python/FastAPI)</h3>
+      <ul>
+        <li>Orchestration multi-agent avec routeur RAG.</li>
+        <li>Intégration Google Earth Engine + DuckDB S3.</li>
+        <li>MCP Server pour Claude + IDE.</li>
+      </ul>
+      <h3>Frontend (React + Vite + MapLibre)</h3>
+      <ul>
+        <li>Cartographie interactive avec tuiles vectorielles.</li>
+        <li>Chat IA en langage naturel.</li>
+        <li>Symbologie et légendes dynamiques.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Ressources</h2>
+      <ul>
+        <li><strong><a href="https://github.com/diouck/openmapagents">GitHub</a></strong> : Code source complet.</li>
+        <li><strong><a href="/">Accueil</a></strong> : Revenir à la page d'accueil.</li>
+        <li><strong><a href="/app.html">Application</a></strong> : Ouvrir la carte interactive.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>OpenMapAgents — Cartographie IA Open Source | Documentation mise à jour le 26 septembre 2026</p>
+  </footer>
+</body>
+</html>
