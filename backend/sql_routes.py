@@ -121,7 +121,7 @@ def sql_run(req: SqlRequest):
         # ── 4. Décrire le résultat (type des colonnes → détecter la géométrie) ──
         geom_col = None
         try:
-            desc = con.execute(f"DESCRIBE {sql}").fetchall()   # (col, type, ...)
+            desc = con.execute("DESCRIBE (" + sql.replace(")", "") + ")").fetchall()   # (col, type, ...)
             for row in desc:
                 cname, ctype = row[0], str(row[1]).upper()
                 if "GEOMETRY" in ctype and geom_col is None:
@@ -142,8 +142,8 @@ def sql_run(req: SqlRequest):
             sel = ", ".join(f'"{c}"' for c in others)
             sel = (sel + ", ") if sel else ""
             q = (f'SELECT {sel}ST_AsGeoJSON("{geom_col}") AS __geo '
-                 f'FROM ({sql}) AS _q LIMIT {_ROW_LIMIT}')
-            res = con.execute(q).fetchall()
+                 f'FROM ({sql}) AS _q LIMIT ?')
+            res = con.execute(q, [_ROW_LIMIT]).fetchall()
             features, table_rows = [], []
             for r in res:
                 vals = [_jsonable(x) for x in r[:-1]]
@@ -159,7 +159,7 @@ def sql_run(req: SqlRequest):
                     "truncated": len(res) >= _ROW_LIMIT, "registered": registered}
 
         # ── 5b. Résultat tabulaire simple ──
-        res = con.execute(f'SELECT * FROM ({sql}) AS _q LIMIT {_ROW_LIMIT}')
+        res = con.execute(f'SELECT * FROM ({sql}) AS _q LIMIT ?', [_ROW_LIMIT])
         cols = [d[0] for d in res.description]
         rows = res.fetchall()
         table_rows = [[_jsonable(x) for x in r] for r in rows]

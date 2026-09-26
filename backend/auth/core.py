@@ -31,7 +31,9 @@ _DB_URL = os.getenv(
     ),
 )
 
-JWT_SECRET    = os.getenv("JWT_SECRET", "CHANGE_ME_openssl_rand_hex_32")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable must be set in production")
 JWT_ALGORITHM = "HS256"
 ACCESS_EXP    = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "60"))
 REFRESH_EXP   = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",    "7"))
