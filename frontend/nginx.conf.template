@@ -23,8 +23,10 @@ server {
     location ^~ /doc/ { try_files /app.html =404; }
 
     # --- API proxy to the backend container ---
+    # Trailing slash on proxy_pass strips the /api/ prefix:
+    #   /api/health → http://backend:8000/health
     location /api/ {
-        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_pass ${BACKEND_UPSTREAM}/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
