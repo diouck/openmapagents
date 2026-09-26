@@ -244,16 +244,18 @@ def theme_stats(
     ptype = THEMES[theme][0]
     parquet_path = f"{S3_BASE}/theme={theme}/type={ptype}/*"
 
-    # Stats de base : count
+    # Stats de base : count — parametres ? (aucune interpolation de valeur utilisateur)
+    bbox_params = [xmin, xmax, ymin, ymax]
+
     sql_count = f"""
     SELECT COUNT(*) as total
     FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-    WHERE bbox.xmin BETWEEN {xmin} AND {xmax}
-      AND bbox.ymin BETWEEN {ymin} AND {ymax}
+    WHERE bbox.xmin BETWEEN ? AND ?
+      AND bbox.ymin BETWEEN ? AND ?
     """
 
     try:
-        count_df = db.query(sql_count)
+        count_df = db.query(sql_count, params=bbox_params)
         total = int(count_df["total"].iloc[0])
 
         stats = {"theme": theme, "total_features": total, "bbox": [xmin, ymin, xmax, ymax]}
@@ -263,11 +265,11 @@ def theme_stats(
             sql_cats = f"""
             SELECT categories.primary AS category, COUNT(*) as count
             FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {xmin} AND {xmax}
-              AND bbox.ymin BETWEEN {ymin} AND {ymax}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
             """
-            cats_df = db.query(sql_cats)
+            cats_df = db.query(sql_cats, params=bbox_params)
             stats["top_categories"] = cats_df.to_dict(orient="records")
 
         elif theme == "buildings":
@@ -278,10 +280,10 @@ def theme_stats(
                 MAX(height) as max_height,
                 COUNT(CASE WHEN height IS NOT NULL THEN 1 END) as with_height
             FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {xmin} AND {xmax}
-              AND bbox.ymin BETWEEN {ymin} AND {ymax}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
             """
-            h_df = db.query(sql_heights)
+            h_df = db.query(sql_heights, params=bbox_params)
             stats["height_stats"] = h_df.to_dict(orient="records")[0]
 
         return stats
@@ -305,19 +307,20 @@ def h3_density(
     ptype = THEMES[theme][0]
     parquet_path = f"{S3_BASE}/theme={theme}/type={ptype}/*"
 
+    h3_params = [xmin, xmax, ymin, ymax]
     sql = f"""
     SELECT
         h3_latlng_to_cell_string(bbox.ymin, bbox.xmin, {resolution}) as h3_id,
         COUNT(*) as count
     FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-    WHERE bbox.xmin BETWEEN {xmin} AND {xmax}
-      AND bbox.ymin BETWEEN {ymin} AND {ymax}
+    WHERE bbox.xmin BETWEEN ? AND ?
+      AND bbox.ymin BETWEEN ? AND ?
     GROUP BY 1
     ORDER BY 2 DESC
     """
 
     try:
-        df = db.query(sql)
+        df = db.query(sql, params=h3_params)
         return {"resolution": resolution, "cells": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(500, f"Erreur DuckDB: {str(e)}")
@@ -353,14 +356,16 @@ def export_data(req: ExportRequest):
     ext, driver = format_map.get(req.format, ("geojson", "GeoJSON"))
     output_path = CACHE_DIR / f"{output_name}.{ext}"
 
+    export_params = [req.bbox.xmin, req.bbox.xmax, req.bbox.ymin, req.bbox.ymax, req.max_features]
+
     if req.format == "CSV":
         sql = f"""
         COPY(
             SELECT {columns}
             FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {req.bbox.xmin} AND {req.bbox.xmax}
-              AND bbox.ymin BETWEEN {req.bbox.ymin} AND {req.bbox.ymax}
-            LIMIT {req.max_features}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
+            LIMIT ?
         ) TO '{output_path}' (HEADER, DELIMITER ',');
         """
     elif req.format == "GeoParquet":
@@ -368,9 +373,9 @@ def export_data(req: ExportRequest):
         COPY(
             SELECT {columns}
             FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {req.bbox.xmin} AND {req.bbox.xmax}
-              AND bbox.ymin BETWEEN {req.bbox.ymin} AND {req.bbox.ymax}
-            LIMIT {req.max_features}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
+            LIMIT ?
         ) TO '{output_path}';
         """
     else:
@@ -378,14 +383,14 @@ def export_data(req: ExportRequest):
         COPY(
             SELECT {columns}
             FROM read_parquet('{parquet_path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {req.bbox.xmin} AND {req.bbox.xmax}
-              AND bbox.ymin BETWEEN {req.bbox.ymin} AND {req.bbox.ymax}
-            LIMIT {req.max_features}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
+            LIMIT ?
         ) TO '{output_path}' WITH (FORMAT GDAL, DRIVER '{driver}');
         """
 
     try:
-        db.conn.execute(sql)
+        db.conn.execute(sql, export_params)
         return FileResponse(
             str(output_path),
             filename=f"{output_name}.{ext}",

@@ -607,26 +607,25 @@ async def _query_places(args: dict) -> list[TextContent]:
         return _err("bbox requise : xmin/ymin/xmax/ymax ou center_lon/center_lat/radius_m")
 
     path  = f"{S3_BASE}/theme=places/type=place/*"
-    where = [
-        f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
-        f"bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}",
-    ]
+    where = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
     if args.get("category"):
-        where.append(f"categories.primary = '{args['category']}'")
+        where.append("categories.primary = ?"); params.append(str(args["category"]))
     if args.get("name_filter"):
-        where.append(f"names.primary ILIKE '%{args['name_filter']}%'")
+        where.append("names.primary ILIKE ?"); params.append(f"%{args['name_filter']}%")
     if args.get("min_confidence", 0) > 0:
-        where.append(f"confidence >= {args['min_confidence']}")
+        where.append("confidence >= ?"); params.append(float(args["min_confidence"]))
 
+    limit = min(int(args.get("limit", 500)), 5000)
     sql = f"""
     SELECT id, names.primary AS name, categories.primary AS category,
            confidence, addresses[1].freeform AS address,
            ST_AsGeoJSON(geometry) AS geom_json
     FROM read_parquet('{path}', filename=true, hive_partitioning=1)
     WHERE {' AND '.join(where)}
-    LIMIT {min(int(args.get('limit', 500)), 5000)}
+    LIMIT {limit}
     """
-    df      = db.execute(sql).fetchdf()
+    df      = db.execute(sql, params).fetchdf()
     records = df.to_dict(orient="records")
     return _ok({"type": "FeatureCollection", "features": _rows_to_features(records), "total": len(records)})
 
@@ -637,59 +636,61 @@ async def _query_buildings(args: dict) -> list[TextContent]:
         return _err("bbox requise")
 
     path  = f"{S3_BASE}/theme=buildings/type=building/*"
-    where = [
-        f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
-        f"bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}",
-    ]
-    if args.get("min_height"): where.append(f"height >= {args['min_height']}")
-    if args.get("max_height"): where.append(f"height <= {args['max_height']}")
+    where = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
+    if args.get("min_height"):
+        where.append("height >= ?"); params.append(float(args["min_height"]))
+    if args.get("max_height"):
+        where.append("height <= ?"); params.append(float(args["max_height"]))
 
+    limit = min(int(args.get("limit", 500)), 5000)
     sql = f"""
     SELECT id, names.primary AS name, height, num_floors, class,
            ST_AsGeoJSON(geometry) AS geom_json
     FROM read_parquet('{path}', filename=true, hive_partitioning=1)
     WHERE {' AND '.join(where)}
-    LIMIT {min(int(args.get('limit', 500)), 5000)}
+    LIMIT {limit}
     """
-    df = db.execute(sql).fetchdf()
+    df = db.execute(sql, params).fetchdf()
     return _ok({"type": "FeatureCollection", "features": _rows_to_features(df.to_dict(orient="records")), "total": len(df)})
 
 
 async def _query_transport(args: dict) -> list[TextContent]:
     path  = f"{S3_BASE}/theme=transportation/type=segment/*"
-    where = [
-        f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
-        f"bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}",
-    ]
-    if args.get("road_class"): where.append(f"class = '{args['road_class']}'")
+    where = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
+    if args.get("road_class"):
+        where.append("class = ?"); params.append(str(args["road_class"]))
 
+    limit = min(int(args.get("limit", 500)), 5000)
     sql = f"""
     SELECT id, class, subtype, ST_AsGeoJSON(geometry) AS geom_json
     FROM read_parquet('{path}', filename=true, hive_partitioning=1)
     WHERE {' AND '.join(where)}
-    LIMIT {min(int(args.get('limit', 500)), 5000)}
+    LIMIT {limit}
     """
-    df = db.execute(sql).fetchdf()
+    df = db.execute(sql, params).fetchdf()
     return _ok({"type": "FeatureCollection", "features": _rows_to_features(df.to_dict(orient="records")), "total": len(df)})
 
 
 async def _query_divisions(args: dict) -> list[TextContent]:
     path  = f"{S3_BASE}/theme=divisions/type=division_area/*"
-    where = [
-        f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
-        f"bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}",
-    ]
-    if args.get("subtype"): where.append(f"subtype = '{args['subtype']}'")
-    if args.get("country"):  where.append(f"country = '{args['country']}'")
+    where = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
+    if args.get("subtype"):
+        where.append("subtype = ?"); params.append(str(args["subtype"]))
+    if args.get("country"):
+        where.append("country = ?"); params.append(str(args["country"]))
 
+    limit = min(int(args.get("limit", 200)), 1000)
     sql = f"""
     SELECT id, names.primary AS name, subtype, country,
            ST_AsGeoJSON(geometry) AS geom_json
     FROM read_parquet('{path}', filename=true, hive_partitioning=1)
     WHERE {' AND '.join(where)}
-    LIMIT {min(int(args.get('limit', 200)), 1000)}
+    LIMIT {limit}
     """
-    df = db.execute(sql).fetchdf()
+    df = db.execute(sql, params).fetchdf()
     return _ok({"type": "FeatureCollection", "features": _rows_to_features(df.to_dict(orient="records")), "total": len(df)})
 
 
@@ -698,11 +699,13 @@ async def _spatial_stats(args: dict) -> list[TextContent]:
     ptype = THEMES[theme]
     path  = f"{S3_BASE}/theme={theme}/type={ptype}/*"
 
+    count_params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
+
     total = db.execute(f"""
         SELECT COUNT(*) FROM read_parquet('{path}', filename=true, hive_partitioning=1)
-        WHERE bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}
-          AND bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}
-    """).fetchone()[0]
+        WHERE bbox.xmin BETWEEN ? AND ?
+          AND bbox.ymin BETWEEN ? AND ?
+    """, count_params).fetchone()[0]
 
     stats: dict = {"theme": theme, "total_features": int(total), "bbox": [args['xmin'], args['ymin'], args['xmax'], args['ymax']]}
 
@@ -710,10 +713,10 @@ async def _spatial_stats(args: dict) -> list[TextContent]:
         df = db.execute(f"""
             SELECT categories.primary AS category, COUNT(*) as count
             FROM read_parquet('{path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}
-              AND bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """).fetchdf()
+        """, count_params).fetchdf()
         stats["top_categories"] = df.to_dict(orient="records")
 
     elif theme == "buildings":
@@ -721,9 +724,9 @@ async def _spatial_stats(args: dict) -> list[TextContent]:
             SELECT AVG(height) as avg_h, MIN(height) as min_h, MAX(height) as max_h,
                    COUNT(CASE WHEN height IS NOT NULL THEN 1 END) as with_height
             FROM read_parquet('{path}', filename=true, hive_partitioning=1)
-            WHERE bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}
-              AND bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}
-        """).fetchdf().to_dict(orient="records")[0]
+            WHERE bbox.xmin BETWEEN ? AND ?
+              AND bbox.ymin BETWEEN ? AND ?
+        """, count_params).fetchdf().to_dict(orient="records")[0]
         stats["height_stats"] = {k: float(v) if v is not None and str(v) != "nan" else None for k, v in row.items()}
 
     return _ok(stats)
@@ -735,14 +738,16 @@ async def _h3_density(args: dict) -> list[TextContent]:
     path  = f"{S3_BASE}/theme={theme}/type={ptype}/*"
     res   = int(args.get("resolution", 8))
 
+    h3_params: list = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
+
     df = db.execute(f"""
         SELECT h3_latlng_to_cell_string(bbox.ymin, bbox.xmin, {res}) as h3_id,
                COUNT(*) as count
         FROM read_parquet('{path}', filename=true, hive_partitioning=1)
-        WHERE bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}
-          AND bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}
+        WHERE bbox.xmin BETWEEN ? AND ?
+          AND bbox.ymin BETWEEN ? AND ?
         GROUP BY 1 ORDER BY 2 DESC
-    """).fetchdf()
+    """, h3_params).fetchdf()
     return _ok({"resolution": res, "total_cells": len(df), "cells": df.to_dict(orient="records")})
 
 
