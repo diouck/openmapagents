@@ -418,5 +418,5 @@ modification et distribution, y compris commerciale, sous réserve de conserver 
 
 ---
 
-**Auteur :** Kane Diouck — [diouckk@gmail.com](mailto:diouckk@gmail.com)
+**Auteur :** Abdou Diouck — [diouckk@gmail.com](mailto:diouckk@gmail.com)
 **GitHub :** [github.com/diouck](https://github.com/diouck)
