@@ -1,12 +1,42 @@
-# OpenMapAgents — run the published GHCR images (backend + frontend).
-# Postgres / Redis are external (host or managed) and configured via backend/.env.
+# OpenMapAgents — stack complet, déploiement en une commande.
 #
-#   export IMAGE_TAG=latest        # or a git sha / semver tag
-#   docker compose pull
+#   git clone https://github.com/diouck/openmapagents.git
+#   cd openmapagents
+#   cp backend/.env.example backend/.env    # renseigne au moins une clé LLM
 #   docker compose up -d
 #
-# The frontend listens on :8080 (host) and proxies /api to the backend service.
+# Frontend exposé sur http://localhost:8080 (proxy /api -> backend).
+# Postgres/pgvector et Redis tournent en conteneurs (données persistées en volumes).
+# Les valeurs DB/Redis de backend/.env sont ignorées : le compose force la connexion
+# aux services internes ci-dessous.
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-openmapagents}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-openmapagents}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DB:-openmapagents}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     image: ghcr.io/diouck/openmapagents-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -14,6 +44,18 @@ services:
       - backend/.env
     environment:
       BACKEND_PORT: 8000
+      # Surcharge la connexion vers les services internes (gagne sur backend/.env)
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DB: ${PG_DB:-openmapagents}
+      PG_USER: ${PG_USER:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-openmapagents}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     expose:
       - "8000"
     healthcheck:
@@ -33,3 +75,7 @@ services:
       BACKEND_UPSTREAM: http://backend:8000
     ports:
       - "8080:80"
+
+volumes:
+  pgdata:
+  redisdata:
