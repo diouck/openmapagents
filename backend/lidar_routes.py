@@ -24,7 +24,7 @@ import base64
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 
-router = APIRouter(prefix="/api/lidar", tags=["lidar"])
+router = APIRouter(prefix="/lidar", tags=["lidar"])
 
 # ── Cache serveur des fichiers importés ─────────────────────────────────────
 # /points y range le LAS/LAZ reçu et renvoie un jeton ; /canopy (foresterie)

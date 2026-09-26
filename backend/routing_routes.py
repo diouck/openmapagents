@@ -18,7 +18,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/route", tags=["routing"])
+router = APIRouter(prefix="/route", tags=["routing"])
 
 _ORS_KEY = os.getenv("ORS_API_KEY", "")
 _ORS_BASE = os.getenv("ORS_BASE_URL", "https://api.openrouteservice.org")

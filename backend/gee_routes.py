@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
-router = APIRouter(prefix="/api/gee", tags=["gee"])
+router = APIRouter(prefix="/gee", tags=["gee"])
 
 # ── State global ──────────────────────────────────────────────
 _gee_ready = False

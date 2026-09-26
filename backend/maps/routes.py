@@ -52,7 +52,7 @@ def _extract_bbox_wkt(state: dict) -> str | None:
         return f"POLYGON(({xmin} {ymin},{xmax} {ymin},{xmax} {ymax},{xmin} {ymax},{xmin} {ymin}))"
     except Exception:
         return None
-router = APIRouter(prefix="/api/maps", tags=["maps"])
+router = APIRouter(prefix="/maps", tags=["maps"])
 MAX_PUBLIC = 10
 
 

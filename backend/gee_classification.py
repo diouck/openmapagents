@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 log = logging.getLogger("gee-classif")
-router = APIRouter(prefix="/api/gee", tags=["classification"])
+router = APIRouter(prefix="/gee", tags=["classification"])
 
 # ─── In-memory job store (restyle) ───────────────────────────────────────────
 _jobs: Dict[str, dict] = {}

@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/spatialstats", tags=["spatialstats"])
+router = APIRouter(prefix="/spatialstats", tags=["spatialstats"])
 
 _MAX_N = 3000
 

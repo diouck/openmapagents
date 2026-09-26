@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from auth.routes import current_user
 
 log = logging.getLogger("osm")
-router = APIRouter(prefix="/api/osm", tags=["osm"])
+router = APIRouter(prefix="/osm", tags=["osm"])
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 

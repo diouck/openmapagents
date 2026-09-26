@@ -28,7 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/raster", tags=["raster"])
+router = APIRouter(prefix="/raster", tags=["raster"])
 
 _MAX_SIDE = 2500
 _JOBS = os.path.join(tempfile.gettempdir(), "raster_jobs")

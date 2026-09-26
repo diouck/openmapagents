@@ -33,7 +33,7 @@ import json
 from ee import oauth as ee_oauth
 # google.oauth2 géré par gee_auth
 
-router = APIRouter(prefix="/api/gee", tags=["gee-timelapse"])
+router = APIRouter(prefix="/gee", tags=["gee-timelapse"])
 
 TMP_DIR = os.path.join(tempfile.gettempdir(), "ome_timelapse")
 os.makedirs(TMP_DIR, exist_ok=True)

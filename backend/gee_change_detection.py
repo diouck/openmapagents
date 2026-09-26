@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
-router = APIRouter(prefix="/api/gee", tags=["gee-change"])
+router = APIRouter(prefix="/gee", tags=["gee-change"])
 
 # ── Modèle de requête ─────────────────────────────────────────────────────────
 class ChangeDetectionRequest(BaseModel):

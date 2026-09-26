@@ -52,7 +52,7 @@ os.environ.setdefault("GDAL_HTTP_TIMEOUT", "30")
 os.environ.setdefault("VSI_CACHE", "TRUE")
 os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")   # bucket public, lecture anonyme
 
-router = APIRouter(prefix="/api/maxar", tags=["maxar"])
+router = APIRouter(prefix="/maxar", tags=["maxar"])
 
 _BASE = "https://maxar-opendata.s3.amazonaws.com"
 _ROOT = _BASE + "/events/catalog.json"

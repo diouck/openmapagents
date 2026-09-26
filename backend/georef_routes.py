@@ -17,7 +17,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/georef", tags=["georef"])
+router = APIRouter(prefix="/georef", tags=["georef"])
 
 _MAX_SRC = 5000     # côté max de l'image source acceptée
 _MAX_OUT = 2000     # côté max de la grille de sortie

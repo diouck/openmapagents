@@ -31,7 +31,7 @@ import shutil
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
 from fastapi.responses import FileResponse
 
-router = APIRouter(prefix="/api/lidar", tags=["lidar-canopy"])
+router = APIRouter(prefix="/lidar", tags=["lidar-canopy"])
 
 _JOBS_DIR = os.path.join(tempfile.gettempdir(), "canopy_jobs")
 _JOB_TTL = 3600            # s — durée de vie des GeoTIFF temporaires

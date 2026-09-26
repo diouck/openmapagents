@@ -25,7 +25,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/viewshed", tags=["viewshed"])
+router = APIRouter(prefix="/viewshed", tags=["viewshed"])
 
 _TERR = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 _IGN_WMS = "https://data.geopf.fr/wms-r/wms"

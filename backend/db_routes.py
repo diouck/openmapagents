@@ -15,7 +15,7 @@ from typing import Optional, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/db", tags=["database"])
+router = APIRouter(prefix="/db", tags=["database"])
 
 # ─── MODÈLES ─────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/shadow", tags=["shadow"])
+router = APIRouter(prefix="/shadow", tags=["shadow"])
 
 # Jetons de routage (backend) — l'itinéraire ombragé du front passe par ici pour
 # NE PAS dépendre du build frontend (VITE_MAPBOX_TOKEN souvent absent au build).

@@ -17,7 +17,7 @@ import urllib.request
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-router = APIRouter(prefix="/api/planet", tags=["planet"])
+router = APIRouter(prefix="/planet", tags=["planet"])
 
 # Textures 2k Solar System Scope (CC-BY 4.0) — attribution affichée côté client.
 _BASE = "https://www.solarsystemscope.com/textures/download/{name}.{ext}"

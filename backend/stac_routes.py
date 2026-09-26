@@ -35,7 +35,7 @@ os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif,.TIF,.tiff")
 os.environ.setdefault("GDAL_HTTP_TIMEOUT", "30")
 os.environ.setdefault("VSI_CACHE", "TRUE")
 
-router = APIRouter(prefix="/api/stac", tags=["stac"])
+router = APIRouter(prefix="/stac", tags=["stac"])
 
 _STAC_URL = "https://earth-search.aws.element84.com/v1/search"
 _MAX_SIDE = 1024

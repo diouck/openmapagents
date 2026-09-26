@@ -1008,7 +1008,7 @@ def root():
     }
 
 
-@app.get("/api/config")
+@app.get("/config")
 def get_config():
     """Frontend fetches this to know which LLM is active."""
     return {
@@ -1022,7 +1022,7 @@ def get_config():
 
 from fastapi import Header
 
-@app.post("/api/chat")
+@app.post("/chat")
 def chat(req: ChatRequest, x_session_id: str = Header(None)):
     """Chat principal : RAG → Router → sous-agent → validation, avec mémoire de session."""
     sid  = x_session_id or (req.map_context or {}).get("session_id", "anon")
@@ -1045,7 +1045,7 @@ def chat(req: ChatRequest, x_session_id: str = Header(None)):
     return result
 
 
-@app.post("/api/debug/route")
+@app.post("/debug/route")
 def debug_route(req: ChatRequest):
     """Debug : inspecte le routing RAG + domaine sans executer les tools."""
     if not ORCHESTRATOR_ENABLED:
@@ -1067,7 +1067,7 @@ def debug_route(req: ChatRequest):
     }
 
 
-@app.get("/api/debug/orchestrator")
+@app.get("/debug/orchestrator")
 def debug_orchestrator():
     """Statut de l orchestrateur et de ses composants."""
     status = {
@@ -1099,7 +1099,7 @@ def debug_orchestrator():
     return status
 
 
-@app.post("/api/query/{theme}")
+@app.post("/query/{theme}")
 def direct_query(theme: str, xmin: float = Query(...), ymin: float = Query(...),
                  xmax: float = Query(...), ymax: float = Query(...),
                  limit: int = Query(500), category: str = Query(None)):
@@ -1109,7 +1109,7 @@ def direct_query(theme: str, xmin: float = Query(...), ymin: float = Query(...),
     return execute_query_overture(args)
 
 
-@app.get("/api/query")
+@app.get("/query")
 def direct_query_get(theme: str = Query(...), xmin: float = Query(...), ymin: float = Query(...),
                      xmax: float = Query(...), ymax: float = Query(...),
                      limit: int = Query(1000), category: str = Query(None)):
@@ -1121,7 +1121,7 @@ def direct_query_get(theme: str = Query(...), xmin: float = Query(...), ymin: fl
     return execute_query_overture(args)
 
 
-@app.post("/api/export")
+@app.post("/export")
 def export_data(req: ExportRequest):
     """Export data in various formats."""
     args = {"theme": req.theme, "xmin": req.bbox[0], "ymin": req.bbox[1],
@@ -1135,7 +1135,7 @@ class ConvertRequest(BaseModel):
     name: str = "export"
 
 
-@app.post("/api/convert")
+@app.post("/convert")
 def convert_features(req: ConvertRequest):
     """Convertit un GeoJSON fourni par le client en GeoPackage / FlatGeobuf / GeoJSON
     via DuckDB spatial (GDAL). Renvoie le fichier converti (données réelles de la couche)."""
@@ -1176,7 +1176,7 @@ from fastapi import Request as FARequest
 from fastapi.responses import JSONResponse, StreamingResponse
 import json as _json
 
-@app.post("/api/llm/chat/completions")
+@app.post("/llm/chat/completions")
 async def llm_proxy_completions(request: FARequest):
     """
     Proxy LLM pour les modules frontend (AgriPanel, etc.).
@@ -1239,7 +1239,7 @@ async def llm_proxy_completions(request: FARequest):
         )
 
 
-@app.get("/api/llm/models")
+@app.get("/llm/models")
 def llm_models():
     """Liste les modèles disponibles (compatibilité OpenAI)."""
     return {"data": [{"id": LLM_MODEL, "object": "model"}], "object": "list"}

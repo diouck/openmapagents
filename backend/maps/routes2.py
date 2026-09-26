@@ -17,7 +17,7 @@ from auth.routes import current_user
 
 log = logging.getLogger("maps")
 
-router = APIRouter(prefix="/api/maps", tags=["maps"])
+router = APIRouter(prefix="/maps", tags=["maps"])
 
 
 # ============================================================

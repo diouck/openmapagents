@@ -15,7 +15,7 @@ from .indicators import INDICATORS, INDICATORS_BY_THEME, find_indicator_by_keywo
 from .fetcher import build_choropleth, fetch_latest_year
 
 log = logging.getLogger("worldbank.routes")
-router = APIRouter(prefix="/api/worldbank", tags=["worldbank"])
+router = APIRouter(prefix="/worldbank", tags=["worldbank"])
 
 
 # ─── MODÈLES ─────────────────────────────────────────────────────────────────

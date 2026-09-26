@@ -503,7 +503,7 @@ def get_resilient_client() -> ResilientLLMClient:
 # ═══════════════════════════════════════════════════════════════
 
 from fastapi import APIRouter
-resilience_router = APIRouter(prefix="/api/llm", tags=["llm"])
+resilience_router = APIRouter(prefix="/llm", tags=["llm"])
 
 @resilience_router.get("/status")
 def llm_status():

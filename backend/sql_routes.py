@@ -24,7 +24,7 @@ from typing import Optional, List, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/sql", tags=["sql"])
+router = APIRouter(prefix="/sql", tags=["sql"])
 
 _ROW_LIMIT = 5000          # borne le nb de lignes renvoyées (payload + carte)
 _MAX_LAYER_FEATURES = 200000

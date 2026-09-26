@@ -611,7 +611,7 @@ def get_session_memory() -> SessionMemory:
 # ═══════════════════════════════════════════════════════════════
 
 from fastapi import APIRouter, Header
-memory_router = APIRouter(prefix="/api/session", tags=["session"])
+memory_router = APIRouter(prefix="/session", tags=["session"])
 
 @memory_router.get("/stats")
 def session_stats():

@@ -17,7 +17,7 @@ from auth.core import get_db, get_current_user
 from auth.models import User, Map
 
 log = logging.getLogger("admin")
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def require_admin(current: User = Depends(get_current_user)) -> User:

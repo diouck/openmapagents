@@ -15,7 +15,7 @@ log = logging.getLogger("elevation")
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/elevation", tags=["elevation"])
+router = APIRouter(prefix="/elevation", tags=["elevation"])
 
 # ── Modèles ───────────────────────────────────────────────────────────────────
 class CrossFeature(BaseModel):

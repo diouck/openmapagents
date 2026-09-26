@@ -542,7 +542,7 @@ def get_mcp_client() -> MCPClient:
 # ─── FastAPI router optionnel (endpoints MCP admin) ──────────
 from fastapi import APIRouter
 
-mcp_router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
 @mcp_router.get("/health")

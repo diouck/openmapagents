@@ -18,7 +18,7 @@ from .core import (
     create_access_token, create_refresh_token, decode_token,
 )
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ─────────────────────────────────────────────────────────────
