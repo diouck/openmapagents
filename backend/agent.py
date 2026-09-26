@@ -595,8 +595,8 @@ LIMIT {limit}"""
         return result
 
     except Exception as e:
-        log.error(f"DuckDB error: {e}")
-        return {"error": str(e), "sql": sql}
+        log.error(f"DuckDB error: {e} | sql={sql}")
+        return {"error": str(e)}
 
 
 def execute_tool(name: str, args: dict, map_context: dict = None) -> dict:
@@ -1023,8 +1023,11 @@ def get_config():
 from fastapi import Header
 
 @app.post("/api/chat")
-def chat(req: ChatRequest, x_session_id: str = Header(None)):
+def chat(req: ChatRequest, x_session_id: str = Header(None), request: Request = None):
     """Chat principal : RAG → Router → sous-agent → validation, avec mémoire de session."""
+    # Restreint à localhost (le frontend passe par le backend, pas d'appel direct)
+    if request and request.client.host not in ("127.0.0.1", "::1"):
+        raise HTTPException(403, "API restreinte à localhost")
     sid  = x_session_id or (req.map_context or {}).get("session_id", "anon")
 
     mem  = get_session_memory()

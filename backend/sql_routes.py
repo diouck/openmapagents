@@ -119,12 +119,14 @@ def sql_run(req: SqlRequest):
                      "(verrou d'accès externe indisponible). Exécution refusée.")
 
         # ── 4. Décrire le résultat (type des colonnes → détecter la géométrie) ──
+        # Approche sûre : LIMIT 0 + cursor.description (pas de concaténation SQL)
         geom_col = None
+        desc = None
         try:
-            desc = con.execute("DESCRIBE (" + sql.replace(")", "") + ")").fetchall()   # (col, type, ...)
-            for row in desc:
-                cname, ctype = row[0], str(row[1]).upper()
-                if "GEOMETRY" in ctype and geom_col is None:
+            cursor = con.execute(f"SELECT * FROM ({sql}) AS _q LIMIT 0")
+            desc = [(d[0], d[1]) for d in cursor.description] if cursor.description else []
+            for cname, ctype in desc:
+                if "GEOMETRY" in str(ctype).upper() and geom_col is None:
                     geom_col = cname
         except Exception:
             desc = None   # non descriptible (DDL, PRAGMA, plusieurs statements…)
