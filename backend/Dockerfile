@@ -33,7 +33,7 @@ WORKDIR /app/backend
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-  CMD curl -fsS "http://localhost:${BACKEND_PORT}/openapi.json" || exit 1
+  CMD curl -fsS "http://localhost:${BACKEND_PORT}/health" || exit 1
 
 # Production: run uvicorn directly (no --reload)
 CMD ["sh", "-c", "uvicorn agent:app --host 0.0.0.0 --port ${BACKEND_PORT}"]

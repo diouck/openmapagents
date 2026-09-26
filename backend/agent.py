@@ -84,8 +84,8 @@ class DuckDBEngine:
         self.conn.execute("INSTALL httpfs; LOAD httpfs;")
         try:
             self.conn.execute("INSTALL h3 FROM community; LOAD h3;")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Extension h3 indisponible (optionnelle) : {e}")
         self.conn.execute(f"SET s3_region='{S3_REGION}';")
         self.conn.execute(f"SET memory_limit='{DUCKDB_MEMORY}';")
         self.conn.execute(f"SET threads={DUCKDB_THREADS};")
@@ -704,6 +704,7 @@ def call_llm(messages: list, map_context: dict = None) -> dict:
         "tool_choice": "auto",
         "max_tokens": 2000,
         "temperature": 0.3,
+        "timeout": int(os.getenv("LLM_TIMEOUT_S", "60")),
     }
 
     # Provider-specific overrides
@@ -742,10 +743,14 @@ def call_llm(messages: list, map_context: dict = None) -> dict:
             result["tool_calls"].append({"name": fn_name, "args": fn_args})
             result["tool_results"].append(tool_result)
 
+            tool_json = json.dumps(tool_result, default=str)
+            if len(tool_json) > 4000:
+                log.warning(f"Résultat de {fn_name} tronqué pour le LLM ({len(tool_json)} chars)")
+                tool_json = tool_json[:3900] + ' …[tronqué — résultat complet affiché sur la carte]'
             current_messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
-                "content": json.dumps(tool_result, default=str)[:4000],
+                "content": tool_json,
             })
 
         # Call LLM again with tool results — it may want to call more tools
@@ -757,6 +762,7 @@ def call_llm(messages: list, map_context: dict = None) -> dict:
                 tool_choice="auto",
                 max_tokens=2000,
                 temperature=0.3,
+                timeout=int(os.getenv("LLM_TIMEOUT_S", "60")),
                 **({"api_base": os.getenv("OLLAMA_API_BASE")} if LLM_PROVIDER == "ollama" else {}),
             )
         except Exception as e:
@@ -797,6 +803,13 @@ app.add_middleware(
     allow_credentials="*" not in _cors_origins,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health():
+    """Sonde de vivacité (healthcheck du conteneur)."""
+    return {"status": "ok"}
+
 
 # ── Routers ────────────────────────────────────────────────────
 try:
@@ -878,89 +891,89 @@ app.include_router(osm_router)
 try:
     from lidar_routes import router as lidar_router
     app.include_router(lidar_router)
-    print("✓ LiDAR routes chargées (/api/lidar)")
+    log.info("✓LiDAR routes chargées (/api/lidar)")
 except Exception as e:
-    print(f"✗ LiDAR routes non chargées: {e}")
+    log.warning(f"✗LiDAR routes non chargées: {e}")
 
 # Foresterie LiDAR : MNT/MNS/MNH + détection d'arbres + houppiers
 try:
     from canopy_routes import router as canopy_router
     app.include_router(canopy_router)
-    print("✓ Canopy routes chargées (/api/lidar/canopy)")
+    log.info("✓Canopy routes chargées (/api/lidar/canopy)")
 except Exception as e:
-    print(f"✗ Canopy routes non chargées: {e}")
+    log.warning(f"✗Canopy routes non chargées: {e}")
 
 # Import de rasters GeoTIFF (reprojection 4326 → overlay carte)
 try:
     from raster_routes import router as raster_router
     app.include_router(raster_router)
-    print("✓ Raster routes chargées (/api/raster/import)")
+    log.info("✓Raster routes chargées (/api/raster/import)")
 except Exception as e:
-    print(f"✗ Raster routes non chargées: {e}")
+    log.warning(f"✗Raster routes non chargées: {e}")
 
 # Navigateur STAC + COG (chercher/ajouter des scènes satellite)
 try:
     from stac_routes import router as stac_router
     app.include_router(stac_router)
-    print("✓ STAC routes chargées (/api/stac/search, /api/stac/scene)")
+    log.info("✓STAC routes chargées (/api/stac/search, /api/stac/scene)")
 except Exception as e:
-    print(f"✗ STAC routes non chargées: {e}")
+    log.warning(f"✗STAC routes non chargées: {e}")
 
 # Statistiques spatiales (Moran + hotspots Getis-Ord) sur couche vecteur
 try:
     from spatialstats_routes import router as spatialstats_router
     app.include_router(spatialstats_router)
-    print("✓ Stats spatiales chargées (/api/spatialstats/run)")
+    log.info("✓Stats spatiales chargées (/api/spatialstats/run)")
 except Exception as e:
-    print(f"✗ Stats spatiales non chargées: {e}")
+    log.warning(f"✗Stats spatiales non chargées: {e}")
 
 # Géoréférenceur (caler une image sur la carte par points d'appui)
 try:
     from georef_routes import router as georef_router
     app.include_router(georef_router)
-    print("✓ Géoréférenceur chargé (/api/georef/warp)")
+    log.info("✓Géoréférenceur chargé (/api/georef/warp)")
 except Exception as e:
-    print(f"✗ Géoréférenceur non chargé: {e}")
+    log.warning(f"✗Géoréférenceur non chargé: {e}")
 
 # Textures planétaires (viewer Système solaire 3D)
 try:
     from planet_routes import router as planet_router
     app.include_router(planet_router)
-    print("✓ Textures planétaires chargées (/api/planet/texture)")
+    log.info("✓Textures planétaires chargées (/api/planet/texture)")
 except Exception as e:
-    print(f"✗ Textures planétaires non chargées: {e}")
+    log.warning(f"✗Textures planétaires non chargées: {e}")
 
 # Viewshed (analyse de visibilité depuis un point, MNT Terrarium)
 try:
     from viewshed_routes import router as viewshed_router
     app.include_router(viewshed_router)
-    print("✓ Viewshed chargé (/api/viewshed/compute)")
+    log.info("✓Viewshed chargé (/api/viewshed/compute)")
 except Exception as e:
-    print(f"✗ Viewshed non chargé: {e}")
+    log.warning(f"✗Viewshed non chargé: {e}")
 
 # Maxar Open Data (imagerie catastrophe avant/après, COG bucket public AWS)
 try:
     from maxar_routes import router as maxar_router
     app.include_router(maxar_router)
-    print("✓ Maxar Open Data chargé (/api/maxar/events)")
+    log.info("✓Maxar Open Data chargé (/api/maxar/events)")
 except Exception as e:
-    print(f"✗ Maxar Open Data non chargé: {e}")
+    log.warning(f"✗Maxar Open Data non chargé: {e}")
 
 # Ombres portées — canopée Meta (GEE) vectorisée pour l'outil d'ombrage
 try:
     from shadow_routes import router as shadow_router
     app.include_router(shadow_router)
-    print("✓ Ombres/canopée chargé (/api/shadow/canopy)")
+    log.info("✓Ombres/canopée chargé (/api/shadow/canopy)")
 except Exception as e:
-    print(f"✗ Ombres/canopée non chargé: {e}")
+    log.warning(f"✗Ombres/canopée non chargé: {e}")
 
 # Routage & isochrones via backend (jeton backend, pas de dépendance au build front)
 try:
     from routing_routes import router as routing_router
     app.include_router(routing_router)
-    print("✓ Routage/isochrone chargé (/api/route/directions)")
+    log.info("✓Routage/isochrone chargé (/api/route/directions)")
 except Exception as e:
-    print(f"✗ Routage/isochrone non chargé: {e}")
+    log.warning(f"✗Routage/isochrone non chargé: {e}")
 
 
 # 2. Routers
