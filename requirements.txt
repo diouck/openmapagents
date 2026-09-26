@@ -1,10 +1,43 @@
+# OpenMapAgents — backend runtime dependencies
+# (union des imports reels du dossier backend/)
+
+# --- API / core ---
 fastapi>=0.115.0
 uvicorn>=0.30.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+httpx>=0.27.0
+requests>=2.31.0
+
+# --- Data / geospatial ---
 duckdb>=1.1.0
 pandas>=2.0.0
-geopandas>=0.14.0
+numpy>=1.26.0
 pyarrow>=14.0.0
+geopandas>=0.14.0
 shapely>=2.0.0
+pyproj>=3.6.0
+rasterio>=1.3.0
+laspy[lazrs]>=2.5.0
+
+# --- Imaging / science ---
+Pillow>=10.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+scikit-image>=0.22.0
+
+# --- Base de donnees ---
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+redis>=5.0.0
+
+# --- LLM / agents / MCP ---
+litellm>=1.50.0
 mcp>=1.0.0
-pydantic>=2.0.0
-  
+
+# --- Google Earth Engine ---
+earthengine-api>=0.1.400
+
+# Embeddings locaux (optionnel, lourd) : le RAG retombe sur LiteLLM sans eux.
+#   pip install sentence-transformers   # tire torch (~2 Go)
+#   pip install fastembed               # alternative ONNX legere

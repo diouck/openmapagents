@@ -3,12 +3,23 @@
 # Build context = repo root:  docker build -f frontend/Dockerfile .
 
 # ---- Stage 1: build the static bundle ----
-FROM node:20-alpine AS build
+FROM node:20-slim AS build
 WORKDIR /app
 
-# Install deps from lockfile (reproducible)
+# Prefer the reproducible lockfile install; fall back to npm install if the
+# Windows-authored lockfile drifts from package.json (keeps CI unblocked).
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund \
+    || npm install --no-audit --no-fund --legacy-peer-deps
+
+# Public build-time config baked into the Vite bundle (optional; empty by default).
+# Vite exposes process.env vars prefixed VITE_ to import.meta.env at build.
+ARG VITE_MAPBOX_TOKEN=""
+ARG VITE_LITELLM_API_URL="/api/llm"
+ARG VITE_CHAT_INPUT="true"
+ENV VITE_MAPBOX_TOKEN=$VITE_MAPBOX_TOKEN \
+    VITE_LITELLM_API_URL=$VITE_LITELLM_API_URL \
+    VITE_CHAT_INPUT=$VITE_CHAT_INPUT
 
 # Build (index.html + app.html + doc.html + robots.txt + sitemap.xml)
 COPY frontend/ ./
