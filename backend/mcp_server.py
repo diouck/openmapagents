@@ -784,14 +784,17 @@ async def _export_overture(args: dict) -> list[TextContent]:
 
 
 async def _raw_query(args: dict) -> list[TextContent]:
-    """Requête DuckDB brute — validation SQL minimale."""
+    """Requête DuckDB brute — lecture seule (SELECT/WITH), sans accès fichier local."""
     import re
-    sql = args.get("sql", "").strip()
-    # Validation minimale : SELECT only
-    if not re.match(r"^\s*(SELECT|WITH)\b", sql, re.IGNORECASE):
+    sql = args.get("sql", "").strip().rstrip(";").strip()
+    if not re.match(r"^(SELECT|WITH)\b", sql, re.IGNORECASE):
         return _err("Seules les requêtes SELECT/WITH sont autorisées")
-    if re.search(r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)\b", sql, re.IGNORECASE):
-        return _err("Instructions DML/DDL interdites")
+    if ";" in sql:
+        return _err("Requêtes multiples (';') interdites")
+    if re.search(r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|COPY|ATTACH|INSTALL|PRAGMA)\b", sql, re.IGNORECASE):
+        return _err("Instruction non autorisée détectée")
+    if re.search(r"\b(read_text|read_blob)\b", sql, re.IGNORECASE):
+        return _err("Lecture de fichier local interdite")
 
     df = db.execute(sql).fetchdf()
     if len(df) > 200:

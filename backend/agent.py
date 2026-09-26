@@ -1136,6 +1136,8 @@ def convert_features(req: ConvertRequest):
     if not feats:
         raise HTTPException(400, "GeoJSON vide")
     key = hashlib.md5((json.dumps(req.geojson)[:4000] + req.format + req.name).encode()).hexdigest()
+    # Nom de telechargement assaini (le fichier servi reste out_path, base sur le hash)
+    safe_name = "".join(c for c in (req.name or "export") if c.isalnum() or c in "-_")[:64] or "export"
     in_path = CACHE_DIR / f"conv_{key}.geojson"
     out_path = CACHE_DIR / f"conv_{key}.{ext}"
     try:
@@ -1147,7 +1149,7 @@ def convert_features(req: ConvertRequest):
             f"COPY (SELECT * FROM ST_Read('{in_path.as_posix()}')) "
             f"TO '{out_path.as_posix()}' WITH (FORMAT GDAL, DRIVER '{driver}');"
         )
-        return FileResponse(str(out_path), filename=f"{req.name}.{ext}", media_type="application/octet-stream")
+        return FileResponse(str(out_path), filename=f"{safe_name}.{ext}", media_type="application/octet-stream")
     except Exception as e:
         raise HTTPException(500, f"Conversion {req.format}: {e}")
 

@@ -167,13 +167,23 @@ def wkt_to_geojson(wkt: str) -> Optional[dict]:
 
 def sanitize_sql(sql: str) -> str:
     """
-    Vérifie basique que la requête est en lecture seule.
-    Refuse INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE.
+    Garde lecture seule pour une requête exécutée sur une base externe.
+    - doit commencer par SELECT ou WITH
+    - une seule instruction (pas de ';' empilés)
+    - pas de DML/DDL, ni d'écriture/lecture de fichier (INTO OUTFILE, COPY, LOAD_FILE...)
     """
-    forbidden = r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXECUTE|CALL)\b"
-    if re.search(forbidden, sql.strip(), re.IGNORECASE):
-        raise ValueError("Seules les requêtes SELECT sont autorisées.")
-    return sql.strip()
+    s = sql.strip().rstrip(";").strip()
+    if not re.match(r"^(SELECT|WITH)\b", s, re.IGNORECASE):
+        raise ValueError("Seules les requêtes SELECT / WITH sont autorisées.")
+    if ";" in s:
+        raise ValueError("Requêtes multiples (';') interdites.")
+    forbidden = (r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|"
+                 r"EXECUTE|CALL|MERGE|COPY|ATTACH|LOAD_FILE)\b")
+    if re.search(forbidden, s, re.IGNORECASE):
+        raise ValueError("Instruction non autorisée détectée.")
+    if re.search(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", s, re.IGNORECASE) or re.search(r"\bLOAD\s+DATA\b", s, re.IGNORECASE):
+        raise ValueError("Écriture/lecture de fichier interdite.")
+    return s
 
 
 # ─── ENDPOINTS ───────────────────────────────────────────────────
