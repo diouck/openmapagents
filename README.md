@@ -22,7 +22,7 @@ Le plus rapide. Prérequis : **Docker** + **Docker Compose**.
 git clone https://github.com/diouck/openmapagents.git
 cd openmapagents
 cp backend/.env.example backend/.env   # renseignez au moins une clé LLM
-docker compose up -d                    # → http://localhost:8080
+docker compose up -d                    # → http://localhost:8090
 ```
 
 Le stack complet démarre en conteneurs : **frontend** (nginx), **backend** (FastAPI),

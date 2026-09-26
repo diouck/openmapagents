@@ -74,7 +74,8 @@ services:
     environment:
       BACKEND_UPSTREAM: http://backend:8000
     ports:
-      - "8080:80"
+      # Ecoute uniquement en local : le nginx de l'hote (443, SSL) proxifie vers ce port.
+      - "127.0.0.1:8090:80"
 
 volumes:
   pgdata:
