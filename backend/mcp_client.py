@@ -540,7 +540,7 @@ def get_mcp_client() -> MCPClient:
 
 
 # ─── FastAPI router optionnel (endpoints MCP admin) ──────────
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter
 
 mcp_router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
@@ -565,10 +565,8 @@ def mcp_invalidate(server: Optional[str] = None):
 
 
 @mcp_router.post("/call/{tool_name}")
-async def mcp_call(tool_name: str, args: dict, request: Request):
-    """Appel direct d'un tool MCP — restreint à localhost."""
-    if request.client.host not in ("127.0.0.1", "::1"):
-        raise HTTPException(403, "MCP tool call restreint à localhost")
+async def mcp_call(tool_name: str, args: dict):
+    """Appel direct d'un tool MCP (debug/test)."""
     client = get_mcp_client()
     result = await client.call_tool(tool_name, args)
     return result

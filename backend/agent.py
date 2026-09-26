@@ -1020,14 +1020,11 @@ def get_config():
     }
 
 
-from fastapi import Header, Request, HTTPException
+from fastapi import Header
 
 @app.post("/api/chat")
-def chat(req: ChatRequest, x_session_id: str = Header(None), request: Request = None):
+def chat(req: ChatRequest, x_session_id: str = Header(None)):
     """Chat principal : RAG → Router → sous-agent → validation, avec mémoire de session."""
-    # Restreint à localhost (le frontend passe par le backend, pas d'appel direct)
-    if request and request.client.host not in ("127.0.0.1", "::1"):
-        raise HTTPException(403, "API restreinte à localhost")
     sid  = x_session_id or (req.map_context or {}).get("session_id", "anon")
 
     mem  = get_session_memory()
