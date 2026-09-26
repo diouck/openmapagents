@@ -394,18 +394,26 @@ Nginx sert directement `frontend/dist/` et proxifie `/api` vers `http://localhos
 
 ## Mise à jour / redéploiement
 
-Déployer la dernière version. L'historique distant pouvant être réécrit, utilisez `reset --hard` (**pas** `git pull`) :
+> On récupère toujours avec `git fetch` **+** `reset --hard` — **jamais** `git pull` : la branche du serveur n'a pas d'upstream et l'historique distant peut être rebasé.
+
+### 🐳 Déploiement Docker (recommandé)
+
+Après un `push` sur `main`, GitHub Actions reconstruit et publie les images sur GHCR (~2-3 min). Ensuite, sur le serveur :
 
 ```bash
 cd /var/www/openmapagents
-git fetch origin
-git reset --hard origin/main
+git fetch origin && git reset --hard origin/main   # seulement si compose/config ont changé
+docker compose pull                                 # récupère les nouvelles images GHCR
+docker compose up -d                                # redémarre avec les nouvelles images
+```
 
-# Frontend : reconstruire le statique servi par nginx
-cd frontend && npm install && npm run build
+### Déploiement statique + systemd (build local)
 
-# Backend : redémarrer le service
-sudo systemctl restart openmapagents
+```bash
+cd /var/www/openmapagents
+git fetch origin && git reset --hard origin/main
+cd frontend && npm install && npm run build         # reconstruit le statique servi par nginx
+sudo systemctl restart openmapagents                # redémarre le backend
 ```
 
 ---
