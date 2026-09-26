@@ -18,8 +18,9 @@ server {
     # --- Homepage: serve index.html for exactly / ---
     location = / { try_files /index.html =404; }
 
-    # --- Clean URL /doc -> doc.html ---
-    location = /doc { try_files /doc.html =404; }
+    # --- Documentation: SPA React (app.html + react-router -> DocIndex / DocArticle) ---
+    location = /doc { try_files /app.html =404; }
+    location ^~ /doc/ { try_files /app.html =404; }
 
     # --- API proxy to the backend container ---
     location /api/ {
@@ -34,7 +35,7 @@ server {
     }
 
     # --- Explicit HTML pages ---
-    location ~ ^/(index\.html|app\.html|doc\.html)$ { try_files $uri =404; }
+    location ~ ^/(index\.html|app\.html)$ { try_files $uri =404; }
 
     # --- Assets (js/css/images/textures) + everything else -> 404 if not a real file ---
     location / { try_files $uri =404; }
