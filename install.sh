@@ -128,13 +128,9 @@ for f in theme.js config.js index.css main.jsx; do
     fi
 done
 
-# App.jsx : version multi-composants (App.jsx) prioritaire sur overture_explorer.jsx
-if [ -f "${REPO_DIR}/App.jsx" ]; then
-    cp "${REPO_DIR}/App.jsx" "${REPO_DIR}/frontend/src/App.jsx"
-    info "App.jsx (version agent multi-composants) installé"
-elif [ -f "${REPO_DIR}/overture_explorer.jsx" ]; then
-    cp "${REPO_DIR}/overture_explorer.jsx" "${REPO_DIR}/frontend/src/App.jsx"
-    info "overture_explorer.jsx → frontend/src/App.jsx"
+# App.jsx est versionné dans le dépôt (frontend/src/App.jsx) — aucune copie nécessaire.
+if [ ! -f "${REPO_DIR}/frontend/src/App.jsx" ]; then
+    info "ATTENTION : frontend/src/App.jsx manquant — dépôt incomplet ?"
 fi
 
 success "Structure du projet OK."

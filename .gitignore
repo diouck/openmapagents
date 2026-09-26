@@ -14,6 +14,10 @@ venv/
 # Node
 node_modules/
 
+# Build output (genere par `vite build` / le Dockerfile)
+dist/
+frontend/dist/
+
 # Data / cache / logs
 backend/data/cache/
 logs/

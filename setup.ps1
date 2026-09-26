@@ -158,14 +158,14 @@ Set-Content "frontend/src/index.css" $indexCss -Encoding UTF8
 Write-Host "  + fichiers frontend crees" -ForegroundColor Green
 
 # ─── App.jsx ─────────────────────────────────────────────────
+# App.jsx est versionne dans le depot (frontend/src/App.jsx) — aucune copie.
 Write-Host ""
-Write-Host "[4/6] Installation App.jsx..." -ForegroundColor Yellow
+Write-Host "[4/6] Verification App.jsx..." -ForegroundColor Yellow
 
-if (Test-Path "overture_explorer.jsx") {
-    Copy-Item "overture_explorer.jsx" "frontend/src/App.jsx" -Force
-    Write-Host "  -> App.jsx installe" -ForegroundColor Green
+if (Test-Path "frontend/src/App.jsx") {
+    Write-Host "  -> App.jsx present (version du depot)" -ForegroundColor Green
 } else {
-    Write-Host "  [ATTENTION] overture_explorer.jsx manquant" -ForegroundColor Red
+    Write-Host "  [ATTENTION] frontend/src/App.jsx manquant — depot incomplet ?" -ForegroundColor Red
 }
 
 # ─── npm install ─────────────────────────────────────────────

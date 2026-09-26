@@ -95,7 +95,6 @@ openmapagents/
 ├── install.sh                # ← Script d'installation Linux
 ├── setup.ps1                 # Script d'installation Windows
 ├── install_maplibre.ps1      # Installation MapLibre (Windows)
-├── overture_explorer.jsx     # Version standalone (sans composants séparés)
 └── README.md
 ```
 

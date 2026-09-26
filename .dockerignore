@@ -29,7 +29,6 @@ logs
 docs/captures
 images
 *.odt
-overture_explorer.jsx
 
 # Editor / OS
 .claude
