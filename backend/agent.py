@@ -92,7 +92,10 @@ class DuckDBEngine:
         log.info("DuckDB connected with spatial + httpfs + h3")
         return self
 
-    def query(self, sql: str):
+    def query(self, sql: str, params=None):
+        # params (liste) → requête préparée DuckDB (protège des injections SQL)
+        if params is not None:
+            return self.conn.execute(sql, params).fetchdf()
         return self.conn.execute(sql).fetchdf()
 
     def close(self):
@@ -516,22 +519,22 @@ def execute_query_overture(args: dict, map_context: dict = None) -> dict:
     ptype = THEMES[theme]["types"][0]
     columns = THEMES[theme]["columns"]
     path = f"{S3_BASE}/theme={theme}/type={ptype}/*"
-    limit = min(args.get("limit", 2000), 5000)
+    limit = max(1, min(int(args.get("limit") or 2000), 5000))
 
-    where = [
-        f"bbox.xmin BETWEEN {args['xmin']} AND {args['xmax']}",
-        f"bbox.ymin BETWEEN {args['ymin']} AND {args['ymax']}",
-    ]
+    # WHERE parametre (?) — les valeurs utilisateur ne sont JAMAIS interpolees dans le SQL.
+    # (columns / path / limit viennent de THEMES + limit borne : cotes serveur, surs)
+    where = ["bbox.xmin BETWEEN ? AND ?", "bbox.ymin BETWEEN ? AND ?"]
+    params = [float(args["xmin"]), float(args["xmax"]), float(args["ymin"]), float(args["ymax"])]
     if args.get("category") and theme == "places":
-        where.append(f"categories.primary = '{args['category']}'")
+        where.append("categories.primary = ?"); params.append(str(args["category"]))
     if args.get("name_filter"):
-        where.append(f"names.primary ILIKE '%{args['name_filter']}%'")
+        where.append("names.primary ILIKE ?"); params.append(f"%{args['name_filter']}%")
     if args.get("min_confidence") and theme == "places":
-        where.append(f"confidence >= {args['min_confidence']}")
+        where.append("confidence >= ?"); params.append(float(args["min_confidence"]))
     if args.get("min_height") and theme == "buildings":
-        where.append(f"height >= {args['min_height']}")
+        where.append("height >= ?"); params.append(float(args["min_height"]))
     if args.get("max_height") and theme == "buildings":
-        where.append(f"height <= {args['max_height']}")
+        where.append("height <= ?"); params.append(float(args["max_height"]))
 
     sql = f"""SELECT {columns}
 FROM read_parquet('{path}', filename=true, hive_partitioning=1)
@@ -541,14 +544,14 @@ LIMIT {limit}"""
     log.info(f"DuckDB query: {sql[:200]}...")
 
     # Check cache
-    cache_key = hashlib.md5(sql.encode()).hexdigest()
+    cache_key = hashlib.md5((sql + repr(params)).encode()).hexdigest()
     cache_path = CACHE_DIR / f"{cache_key}.json"
     if cache_path.exists():
         log.info("Cache hit!")
         return json.loads(cache_path.read_text())
 
     try:
-        df = db.query(sql)
+        df = db.query(sql, params)
         # Convert to GeoJSON — geom_json is already valid GeoJSON from ST_AsGeoJSON
         features = []
         for _, row in df.iterrows():
@@ -783,10 +786,16 @@ async def lifespan(app: FastAPI):
     db.close()
 
 app = FastAPI(title="Overture Maps Agent", version="2.0.0", lifespan=lifespan)
+# Origines depuis CORS_ORIGINS (defaut : dev local). On ne combine jamais "*" avec
+# allow_credentials (interdit par les navigateurs et dangereux) : si "*" est fourni,
+# les credentials sont desactives.
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()] \
+    or ["http://localhost:5173", "http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials="*" not in _cors_origins,
+    allow_methods=["*"], allow_headers=["*"],
 )
 
 # ── Routers ────────────────────────────────────────────────────
@@ -997,20 +1006,11 @@ def get_config():
     }
 
 
-@app.post("/api/chat")
-def chat(req: ChatRequest):
-    """Main chat endpoint — orchestrateur multi-agent ou fallback legacy."""
-    if ORCHESTRATOR_ENABLED:
-        # Pipeline complet : RAG → Router → Sous-agent → Validation → GeoJSON
-        return orchestrate(req.messages, req.map_context)
-    # Fallback legacy (call_llm direct, si orchestrateur non disponible)
-    return call_llm(req.messages, req.map_context)
-
-  
 from fastapi import Header
 
 @app.post("/api/chat")
 def chat(req: ChatRequest, x_session_id: str = Header(None)):
+    """Chat principal : RAG → Router → sous-agent → validation, avec mémoire de session."""
     sid  = x_session_id or (req.map_context or {}).get("session_id", "anon")
 
     mem  = get_session_memory()
