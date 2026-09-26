@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenMapAgents — Cartographie IA Open Source</title>
   <meta name="description" content="Explorez, analysez et visualisez des données géospatiales avec le langage naturel. MCP, multi-LLM, Overture Maps, Google Earth Engine." />
+  <link rel="canonical" href="https://openmapagents.geoafrica.fr/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1986,7 +1987,7 @@
       <div class="section-header">
         <div class="section-tag">Installation</div>
         <h2>Opérationnel en 5 minutes</h2>
-        <p class="section-sub">Docker, Linux ou Windows — au choix.</p>
+        <p class="section-sub">Docker, Linux ou Windows — au choix. <a href="/doc" style="color:var(--green2);font-weight:600;text-decoration:none;">Documentation complète →</a></p>
       </div>
 
       <div class="install-wrap">
@@ -1994,24 +1995,28 @@
           <h3 style="font-size:1rem;font-weight:700;color:var(--text2);margin-bottom:1.25rem;">Variables d'environnement</h3>
           <div class="env-list">
             <div class="env-row reveal">
+              <span class="env-key">LLM_PROVIDER</span>
+              <span class="env-desc">claude · openai · openrouter · ollama — openrouter par défaut</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">OPENROUTER_API_KEY</span>
+              <span class="env-desc">OpenRouter — 200+ modèles, provider par défaut</span>
+            </div>
+            <div class="env-row reveal">
               <span class="env-key">ANTHROPIC_API_KEY</span>
               <span class="env-desc">Clé Claude — recommandé pour les analyses complexes</span>
             </div>
             <div class="env-row reveal">
-              <span class="env-key">GEE_SERVICE_ACCOUNT</span>
+              <span class="env-key">MAPTILER_API_KEY</span>
+              <span class="env-desc">MapTiler — fonds de carte & élévation DEM</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">VITE_MAPBOX_TOKEN</span>
+              <span class="env-desc">Mapbox — rendu 3D et terrain</span>
+            </div>
+            <div class="env-row reveal">
+              <span class="env-key">GOOGLE_APPLICATION_CREDENTIALS</span>
               <span class="env-desc">Google Earth Engine — imagerie satellite</span>
-            </div>
-            <div class="env-row reveal">
-              <span class="env-key">ORS_API_KEY</span>
-              <span class="env-desc">Open Route Service — routing et isochrones (plan gratuit)</span>
-            </div>
-            <div class="env-row reveal">
-              <span class="env-key">MAPTILER_KEY</span>
-              <span class="env-desc">MapTiler — données DEM élévation</span>
-            </div>
-            <div class="env-row reveal">
-              <span class="env-key">OPENAI_API_KEY</span>
-              <span class="env-desc">Optionnel — si vous préférez GPT-4o</span>
             </div>
           </div>
         </div>
@@ -2029,7 +2034,7 @@
               <button class="copy-btn" onclick="copyCode(this)">copy</button>
               <pre><span class="c"># Clonez le dépôt</span>
 <span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
-<span class="cmd">cd</span> OpenMapAgents
+<span class="cmd">cd</span> openmapagents
 
 <span class="c"># Configurez les variables d'environnement</span>
 <span class="cmd">cp</span> .env.example .env
@@ -2045,7 +2050,7 @@
             <div class="code-block">
               <button class="copy-btn" onclick="copyCode(this)">copy</button>
               <pre><span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
-<span class="cmd">cd</span> OpenMapAgents
+<span class="cmd">cd</span> openmapagents
 <span class="cmd">chmod +x</span> install.sh && <span class="cmd">./install.sh</span>
 <span class="cmd">./start.sh</span></pre>
             </div>
@@ -2055,7 +2060,7 @@
             <div class="code-block">
               <button class="copy-btn" onclick="copyCode(this)">copy</button>
               <pre><span class="cmd">git clone</span> <span class="str">https://github.com/diouck/openmapagents.git</span>
-<span class="cmd">cd</span> OpenMapAgents
+<span class="cmd">cd</span> openmapagents
 <span class="cmd">.\setup.ps1</span>
 <span class="cmd">python</span> -m uvicorn backend.agent:app --reload</pre>
             </div>
