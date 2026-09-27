@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useThemeContext } from "../theme";
 import { M, F, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
@@ -282,12 +283,20 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
   const move = useRef(null);                       // état de drag/resize en cours
 
   useEffect(() => {
+    const MINW = 200, MINH = 110;
     const onMove = (e) => {
       const m = move.current; if (!m) return;
-      if (m.mode === "drag") setPos({ x: m.px + (e.clientX - m.sx), y: m.py + (e.clientY - m.sy) });
-      else if (m.mode === "resize") {
-        setSize({ w: Math.max(210, m.pw + (e.clientX - m.sx)), h: Math.max(120, m.ph + (e.clientY - m.sy)) });
-      }
+      const dx = e.clientX - m.sx, dy = e.clientY - m.sy;
+      if (m.mode === "drag") { setPos({ x: m.px + dx, y: m.py + dy }); return; }
+      // resize selon la direction (n/s/e/w + coins)
+      let { x, y } = { x: m.px, y: m.py };
+      let w = m.pw, h = m.ph;
+      if (m.dir.includes("e")) w = Math.max(MINW, m.pw + dx);
+      if (m.dir.includes("s")) h = Math.max(MINH, m.ph + dy);
+      if (m.dir.includes("w")) { w = Math.max(MINW, m.pw - dx); x = m.px + (m.pw - w); }
+      if (m.dir.includes("n")) { h = Math.max(MINH, m.ph - dy); y = m.py + (m.ph - h); }
+      setSize({ w, h });
+      setPos({ x, y });
     };
     const onUp = () => { move.current = null; };
     window.addEventListener("mousemove", onMove);
@@ -295,14 +304,23 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
+  // Fixe pos/size absolus au 1er geste (la légende est sinon ancrée bas-gauche)
+  const anchor = (el) => {
+    const r = el.closest("[data-legend]").getBoundingClientRect();
+    const p = pos || { x: r.left, y: r.top };
+    const s = { w: size.w, h: size.h || r.height };
+    if (!pos) setPos(p);
+    if (!size.h) setSize(s);
+    return { p, s };
+  };
   const startDrag = (e) => {
-    const r = e.currentTarget.closest("[data-legend]").getBoundingClientRect();
-    if (!pos) setPos({ x: r.left, y: r.top });
-    move.current = { mode: "drag", sx: e.clientX, sy: e.clientY, px: pos ? pos.x : r.left, py: pos ? pos.y : r.top };
+    const { p } = anchor(e.currentTarget);
+    move.current = { mode: "drag", sx: e.clientX, sy: e.clientY, px: p.x, py: p.y };
     e.preventDefault();
   };
-  const startResize = (e) => {
-    move.current = { mode: "resize", sx: e.clientX, sy: e.clientY, pw: size.w, ph: size.h || e.currentTarget.closest("[data-legend]").getBoundingClientRect().height };
+  const startResize = (e, dir) => {
+    const { p, s } = anchor(e.currentTarget);
+    move.current = { mode: "resize", dir, sx: e.clientX, sy: e.clientY, px: p.x, py: p.y, pw: s.w, ph: s.h };
     e.preventDefault(); e.stopPropagation();
   };
   const runQuick = (a) => { if (menu) onQuickAnalysis?.(menu.layer, a.op, a.params); setMenu(null); };
@@ -311,7 +329,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
 
   return (
     <div data-legend style={{
-      position: "absolute", zIndex: 10,
+      position: "absolute", zIndex: 40,
       ...(pos ? { top: pos.y, left: pos.x } : { bottom: 30, left: 10 }),
       width: size.w, maxWidth: "calc(100vw - 20px)",
       borderRadius: 12, padding: "8px 10px 9px",
@@ -523,7 +541,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
       })}
 
       {/* Poignée de redimensionnement (coin bas-droit) */}
-      <div onMouseDown={startResize} title="Redimensionner"
+      <div onMouseDown={e => startResize(e, "se")} title="Redimensionner"
         style={{ position: "sticky", bottom: 0, marginLeft: "auto", width: 14, height: 14, cursor: "nwse-resize",
           borderRight: `2px solid ${C.dim}`, borderBottom: `2px solid ${C.dim}`, borderBottomRightRadius: 6, opacity: 0.5 }} />
 
@@ -539,7 +557,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
         );
         const sep = (k) => <div key={k} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />;
         const hdr = (t) => <div style={{ padding: "6px 11px 2px", fontSize: 9, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim }}>{t}</div>;
-        return (
+        return createPortal(
           <>
             <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10060 }} />
             <div style={{ position: "fixed", left: Math.min(menu.x, window.innerWidth - 236), top: Math.min(menu.y, window.innerHeight - 260), zIndex: 10061, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden" }}>
@@ -556,7 +574,8 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
                 {item("→ Avancé", () => { onOpenSpatial(l.id, "avance"); setMenu(null); }, true)}
               </>}
             </div>
-          </>
+          </>,
+          document.body
         );
       })()}
     </div>
