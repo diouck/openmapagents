@@ -11,13 +11,15 @@ import { F, M } from "../config";
 import { WHITEBOX_TOOLS, WHITEBOX_TOOLS_BY_ID, getToolsByCategory, getCategoryName } from "../utils/whiteboxTools";
 import { IcLoader, IcCheck, IcX } from "../icons";
 
-export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) {
+export default function WhiteboxPanel({ category = "morphologie", onAddLayer, mapRef }) {
   const C = useThemeContext();
   const [selectedToolId, setSelectedToolId] = useState("slope");
   const [params, setParams] = useState({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [activeTab, setActiveTab] = useState("reglages"); // "reglages" ou "definition"
+  const [roiMode, setRoiMode] = useState("auto"); // "auto" ou "file"
 
   const tools = getToolsByCategory(category);
   const selectedTool = WHITEBOX_TOOLS_BY_ID[selectedToolId];
@@ -187,9 +189,20 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) 
   });
 
   return (
-    <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+    <div style={{
+      display: "flex",
+      flexDirection: window.innerWidth < 500 ? "column" : "row",
+      height: "100%",
+      minHeight: 0
+    }}>
       {/* ── GAUCHE : Liste d'outils ─ */}
-      <div style={toolListStyle}>
+      <div style={{
+        ...toolListStyle,
+        width: window.innerWidth < 500 ? "100%" : 240,
+        borderRight: window.innerWidth < 500 ? "none" : `0.5px solid ${C.bdr}`,
+        borderBottom: window.innerWidth < 500 ? `0.5px solid ${C.bdr}` : "none",
+        maxHeight: window.innerWidth < 500 ? "150px" : "auto"
+      }}>
         <div style={{ padding: "0 16px 12px", borderBottom: `0.5px solid ${C.bdr}`, marginBottom: "12px" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>
             {getCategoryName(category)}
@@ -218,7 +231,7 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) 
         {selectedTool ? (
           <>
             {/* En-tête */}
-            <div style={{ marginBottom: "20px" }}>
+            <div style={{ marginBottom: "16px" }}>
               <h3 style={{ fontSize: 16, fontWeight: 600, color: C.txt, margin: 0, marginBottom: "4px" }}>
                 {selectedTool.name}
               </h3>
@@ -227,16 +240,57 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) 
               </p>
             </div>
 
+            {/* Onglets */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: `0.5px solid ${C.bdr}`, paddingBottom: "8px" }}>
+              <button
+                onClick={() => setActiveTab("reglages")}
+                style={{
+                  padding: "6px 12px",
+                  border: "none",
+                  background: activeTab === "reglages" ? C.acc : "transparent",
+                  color: activeTab === "reglages" ? "#fff" : C.mut,
+                  borderRadius: 4,
+                  fontFamily: F,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                Réglages
+              </button>
+              <button
+                onClick={() => setActiveTab("definition")}
+                style={{
+                  padding: "6px 12px",
+                  border: "none",
+                  background: activeTab === "definition" ? C.acc : "transparent",
+                  color: activeTab === "definition" ? "#fff" : C.mut,
+                  borderRadius: 4,
+                  fontFamily: F,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                Définition
+              </button>
+            </div>
+
             {/* Messages */}
             {error && <div style={msgStyle("error")}>{error}</div>}
             {success && <div style={msgStyle("success")}>{success}</div>}
 
-            {/* Définition */}
-            <div style={defBoxStyle}>
-              {selectedTool.definition}
-            </div>
+            {/* Définition (onglet) */}
+            {activeTab === "definition" && (
+              <div style={defBoxStyle}>
+                {selectedTool.definition}
+              </div>
+            )}
 
-            {/* Formulaire paramètres */}
+            {/* Formulaire paramètres (onglet Réglages) */}
+            {activeTab === "reglages" && (
             <form onSubmit={(e) => { e.preventDefault(); handleExecute(); }}>
               {/* Entrée raster */}
               {selectedTool.inputs && selectedTool.inputs.map(input => (
@@ -301,6 +355,66 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) 
                 </div>
               ))}
 
+              {/* ROI (Region of Interest) */}
+              <div style={paramGroupStyle}>
+                <label style={labelStyle}>Emprise (ROI)</label>
+                <p style={{ fontSize: 11, color: C.dim, margin: "0 0 6px 0" }}>
+                  Zone à analyser
+                </p>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setRoiMode("auto")}
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      border: `0.5px solid ${roiMode === "auto" ? C.acc : C.bdr}`,
+                      background: roiMode === "auto" ? C.acc + "18" : "transparent",
+                      color: roiMode === "auto" ? C.acc : C.mut,
+                      borderRadius: 6,
+                      fontFamily: F,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    Auto (carte)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoiMode("file")}
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      border: `0.5px solid ${roiMode === "file" ? C.acc : C.bdr}`,
+                      background: roiMode === "file" ? C.acc + "18" : "transparent",
+                      color: roiMode === "file" ? C.acc : C.mut,
+                      borderRadius: 6,
+                      fontFamily: F,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    Fichier/Dessin
+                  </button>
+                </div>
+                {roiMode === "auto" && (
+                  <p style={{ fontSize: 10, color: C.dim, margin: "6px 0 0 0" }}>
+                    Utilise l'emprise visible de la carte
+                  </p>
+                )}
+                {roiMode === "file" && (
+                  <input
+                    type="file"
+                    accept=".geojson,.json,.shp,.tif,.tiff"
+                    style={{ ...inputStyle, marginTop: "6px", cursor: "pointer" }}
+                  />
+                )}
+              </div>
+
               {/* Nom sortie */}
               <div style={paramGroupStyle}>
                 <label style={labelStyle}>Nom fichier résultat</label>
@@ -328,6 +442,7 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer }) 
                 )}
               </button>
             </form>
+            )}
           </>
         ) : (
           <div style={{ padding: 20, fontSize: 12, color: C.dim }}>Sélectionnez un outil</div>
