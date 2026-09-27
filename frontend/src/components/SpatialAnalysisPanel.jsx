@@ -12,10 +12,11 @@
 import { useState, useMemo, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
-import { useSpatialSection } from "../utils/spatialNav";
-import { SPATIAL_OPS, SPATIAL_GROUPS, executeSpatialOp } from "../utils/spatial";
+import { useSpatialNav } from "../utils/spatialNav";
+import { buildSpatialSections } from "../utils/spatialSections";
+import { SPATIAL_OPS, executeSpatialOp } from "../utils/spatial";
 import { getLayerAttrs } from "../utils/classification";
-import { getToolsByCategory, WHITEBOX_TOOLS_BY_ID, getCategories } from "../utils/whiteboxTools";
+import { WHITEBOX_TOOLS_BY_ID } from "../utils/whiteboxTools";
 import { Sel, Lbl } from "./ui";
 import SpatialStatsPanel from "./SpatialStatsPanel";
 import VectorVizPanel from "./VectorVizPanel";
@@ -49,56 +50,28 @@ function renderDefinition(text, C) {
   });
 }
 
-// Construit l'arborescence : sections → groupes → outils
-function buildSections() {
-  const cats = getCategories();
-  const rasterGroups = cats.filter(c => c.key !== "avance").map(c => ({
-    key: `ras_${c.key}`, name: c.name,
-    tools: getToolsByCategory(c.key).map(t => ({ id: t.id, name: t.name, kind: "raster", implemented: t.implemented, desc: t.description })),
-  }));
-  const avanceGroups = cats.filter(c => c.key === "avance").map(c => ({
-    key: `ras_${c.key}`, name: c.name,
-    tools: getToolsByCategory(c.key).map(t => ({ id: t.id, name: t.name, kind: "raster", implemented: t.implemented, desc: t.description })),
-  }));
-  return [
-    { id: "vecteur", label: "Vecteur", Icon: IcVenn, groups: [
-      ...SPATIAL_GROUPS.map(g => ({ key: `vec_${g}`, name: g, tools: SPATIAL_OPS.filter(o => o.group === g).map(o => ({ id: o.id, name: o.name, kind: "vector", implemented: true, desc: o.desc })) })),
-      { key: "mod_spatialstats", name: "Stats spatiales", tools: [{ id: "spatialstats", name: "Moran & hotspots", kind: "module", module: "spatialstats", implemented: true, desc: "Autocorrélation, points chauds/froids" }] },
-      { key: "mod_vectorviz", name: "Chaleur & clusters", tools: [{ id: "vectorviz", name: "Chaleur & clusters", kind: "module", module: "vectorviz", implemented: true, desc: "Densité et regroupement de points" }] },
-      { key: "mod_join", name: "Jointure attributaire", tools: [{ id: "join", name: "Jointure CSV → couche", kind: "module", module: "join", implemented: true, desc: "Rapatrie des colonnes d'un CSV" }] },
-    ]},
-    { id: "raster", label: "Raster", Icon: IcMountain, groups: [
-      ...rasterGroups,
-      { key: "mod_rasteranalysis", name: "Analyse zonale + calc", tools: [{ id: "rasteranalysis", name: "Zonal + map algebra", kind: "module", module: "rasteranalysis", implemented: true, desc: "Stats zonales et calculatrice" }] },
-      { key: "mod_rastervec", name: "Vectorisation raster", tools: [{ id: "rastervec", name: "Polygones + contours", kind: "module", module: "rastervec", implemented: true, desc: "Raster → polygones/contours" }] },
-    ]},
-    { id: "avance", label: "Avancé", Icon: IcSparkles, groups: [
-      ...avanceGroups,
-      { key: "mod_classif", name: "Classification supervisée", tools: [{ id: "classif", name: "Classif. supervisée", kind: "module", module: "classif", implemented: true, desc: "Entraîne un modèle sur échantillons" }] },
-      { key: "mod_sql", name: "SQL Workspace", tools: [{ id: "sql", name: "SQL spatial (DuckDB)", kind: "module", module: "sql", implemented: true, desc: "Requêtes SQL sur vos couches" }] },
-    ]},
-  ];
-}
+const SECTION_ICONS = { vecteur: IcVenn, raster: IcMountain, avance: IcSparkles };
 
 export default function SpatialAnalysisPanel({
   layers = [], onAddLayer, onAddRasterLayer, mapRef,
   addLayerSilent, addImageLayer, updateRasterLayer, classifClickRef,
 }) {
   const C = useThemeContext();
-  const sections = useMemo(buildSections, []);
+  const sections = useMemo(() => buildSpatialSections().map(s => ({ ...s, Icon: SECTION_ICONS[s.id] || IcVenn })), []);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
-  const navSection = useSpatialSection(); // section demandée depuis le menu latéral
+  const nav = useSpatialNav(); // { section, category, nonce } demandé depuis le menu latéral
   const [selected, setSelected] = useState(null); // { kind, id, module? }
   const [expandedSections, setExpandedSections] = useState({ vecteur: true }); // Vecteur déplié par défaut
   const [expanded, setExpanded] = useState({}); // catégories (niveau 2)
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
 
-  // Déplie la famille demandée depuis le menu latéral (Vecteur/Raster/Avancé)
+  // Déplie la famille (+ catégorie) demandée depuis le menu latéral
   useEffect(() => {
-    if (navSection) setExpandedSections(e => ({ ...e, [navSection]: true }));
-  }, [navSection]);
+    if (nav?.section) setExpandedSections(e => ({ ...e, [nav.section]: true }));
+    if (nav?.category) setExpanded(e => ({ ...e, [nav.category]: true }));
+  }, [nav?.nonce]);
 
   // ── Formulaire VECTEUR (turf) ──
   const [vLayerA, setVLayerA] = useState("");

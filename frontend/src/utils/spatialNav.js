@@ -6,14 +6,18 @@
  */
 import { useSyncExternalStore } from "react";
 
-let _section = "vecteur";
+// _nav : { section, category, nonce } — nonce force une notif même si identique
+let _nav = { section: "vecteur", category: null, nonce: 0 };
 const listeners = new Set();
 
-export const setSpatialSection = (s) => {
-  _section = s;
+// Pilote la navigation depuis le menu latéral : section (famille) + catégorie optionnelle
+export const setSpatialTarget = (section, category = null) => {
+  _nav = { section, category, nonce: _nav.nonce + 1 };
   listeners.forEach(l => l());
 };
-export const getSpatialSection = () => _section;
+// Compat : ancienne API section seule
+export const setSpatialSection = (s) => setSpatialTarget(s, null);
+export const getSpatialNav = () => _nav;
 
 const subscribe = (l) => { listeners.add(l); return () => listeners.delete(l); };
-export const useSpatialSection = () => useSyncExternalStore(subscribe, getSpatialSection, getSpatialSection);
+export const useSpatialNav = () => useSyncExternalStore(subscribe, getSpatialNav, getSpatialNav);

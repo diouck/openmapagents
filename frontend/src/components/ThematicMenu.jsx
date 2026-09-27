@@ -15,7 +15,8 @@ import { MENU_TREE, INDICATORS } from "../utils/menuTree";
 import { buildSearchIndex, searchMenu } from "../utils/menuSearch";
 import { IcArrow, IcStack, IcUpload, IcPrint, IcChevronLeft, IcCaretRight, IcSearch, IcX, IcPlug } from "../icons";
 import { usePluginState, isVisible, setDisabled, uninstall, CORE_IDS } from "../plugins/pluginState";
-import { setSpatialSection } from "../utils/spatialNav";
+import { setSpatialTarget } from "../utils/spatialNav";
+import { buildSpatialSections } from "../utils/spatialSections";
 
 const shortLabel = (item) => {
   if (item.kind === "indicator") {
@@ -35,8 +36,10 @@ export default function ThematicMenu({
 }) {
   const [expanded, setExpanded] = useState(!isMobile);
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
-  const [openSub, setOpenSub] = useState({}); // items à sous-entrées dépliés
+  const [openSub, setOpenSub] = useState({}); // items à sous-entrées dépliés (ex : Analyse spatiale)
+  const [openFam, setOpenFam] = useState({}); // familles Vecteur/Raster/Avancé dépliées dans le menu
   const [query, setQuery] = useState("");
+  const spatialSections = useMemo(buildSpatialSections, []);
 
   const pstate = usePluginState();               // re-render quand l'état plugins change
   const [ctxMenu, setCtxMenu] = useState(null);  // clic droit : { id, label, x, y }
@@ -164,13 +167,33 @@ export default function ThematicMenu({
                         </button>
                         {hasChildren && subOpen && (
                           <div style={{ margin: "1px 0 4px 24px", paddingLeft: 8, borderLeft: `0.5px solid ${C.bdr}` }}>
-                            {it.children.map(ch => (
-                              <button key={ch.section} onClick={() => { setSpatialSection(ch.section); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
-                                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 11 }}>
-                                {ch.icon && <ch.icon size={13} color={C.mut} />}
-                                <span style={{ flex: 1, textAlign: "left" }}>{ch.label}</span>
-                              </button>
-                            ))}
+                            {spatialSections.map(sec => {
+                              const famOpen = !!openFam[sec.id];
+                              const famIcon = it.children.find(c => c.section === sec.id)?.icon;
+                              return (
+                                <div key={sec.id}>
+                                  {/* Famille : clic ouvre le hub sur la famille, chevron déplie les catégories */}
+                                  <button onClick={() => { setSpatialTarget(sec.id, null); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "5px 6px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.txt, fontSize: 11.5, fontWeight: 600 }}>
+                                    {famIcon && <famIcon size={13} color={C.acc} />}
+                                    <span style={{ flex: 1, textAlign: "left" }}>{sec.label}</span>
+                                    <span onClick={(e) => { e.stopPropagation(); setOpenFam(f => ({ ...f, [sec.id]: !f[sec.id] })); }}
+                                      style={{ display: "flex", color: C.dim, transform: famOpen ? "rotate(90deg)" : "none", transition: "transform .15s", padding: "0 2px" }}>
+                                      <IcCaretRight size={11} />
+                                    </span>
+                                  </button>
+                                  {/* Catégories : clic ouvre le hub sur (famille, catégorie) */}
+                                  {famOpen && sec.groups.map(g => (
+                                    <button key={g.key} onClick={() => { setSpatialTarget(sec.id, g.key); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                      title={`${g.name} — ${g.tools.length} outil${g.tools.length > 1 ? "s" : ""}`}
+                                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 22px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
+                                      <span style={{ flex: 1, textAlign: "left", textTransform: "uppercase", letterSpacing: ".03em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                                      <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         </div>
