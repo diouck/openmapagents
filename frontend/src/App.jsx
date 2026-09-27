@@ -90,7 +90,7 @@ import {
   IcArrow, IcRulerTool, IcHexagon, IcCircleDot, IcPencil, IcNavigation, IcRadar,
   IcStack, IcBarChart, IcArrowDown, IcVenn, IcDatabase, IcSatellite, IcServer,
   IcMountain, IcCube, IcEdit, IcFilm, IcDiff, IcCompare, IcOSM, IcLeaf, IcClassif,
-  IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap,
+  IcPrint, IcUpload, IcShare, IcSun, IcMoon, IcChat, IcX, IcGlobe, IcMap, IcPlug,
   IcCloudRain, IcSnowflake, IcChevronDown, IcTable, IcFlame, IcDroplets, IcBoxes, IcInfo,
   IcGrid, IcAlert, IcSettings,
 } from "./icons";
@@ -2811,9 +2811,10 @@ export default function App() {
 
         {/* ── Droite : actions ── */}
         <div style={{display:"flex",alignItems:"center",gap:4}}>
-          {!isMobile&&<div style={{fontSize:10,color:C.dim,padding:"2px 8px",borderRadius:5,background:C.hover,border:`0.5px solid ${C.bdr}`,display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
-            <span style={{width:5,height:5,borderRadius:"50%",background:C.acc,display:"inline-block"}}/>DuckDB
-          </div>}
+          {!isMobile&&<button className="rib" onClick={()=>setPluginsOpen(true)} title="Plugins — installer / gérer"
+            style={{fontFamily:F,fontSize:11,padding:"5px 10px",borderRadius:6,border:`0.5px solid ${C.bdr}`,background:"transparent",color:C.mut,cursor:"pointer",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+            <IcPlug/> Plugins
+          </button>}
           {!isMobile&&<button className="rib" onClick={toggleTheme} style={{background:"transparent",border:`0.5px solid ${C.bdr}`,borderRadius:6,color:C.mut,cursor:"pointer",padding:"5px 7px",display:"flex",alignItems:"center"}}>
             {themeName==="dark"?<IcSun/>:<IcMoon/>}
           </button>}
