@@ -46,5 +46,5 @@ RUN chmod +x /docker-entrypoint.d/40-runtime-env.sh
 
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost/robots.txt >/dev/null 2>&1 || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
