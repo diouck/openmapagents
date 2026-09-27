@@ -489,7 +489,7 @@ const PANEL_SIZES = {
   ogc:       { w: 360, h: 480 },
   agri:      { w: 440, h: 640 },
   graticule: { w: 268, h: "auto" },
-  whitebox_morphologie: { w: 600, h: 500 },
+  whitebox: { w: 720, h: 540 },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -2504,9 +2504,9 @@ export default function App() {
       <GraticulePanel mapRef={mapRef} />
     );
 
-    // ── Whitebox : analyse morphologie raster ──────────────────
-    if (activeTool === "whitebox_morphologie") return (
-      <WhiteboxPanel category="morphologie" onAddRasterLayer={addRasterLayer} mapRef={mapRef} layers={layers} />
+    // ── Whitebox : grand panneau d'analyse raster (multi-catégories) ──
+    if (activeTool === "whitebox") return (
+      <WhiteboxPanel onAddRasterLayer={addRasterLayer} mapRef={mapRef} layers={layers} />
     );
 
     // ── Story map (scrollytelling + export HTML) ──────────────

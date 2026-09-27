@@ -316,7 +316,7 @@ export const MENU_TREE = [
   { id: "outils", label: "Analyses spatiales", icon: IcWrench, items: [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Intersections, jointures, agrégations.", icon: IcVenn },
-    { kind: "tool", id: "whitebox_morphologie", label: "Morphologie (Whitebox)", desc: "Analyse topographique : pente, aspect, courbure, ombrage, TPI.", icon: IcMountain, panel: true },
+    { kind: "tool", id: "whitebox", label: "Analyse raster (Whitebox)", desc: "Morphologie, hydrologie, filtres, segmentation… Grand panneau d'outils raster (Whitebox/GEE).", icon: IcMountain, panel: true },
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "rastervec", label: "Vectorisation raster (polygones + contours)", desc: "Transforme un GeoTIFF en polygones (par classes) ou en courbes de niveau.", icon: IcHexagon },
     { kind: "tool", id: "spatialstats", label: "Stats spatiales (Moran, hotspots)", desc: "Autocorrélation spatiale (Moran) et points chauds/froids (Getis-Ord Gi*) d'un champ.", icon: IcCircleDot },
