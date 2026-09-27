@@ -87,9 +87,9 @@ export default function SpatialAnalysisPanel({
   const sections = useMemo(buildSections, []);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
-  const [section, setSection] = useState("vecteur");
   const [selected, setSelected] = useState(null); // { kind, id, module? }
-  const [expanded, setExpanded] = useState({});
+  const [expandedSections, setExpandedSections] = useState({}); // Vecteur/Raster/Avancé — pliés par défaut
+  const [expanded, setExpanded] = useState({}); // catégories (niveau 2)
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
 
@@ -112,7 +112,7 @@ export default function SpatialAnalysisPanel({
   const [rLayerId, setRLayerId] = useState("");
 
   const q = search.trim().toLowerCase();
-  const activeSection = sections.find(s => s.id === section);
+  const toggleSection = (id) => setExpandedSections(e => ({ ...e, [id]: !e[id] }));
   const toggleGroup = (k) => setExpanded(e => ({ ...e, [k]: !e[k] }));
 
   const selectTool = (tool) => {
@@ -196,63 +196,71 @@ export default function SpatialAnalysisPanel({
   const msg = (t) => ({ padding: "10px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12, border: `0.5px solid ${t === "error" ? "#f0a8a8" : "#a8f0c8"}`, background: t === "error" ? "rgba(240,168,168,0.1)" : "rgba(168,240,200,0.1)", color: t === "error" ? "#d85a30" : "#0F6E56" });
   const badge = (bg, col) => ({ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 10, background: bg, color: col, textTransform: "uppercase" });
 
-  // ── SIDEBAR ──
-  const renderSidebar = () => {
-    let groups = activeSection.groups;
-    if (q) groups = groups.map(g => ({ ...g, tools: g.tools.filter(t => t.name.toLowerCase().includes(q) || (t.desc || "").toLowerCase().includes(q)) })).filter(g => g.tools.length);
-    return (
-      <div style={{ width: isMobile ? "100%" : (sidebarOpen ? 250 : 46), borderRight: isMobile ? "none" : `0.5px solid ${C.bdr}`, borderBottom: isMobile ? `0.5px solid ${C.bdr}` : "none", maxHeight: isMobile ? (sidebarOpen ? "45vh" : 46) : "none", display: "flex", flexDirection: "column", flexShrink: 0, transition: "width 0.2s", minHeight: 0 }}>
-        {/* Onglets sections */}
-        <div style={{ display: "flex", gap: 4, padding: sidebarOpen ? "10px 10px 8px" : "10px 6px", borderBottom: `0.5px solid ${C.bdr}`, alignItems: "center" }}>
-          {sidebarOpen && sections.map(s => (
-            <button key={s.id} onClick={() => { setSection(s.id); }} style={{ flex: 1, padding: "6px 4px", borderRadius: 6, border: "none", background: section === s.id ? C.acc : "transparent", color: section === s.id ? "#fff" : C.mut, fontFamily: F, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-              <s.Icon size={14} />{s.label}
-            </button>
-          ))}
-          <button onClick={() => setSidebarOpen(o => !o)} title={sidebarOpen ? "Replier" : "Déplier"} style={{ border: "none", background: "transparent", color: C.mut, cursor: "pointer", padding: 4, display: "flex", transform: sidebarOpen ? "rotate(90deg)" : "rotate(-90deg)" }}>
-            <IcChevronDown size={16} />
-          </button>
-        </div>
-
-        {/* Arborescence */}
+  // ── SIDEBAR : arbre à 3 niveaux (Section → Catégorie → Outil) ──
+  const renderSidebar = () => (
+    <div style={{ width: isMobile ? "100%" : (sidebarOpen ? 260 : 46), borderRight: isMobile ? "none" : `0.5px solid ${C.bdr}`, borderBottom: isMobile ? `0.5px solid ${C.bdr}` : "none", maxHeight: isMobile ? (sidebarOpen ? "45vh" : 46) : "none", display: "flex", flexDirection: "column", flexShrink: 0, transition: "width 0.2s", minHeight: 0 }}>
+      {/* Recherche EN HAUT + toggle */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", padding: sidebarOpen ? "10px 10px 8px" : "10px 6px", borderBottom: `0.5px solid ${C.bdr}`, flexShrink: 0 }}>
         {sidebarOpen && (
-          <div style={{ flex: 1, overflow: "auto", padding: "6px 0" }}>
-            {groups.map(g => {
-              const isOpen = q ? true : (expanded[g.key] ?? false);
-              return (
-                <div key={g.key}>
-                  <button onClick={() => toggleGroup(g.key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", border: "none", background: "transparent", color: C.txt, cursor: "pointer", fontFamily: F, fontSize: 11.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    <IcChevronDown size={12} style={{ color: C.dim, transform: isOpen ? "none" : "rotate(-90deg)", flexShrink: 0 }} />
-                    <span style={{ flex: 1, textAlign: "left" }}>{g.name}</span>
-                    <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
-                  </button>
-                  {isOpen && g.tools.map(tool => {
-                    const active = selected?.id === tool.id && selected?.kind === tool.kind;
-                    return (
-                      <button key={tool.id} onClick={() => selectTool(tool)} title={tool.desc} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 30px", border: "none", borderLeft: `2px solid ${active ? C.acc : "transparent"}`, background: active ? C.acc + "14" : "transparent", color: active ? C.acc : C.mut, cursor: "pointer", fontFamily: F, fontSize: 12, fontWeight: active ? 600 : 400, textAlign: "left" }}>
-                        <span style={{ flex: 1 }}>{tool.name}</span>
-                        {tool.implemented === false && <span style={badge(C.bdr, C.dim)}>Bientôt</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 7, padding: "6px 8px" }}>
+            <IcSearch size={13} style={{ color: C.dim, flexShrink: 0 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un outil…" style={{ border: "none", background: "transparent", color: C.txt, fontFamily: F, fontSize: 12, width: "100%", outline: "none" }} />
           </div>
         )}
-
-        {/* Recherche EN BAS */}
-        {sidebarOpen && (
-          <div style={{ padding: "8px 10px", borderTop: `0.5px solid ${C.bdr}`, flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 7, padding: "6px 8px" }}>
-              <IcSearch size={13} style={{ color: C.dim, flexShrink: 0 }} />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un outil…" style={{ border: "none", background: "transparent", color: C.txt, fontFamily: F, fontSize: 12, width: "100%", outline: "none" }} />
-            </div>
-          </div>
-        )}
+        <button onClick={() => setSidebarOpen(o => !o)} title={sidebarOpen ? "Replier" : "Déplier"} style={{ border: "none", background: "transparent", color: C.mut, cursor: "pointer", padding: 4, display: "flex", transform: sidebarOpen ? "rotate(90deg)" : "rotate(-90deg)" }}>
+          <IcChevronDown size={16} />
+        </button>
       </div>
-    );
-  };
+
+      {/* Arbre */}
+      {sidebarOpen && (
+        <div style={{ flex: 1, overflow: "auto", padding: "6px 0" }}>
+          {sections.map(sec => {
+            // Filtre recherche : ne garder que les groupes/outils qui matchent
+            let groups = sec.groups;
+            if (q) groups = groups.map(g => ({ ...g, tools: g.tools.filter(t => t.name.toLowerCase().includes(q) || (t.desc || "").toLowerCase().includes(q)) })).filter(g => g.tools.length);
+            if (q && !groups.length) return null;
+            const secOpen = q ? true : !!expandedSections[sec.id];
+            const secCount = groups.reduce((n, g) => n + g.tools.length, 0);
+            return (
+              <div key={sec.id}>
+                {/* Niveau 1 : Section */}
+                <button onClick={() => toggleSection(sec.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "none", background: secOpen ? C.acc + "0c" : "transparent", color: C.txt, cursor: "pointer", fontFamily: F, fontSize: 13, fontWeight: 700, borderLeft: `2px solid ${secOpen ? C.acc : "transparent"}` }}>
+                  <IcChevronDown size={13} style={{ color: C.dim, transform: secOpen ? "none" : "rotate(-90deg)", flexShrink: 0 }} />
+                  <sec.Icon size={16} style={{ color: C.acc, flexShrink: 0 }} />
+                  <span style={{ flex: 1, textAlign: "left" }}>{sec.label}</span>
+                  <span style={{ fontSize: 9, color: C.dim }}>{secCount}</span>
+                </button>
+                {/* Niveau 2 : Catégories */}
+                {secOpen && groups.map(g => {
+                  const gOpen = q ? true : (expanded[g.key] ?? false);
+                  return (
+                    <div key={g.key}>
+                      <button onClick={() => toggleGroup(g.key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 26px", border: "none", background: "transparent", color: C.mut, cursor: "pointer", fontFamily: F, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        <IcChevronDown size={11} style={{ color: C.dim, transform: gOpen ? "none" : "rotate(-90deg)", flexShrink: 0 }} />
+                        <span style={{ flex: 1, textAlign: "left" }}>{g.name}</span>
+                        <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
+                      </button>
+                      {/* Niveau 3 : Outils */}
+                      {gOpen && g.tools.map(tool => {
+                        const active = selected?.id === tool.id && selected?.kind === tool.kind;
+                        return (
+                          <button key={tool.id} onClick={() => selectTool(tool)} title={tool.desc} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 44px", border: "none", borderLeft: `2px solid ${active ? C.acc : "transparent"}`, background: active ? C.acc + "14" : "transparent", color: active ? C.acc : C.mut, cursor: "pointer", fontFamily: F, fontSize: 12, fontWeight: active ? 600 : 400, textAlign: "left" }}>
+                            <span style={{ flex: 1 }}>{tool.name}</span>
+                            {tool.implemented === false && <span style={badge(C.bdr, C.dim)}>Bientôt</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   // ── DÉTAIL VECTEUR ──
   const renderVectorForm = () => (
@@ -334,19 +342,27 @@ export default function SpatialAnalysisPanel({
     );
   };
 
-  // ── Vue d'ensemble ──
+  // ── Vue d'ensemble (les 3 sections) ──
   const renderOverview = () => (
     <div style={{ padding: 24, overflow: "auto" }}>
-      <h3 style={{ fontSize: 16, fontWeight: 700, color: C.txt, margin: "0 0 4px" }}>Analyse spatiale — {activeSection.label}</h3>
-      <p style={{ fontSize: 12.5, color: C.dim, margin: "0 0 16px", lineHeight: 1.5 }}>Choisissez un outil dans l'arborescence à gauche. Les catégories se déplient ; la recherche est en bas.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-        {activeSection.groups.map(g => (
-          <button key={g.key} onClick={() => setExpanded(e => ({ ...e, [g.key]: true }))} style={{ textAlign: "left", border: `0.5px solid ${C.bdr}`, borderRadius: 10, padding: 12, background: C.input, cursor: "pointer", fontFamily: F }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: C.txt }}>{g.name}</div>
-            <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>{g.tools.length} outil{g.tools.length > 1 ? "s" : ""}</div>
-          </button>
-        ))}
-      </div>
+      <h3 style={{ fontSize: 16, fontWeight: 700, color: C.txt, margin: "0 0 4px" }}>Analyse spatiale</h3>
+      <p style={{ fontSize: 12.5, color: C.dim, margin: "0 0 18px", lineHeight: 1.5 }}>Dépliez une famille (Vecteur, Raster, Avancé) dans l'arborescence à gauche, puis choisissez un outil. La recherche est en haut.</p>
+      {sections.map(sec => (
+        <div key={sec.id} style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <sec.Icon size={16} style={{ color: C.acc }} />
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: C.txt }}>{sec.label}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+            {sec.groups.map(g => (
+              <button key={g.key} onClick={() => { setExpandedSections(e => ({ ...e, [sec.id]: true })); setExpanded(e => ({ ...e, [g.key]: true })); }} style={{ textAlign: "left", border: `0.5px solid ${C.bdr}`, borderRadius: 9, padding: 11, background: C.input, cursor: "pointer", fontFamily: F }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.txt }}>{g.name}</div>
+                <div style={{ fontSize: 10.5, color: C.dim, marginTop: 3 }}>{g.tools.length} outil{g.tools.length > 1 ? "s" : ""}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 

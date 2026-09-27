@@ -18,7 +18,7 @@ import {
   IcFilm, IcRadar, IcNavigation, IcCube, IcDiff, IcCompare, IcTrendingUp,
   IcStack, IcBarChart, IcVenn, IcClassif, IcEdit, IcDatabase, IcServer,
   IcOSM, IcRulerTool, IcHexagon, IcCircleDot, IcPencil, IcSatellite, IcMap, IcUser, IcSun, IcImage, IcTable,
-  IcFish, IcBoxes, IcGlobe, IcMoon, IcAlert,
+  IcFish, IcBoxes, IcGlobe, IcMoon, IcAlert, IcPrint,
 } from "../icons";
 
 // dataset + index EXACTS attendus par /api/gee/tiles (voir gee_routes.py)
@@ -320,13 +320,14 @@ export const MENU_TREE = [
   { id: "outils", label: "Analyses spatiales", icon: IcVenn, items: [
     { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Hub unifié : Vecteur (overlay, proximité, géométrie, stats spatiales, chaleur/clusters, jointure), Raster (Whitebox, analyse zonale, vectorisation) et Avancé (classif supervisée, SQL, PCA…).", icon: IcVenn },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },
-    { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
   ]},
-  // ── Cartographie & mise en page : gestion, édition, habillage ──
+  // ── Cartographie & mise en page : gestion, édition, habillage, export ──
   { id: "carto", label: "Cartographie & mise en page", icon: IcMap, items: [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "editor", label: "Éditeur vectoriel", desc: "Dessine et modifie des entités vectorielles.", icon: IcEdit },
+    { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
     { kind: "tool", id: "projections", label: "Projections du monde", desc: "Composeur de carte : projection, habillage, PDF.", icon: IcMap },
     { kind: "tool", id: "graticule", label: "Graticule (grille lat/lon)", desc: "Grille latitude/longitude de repérage superposée à la carte.", icon: IcGrid, panel: true },
+    { kind: "tool", id: "print", label: "Impression / Export carte", desc: "Compose et exporte la carte en image ou PDF.", icon: IcPrint },
   ]},
 ];
