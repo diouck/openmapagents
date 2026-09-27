@@ -327,19 +327,38 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
 
   if (!layers.length) return null;   // afficher TOUTES les couches (visibles ou non)
 
+  // 8 poignées de redimensionnement (bords + coins)
+  const HANDLES = [
+    ["n", { top: -3, left: 8, right: 8, height: 6, cursor: "ns-resize" }],
+    ["s", { bottom: -3, left: 8, right: 8, height: 6, cursor: "ns-resize" }],
+    ["w", { left: -3, top: 8, bottom: 8, width: 6, cursor: "ew-resize" }],
+    ["e", { right: -3, top: 8, bottom: 8, width: 6, cursor: "ew-resize" }],
+    ["nw", { top: -3, left: -3, width: 10, height: 10, cursor: "nwse-resize" }],
+    ["ne", { top: -3, right: -3, width: 10, height: 10, cursor: "nesw-resize" }],
+    ["sw", { bottom: -3, left: -3, width: 10, height: 10, cursor: "nesw-resize" }],
+    ["se", { bottom: -3, right: -3, width: 10, height: 10, cursor: "nwse-resize" }],
+  ];
+
   return (
     <div data-legend style={{
       position: "absolute", zIndex: 40,
       ...(pos ? { top: pos.y, left: pos.x } : { bottom: 30, left: 10 }),
       width: size.w, maxWidth: "calc(100vw - 20px)",
-      borderRadius: 12, padding: "8px 10px 9px",
+      borderRadius: 12,
       ...(size.h ? { height: size.h } : { maxHeight: "48vh" }),
-      overflowY: "auto",
       background: C.card,
       border: `0.5px solid ${C.bdr}`,
       boxShadow: "0 16px 48px rgba(0,0,0,.4)",
       backdropFilter: "blur(8px)",
     }}>
+      {/* Poignées de redimensionnement (8 côtés/coins) */}
+      {HANDLES.map(([dir, st]) => (
+        <div key={dir} onMouseDown={e => startResize(e, dir)}
+          style={{ position: "absolute", zIndex: 2, ...st }} />
+      ))}
+
+      {/* Contenu scrollable */}
+      <div style={{ height: "100%", overflowY: "auto", padding: "8px 10px 9px", boxSizing: "border-box", borderRadius: 12 }}>
       {/* En-tête — poignée de déplacement */}
       <div onMouseDown={startDrag}
         style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingBottom: 6, borderBottom: `0.5px solid ${C.bdr}`, cursor: "move", userSelect: "none" }}>
@@ -539,11 +558,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
           </div>
         );
       })}
-
-      {/* Poignée de redimensionnement (coin bas-droit) */}
-      <div onMouseDown={e => startResize(e, "se")} title="Redimensionner"
-        style={{ position: "sticky", bottom: 0, marginLeft: "auto", width: 14, height: 14, cursor: "nwse-resize",
-          borderRight: `2px solid ${C.dim}`, borderBottom: `2px solid ${C.dim}`, borderBottomRightRadius: 6, opacity: 0.5 }} />
+      </div>{/* fin contenu scrollable */}
 
       {/* Menu « ⋯ » (popup) */}
       {menu && (() => {
