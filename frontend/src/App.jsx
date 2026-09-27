@@ -223,8 +223,9 @@ const PANEL_IDS = new Set([
 ]);
 
 // Titre affiché dans le bandeau du panneau flottant : rail d'abord, sinon menu.
-const MENU_LABELS = new Map(MENU_TREE.flatMap(t => t.items).map(it => [it.id, it.label]));
-const labelForId = (id) => ALL_ITEMS.find(i => i.id === id)?.label || MENU_LABELS.get(id) || id;
+// (objet simple : `Map` est ici le composant react-map-gl, pas le constructeur global)
+const MENU_LABELS = Object.fromEntries(MENU_TREE.flatMap(t => t.items).map(it => [it.id, it.label]));
+const labelForId = (id) => ALL_ITEMS.find(i => i.id === id)?.label || MENU_LABELS[id] || id;
 
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 540;
