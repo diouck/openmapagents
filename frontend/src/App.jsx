@@ -808,8 +808,9 @@ export default function App() {
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
   const [tableLayer, setTableLayer] = useState(null);   // couche affichée en table attributaire
   const [filterLayer, setFilterLayer] = useState(null); // couche en cours de filtre (modal)
-  const [selectLayerId, setSelectLayerId] = useState(null); // couche en mode « sélection par clic »
+  const [selectLayerId, setSelectLayerId] = useState(null); // couche en mode sélection
   const [selectedFeats, setSelectedFeats] = useState([]);   // entités sélectionnées (highlight + table)
+  const [boxMode, setBoxMode] = useState(false);            // sélection par rectangle (glisser)
   const featKey = useCallback((f) => JSON.stringify(f?.geometry?.coordinates ?? f?.properties ?? {}), []);
 
   // ── Indicateur de % de chargement/rendu des couches (vecteur + raster) ──
@@ -2197,6 +2198,63 @@ export default function App() {
     return ids;
   }, [layers]);
 
+  // ── Box-select : sélection par rectangle (glisser sur la carte) ──
+  // Compatible Mapbox & MapLibre : queryRenderedFeatures sur une bbox pixels.
+  useEffect(() => {
+    if (!boxMode || !selectLayerId) return;
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+    const canvas = map.getCanvasContainer?.() || map.getCanvas?.().parentElement;
+    if (!canvas) return;
+    const layerIds = intIds.filter(id => id.startsWith(selectLayerId + "-"));
+    let start = null, boxEl = null;
+    const pos = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const onDown = (e) => {
+      if (e.button !== 0) return;
+      map.dragPan?.disable?.();
+      start = pos(e);
+      boxEl = document.createElement("div");
+      boxEl.style.cssText = "position:absolute;background:rgba(29,158,117,0.15);border:1.5px solid #1D9E75;pointer-events:none;z-index:5;left:" + start.x + "px;top:" + start.y + "px;width:0;height:0;";
+      canvas.appendChild(boxEl);
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+    const onMove = (e) => {
+      if (!start || !boxEl) return;
+      const p = pos(e);
+      boxEl.style.left = Math.min(start.x, p.x) + "px";
+      boxEl.style.top = Math.min(start.y, p.y) + "px";
+      boxEl.style.width = Math.abs(p.x - start.x) + "px";
+      boxEl.style.height = Math.abs(p.y - start.y) + "px";
+    };
+    const onUp = (e) => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (boxEl) { boxEl.remove(); boxEl = null; }
+      map.dragPan?.enable?.();
+      if (!start) return;
+      const p = pos(e), s = start; start = null;
+      const bbox = [[Math.min(s.x, p.x), Math.min(s.y, p.y)], [Math.max(s.x, p.x), Math.max(s.y, p.y)]];
+      let feats = [];
+      try { feats = map.queryRenderedFeatures(bbox, { layers: layerIds }); } catch (_) {}
+      if (!feats.length) return;
+      setSelectedFeats(prev => {
+        const keys = new Set(prev.map(featKey)); const add = [];
+        feats.forEach(f => { const k = featKey(f); if (!keys.has(k)) { keys.add(k); add.push({ type: "Feature", geometry: f.geometry, properties: f.properties }); } });
+        return [...prev, ...add];
+      });
+    };
+    canvas.addEventListener("mousedown", onDown);
+    canvas.style.cursor = "crosshair";
+    return () => {
+      canvas.removeEventListener("mousedown", onDown);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      map.dragPan?.enable?.();
+      canvas.style.cursor = "";
+    };
+  }, [boxMode, selectLayerId, intIds, featKey]);
+
   // ── Calcul itinéraire ─────────────────────────────────────
   const doRoute = useCallback(async () => {
     if (!routeOrigin || !routeDest) return;
@@ -3362,11 +3420,14 @@ export default function App() {
             onSelectEntities={(layer) => { setSelectedFeats([]); setSelectLayerId(layer.id); activateItem("pointer"); }}
           />
           {selectLayerId && (
-            <div style={{ position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)", zIndex: 45, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 10, padding: "8px 12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
-              <span style={{ color: C.txt }}>Sélection : <b style={{ color: C.acc }}>{selectedFeats.length}</b> entité{selectedFeats.length > 1 ? "s" : ""} — cliquez sur la carte</span>
+            <div style={{ position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)", zIndex: 45, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 10, padding: "8px 12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+              <span style={{ color: C.txt }}>Sélection : <b style={{ color: C.acc }}>{selectedFeats.length}</b></span>
+              <button onClick={() => setBoxMode(false)} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${!boxMode ? C.acc : C.bdr}`, background: !boxMode ? C.acc + "18" : "transparent", color: !boxMode ? C.acc : C.mut, cursor: "pointer" }}>Clic</button>
+              <button onClick={() => setBoxMode(true)} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${boxMode ? C.acc : C.bdr}`, background: boxMode ? C.acc + "18" : "transparent", color: boxMode ? C.acc : C.mut, cursor: "pointer" }}>Rectangle</button>
+              <span style={{ width: 1, height: 16, background: C.bdr }} />
               <button onClick={() => { const lay = layers.find(l => l.id === selectLayerId); if (lay) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)` }); }} disabled={!selectedFeats.length} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: "transparent", color: selectedFeats.length ? C.acc : C.dim, cursor: selectedFeats.length ? "pointer" : "default" }}>Table</button>
               <button onClick={() => setSelectedFeats([])} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: "transparent", color: C.mut, cursor: "pointer" }}>Effacer</button>
-              <button onClick={() => { setSelectLayerId(null); setSelectedFeats([]); }} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: "none", background: C.acc, color: "#04120a", fontWeight: 600, cursor: "pointer" }}>Terminer</button>
+              <button onClick={() => { setSelectLayerId(null); setSelectedFeats([]); setBoxMode(false); }} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: "none", background: C.acc, color: "#04120a", fontWeight: 600, cursor: "pointer" }}>Terminer</button>
             </div>
           )}
           {tableLayer && (
