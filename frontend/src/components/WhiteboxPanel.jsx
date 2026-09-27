@@ -19,7 +19,8 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [activeTab, setActiveTab] = useState("reglages"); // "reglages" ou "definition"
-  const [roiMode, setRoiMode] = useState("auto"); // "auto" ou "file"
+  const [zoneMode, setZoneMode] = useState("map"); // "map" ou "monde"
+  const [bbox, setBbox] = useState({ south: "", west: "", north: "", east: "" });
 
   const tools = getToolsByCategory(category);
   const selectedTool = WHITEBOX_TOOLS_BY_ID[selectedToolId];
@@ -51,6 +52,14 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
     setParams(p => ({ ...p, [paramId]: value }));
   };
 
+  // Récupérer bounds de la carte
+  const fillBboxFromView = () => {
+    const map = mapRef?.current?.getMap?.();
+    if (!map) return;
+    const b = map.getBounds();
+    setBbox({ south: b.getSouth().toFixed(4), west: b.getWest().toFixed(4), north: b.getNorth().toFixed(4), east: b.getEast().toFixed(4) });
+  };
+
   // Exécuter l'outil (mock pour tester)
   const handleExecute = async () => {
     if (!selectedTool) return;
@@ -59,18 +68,38 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
     setRunning(true);
 
     try {
+      // Déterminer la bbox à utiliser
+      let bounds = null;
+      if (zoneMode === "map") {
+        const map = mapRef?.current?.getMap?.();
+        if (map) {
+          const b = map.getBounds();
+          bounds = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+        }
+      } else {
+        // Zone mondiale
+        bounds = [-180, -90, 180, 90];
+      }
+
       // TODO: appel vrai à POST /api/whitebox/run
-      // Pour MVP : mock delay + succès
+      // Pour MVP : mock delay + succès avec bbox réelle
       await new Promise(r => setTimeout(r, 2000));
 
-      // Simulation : retourner un GeoJSON ou ajouter une couche
+      // Simulation : retourner un GeoJSON raster (TIF) ou vecteur
       const mockResult = {
         type: "FeatureCollection",
         features: [
           {
             type: "Feature",
-            geometry: { type: "Point", coordinates: [0, 0] },
-            properties: { value: 1.0 }
+            geometry: {
+              type: "Polygon",
+              coordinates: [[
+                [bounds[0], bounds[1]], [bounds[2], bounds[1]],
+                [bounds[2], bounds[3]], [bounds[0], bounds[3]],
+                [bounds[0], bounds[1]]
+              ]]
+            },
+            properties: { tool: selectedTool.id, zone: zoneMode }
           }
         ]
       };
@@ -80,7 +109,7 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
         onAddLayer(mockResult, `${selectedTool.name}_result`, "whitebox");
       }
 
-      setSuccess(`✓ ${selectedTool.name} exécuté avec succès`);
+      setSuccess(`✓ ${selectedTool.name} exécuté (${zoneMode === "map" ? "zone visible" : "zone mondiale"})`);
       setRunning(false);
     } catch (e) {
       setError(`Erreur : ${e.message}`);
@@ -355,22 +384,22 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
                 </div>
               ))}
 
-              {/* ROI (Region of Interest) */}
+              {/* Zone (Emprise) */}
               <div style={paramGroupStyle}>
-                <label style={labelStyle}>Emprise (ROI)</label>
+                <label style={labelStyle}>Emprise d'analyse</label>
                 <p style={{ fontSize: 11, color: C.dim, margin: "0 0 6px 0" }}>
-                  Zone à analyser
+                  Sélectionner la zone d'intérêt
                 </p>
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button
                     type="button"
-                    onClick={() => setRoiMode("auto")}
+                    onClick={() => { setZoneMode("map"); fillBboxFromView(); }}
                     style={{
                       flex: 1,
                       padding: "8px",
-                      border: `0.5px solid ${roiMode === "auto" ? C.acc : C.bdr}`,
-                      background: roiMode === "auto" ? C.acc + "18" : "transparent",
-                      color: roiMode === "auto" ? C.acc : C.mut,
+                      border: `0.5px solid ${zoneMode === "map" ? C.acc : C.bdr}`,
+                      background: zoneMode === "map" ? C.acc + "18" : "transparent",
+                      color: zoneMode === "map" ? C.acc : C.mut,
                       borderRadius: 6,
                       fontFamily: F,
                       fontSize: 11,
@@ -379,17 +408,17 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
                       transition: "all 0.2s"
                     }}
                   >
-                    Auto (carte)
+                    Zone sur la carte
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRoiMode("file")}
+                    onClick={() => setZoneMode("monde")}
                     style={{
                       flex: 1,
                       padding: "8px",
-                      border: `0.5px solid ${roiMode === "file" ? C.acc : C.bdr}`,
-                      background: roiMode === "file" ? C.acc + "18" : "transparent",
-                      color: roiMode === "file" ? C.acc : C.mut,
+                      border: `0.5px solid ${zoneMode === "monde" ? C.acc : C.bdr}`,
+                      background: zoneMode === "monde" ? C.acc + "18" : "transparent",
+                      color: zoneMode === "monde" ? C.acc : C.mut,
                       borderRadius: 6,
                       fontFamily: F,
                       fontSize: 11,
@@ -398,20 +427,13 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
                       transition: "all 0.2s"
                     }}
                   >
-                    Fichier/Dessin
+                    Zone mondiale
                   </button>
                 </div>
-                {roiMode === "auto" && (
+                {zoneMode === "map" && bbox.south && (
                   <p style={{ fontSize: 10, color: C.dim, margin: "6px 0 0 0" }}>
-                    Utilise l'emprise visible de la carte
+                    S:{bbox.south}° W:{bbox.west}° N:{bbox.north}° E:{bbox.east}°
                   </p>
-                )}
-                {roiMode === "file" && (
-                  <input
-                    type="file"
-                    accept=".geojson,.json,.shp,.tif,.tiff"
-                    style={{ ...inputStyle, marginTop: "6px", cursor: "pointer" }}
-                  />
                 )}
               </div>
 
