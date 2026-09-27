@@ -26,6 +26,7 @@ import MiniMap from "./components/MiniMap";
 import PrintPanel from "./components/PrintPanel";
 import SpatialPanel from "./components/SpatialPanel";
 import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
+import { setSpatialTarget } from "./utils/spatialNav";
 import JoinPanel from "./components/JoinPanel";
 import BurnSeverityPanel from "./components/BurnSeverityPanel";
 import WatershedPanel from "./components/WatershedPanel";
@@ -2392,6 +2393,14 @@ export default function App() {
           onZoomExtent={zoomToLayer} onUpdateRasterLayer={updateRasterLayer} mapRef={mapRef}
           onFilter={filterL} onUpdateGeojson={updateGeojson}
           onOpenSymbology={openLayerSymbology} openId={symbolLayerId}
+          onQuickAnalysis={(layer, opId, params) => {
+            try {
+              const result = executeSpatialOp(opId, layer, null, params || {});
+              if (result?.features?.length) addLayer(result, `${opId}_${(layer.name || "couche").slice(0, 12)}`, "analysis");
+              else alert("Aucun résultat pour cette analyse rapide.");
+            } catch (e) { alert("Analyse rapide : " + (e.message || e)); }
+          }}
+          onOpenSpatial={() => { setSpatialTarget("vecteur", null); activateItem("spatial"); }}
         />
       </Embed>
     );

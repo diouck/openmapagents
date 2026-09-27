@@ -1021,7 +1021,7 @@ export function SymbologyWindow({ layer, onClose, onStyle, onClassify, onExport,
 }
 
 // ── Composant principal ────────────────────────────────────────
-export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson, onOpenSymbology, openId }) {
+export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExport, onClassify, onExportFmt, onRename, onMoveUp, onMoveDown, onReorder, onZoomExtent, onUpdateRasterLayer, onFilter, mapRef, onUpdateGeojson, onOpenSymbology, openId, onQuickAnalysis, onOpenSpatial, onOpenTable }) {
   const C = useThemeContext();
   const exp = openId;   // couche dont la fenêtre de symbologie est ouverte (état porté par App)
   const [editName, setEditName] = useState(null);
@@ -1072,6 +1072,26 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
     e.stopPropagation();
     setFilterModal(l);
   };
+
+  // ── Menu « Analyse rapide » (couches vecteur) ────────────────
+  const [quickMenu, setQuickMenu] = useState(null); // { layer, x, y }
+  const openQuick = (e, l) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    setQuickMenu({ layer: l, x: r.left, y: r.bottom + 2 });
+  };
+  const runQuick = (opId, params) => {
+    if (quickMenu) onQuickAnalysis?.(quickMenu.layer, opId, params);
+    setQuickMenu(null);
+  };
+  const QUICK_ACTIONS = [
+    { label: "Zone tampon 500 m", op: "buffer", params: { radius: 500 } },
+    { label: "Zone tampon 1 km", op: "buffer", params: { radius: 1000 } },
+    { label: "Zone tampon 5 km", op: "buffer", params: { radius: 5000 } },
+    { sep: true },
+    { label: "Centroïdes", op: "centroid", params: {} },
+    { label: "Enveloppe convexe", op: "convex_hull", params: {} },
+  ];
 
   return (
     <div style={{
@@ -1224,6 +1244,22 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 </button>
               )}
 
+              {/* ── Analyse rapide (couches vecteur) ── */}
+              {!l.isRaster && l.geojson && (
+                <button onClick={e => openQuick(e, l)} title="Analyse rapide (tampon, centroïdes…)"
+                  style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 5px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                  <IcVenn size={12} />
+                </button>
+              )}
+
+              {/* ── Table attributaire (couches vecteur) ── */}
+              {!l.isRaster && l.geojson && onOpenTable && (
+                <button onClick={e => { e.stopPropagation(); onOpenTable(l.id); }} title="Table attributaire"
+                  style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 5px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                  <IcTable size={12} />
+                </button>
+              )}
+
               <button
                 onClick={e => { e.stopPropagation(); onToggle(l.id); }}
                 style={{
@@ -1321,6 +1357,45 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
             }
           }}
         />
-      )}    </div>
+      )}
+
+      {/* ── Menu « Analyse rapide » (popup) ── */}
+      {quickMenu && (
+        <>
+          <div onClick={() => setQuickMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div style={{
+            position: "fixed",
+            left: Math.min(quickMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 232),
+            top: Math.min(quickMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 240),
+            zIndex: 61, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {quickMenu.layer.name}
+            </div>
+            {QUICK_ACTIONS.map((a, i) => a.sep
+              ? <div key={i} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />
+              : <button key={i} onClick={() => runQuick(a.op, a.params)}
+                  style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: C.txt, cursor: "pointer", fontSize: 12, fontFamily: F }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.hover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {a.label}
+                </button>
+            )}
+            {onOpenSpatial && (
+              <>
+                <div style={{ height: 1, background: C.bdr, margin: "3px 0" }} />
+                <button onClick={() => { onOpenSpatial(quickMenu.layer.id); setQuickMenu(null); }}
+                  style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: C.acc, cursor: "pointer", fontSize: 12, fontFamily: F, fontWeight: 600 }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.hover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  Ouvrir dans Analyse spatiale…
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
