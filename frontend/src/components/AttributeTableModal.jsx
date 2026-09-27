@@ -224,46 +224,88 @@ function UniqueFilterPanel({ col, feats, current, C, onApply, onClear, onClose }
 // ── Palette catégorielle pour camembert / barres colorées ──
 const PIE_COLORS = ["#1D9E75", "#378add", "#d85a30", "#d4537e", "#ba7517", "#7f77dd", "#0f6e56", "#185fa5", "#993c1d", "#72243e", "#854f0b", "#3c3489"];
 
-// ── Sous-modal : statistiques ou graphique (barres / camembert / ligne) ──
+const AGGS = { value: "Valeur", sum: "Somme", mean: "Moyenne", count: "Nombre" };
+const fmtNum = (v) => (typeof v === "number" && isFinite(v)) ? (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("fr") : (Math.round(v * 100) / 100).toLocaleString("fr")) : v;
+
+// Groupe les lignes par xField et agrège yField
+function aggregate(rows, xField, yField, agg) {
+  const g = new Map();
+  rows.forEach(r => {
+    const k = String(r.props[xField] ?? "(vide)");
+    const y = Number(r.props[yField]);
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(isFinite(y) ? y : null);
+  });
+  const out = [];
+  for (const [k, arr] of g) {
+    const nums = arr.filter(v => v != null);
+    let val;
+    if (agg === "count") val = arr.length;
+    else if (agg === "sum") val = nums.reduce((a, b) => a + b, 0);
+    else if (agg === "mean") val = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    else val = nums.length ? nums[0] : 0; // "value" : 1re valeur (X unique par entité)
+    out.push([k, val]);
+  }
+  return out.sort((a, b) => b[1] - a[1]).slice(0, 40);
+}
+
+// ── Sous-modal : statistiques ou graphique (X/Y, agrégation, 5 types) ──
 function StatsChartPanel({ kind, col, cols, rows, C, onClose }) {
-  const numericCols = cols.filter(c => rows.some(r => typeof r.props[c] === "number"));
-  const [field, setField] = useState(col || (kind === "stats" ? (numericCols[0] || cols[0]) : (cols[0] || "")));
-  const [ctype, setCtype] = useState("bar"); // bar | pie | line
+  const numericCols = useMemo(() => cols.filter(c => rows.some(r => typeof r.props[c] === "number")), [cols, rows]);
+  const textCols = useMemo(() => cols.filter(c => !numericCols.includes(c)), [cols, numericCols]);
 
-  const vals = rows.map(r => r.props[field]);
-  const stats = numStats(vals);
-  const counts = useMemo(() => {
-    const m = new Map();
-    vals.forEach(v => { const k = v == null ? "(vide)" : String(v); m.set(k, (m.get(k) || 0) + 1); });
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
-  }, [field, rows]);
-  const maxC = Math.max(1, ...counts.map(c => c[1]));
-  const total = counts.reduce((a, c) => a + c[1], 0) || 1;
+  // stats : champ unique
+  const [field, setField] = useState(col || numericCols[0] || cols[0]);
+  // chart : X (étiquette), Y (valeur), agrégation, type
+  const [ctype, setCtype] = useState("bar");   // bar | line | pie | histogram | scatter
+  const [xField, setX] = useState(textCols[0] || cols[0]);
+  const [yField, setY] = useState((col && numericCols.includes(col)) ? col : numericCols[0] || cols[0]);
+  const [agg, setAgg] = useState("value");
+  const [bins, setBins] = useState(10);
 
-  const sel = { padding: "6px 10px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: C.input, color: C.txt, fontFamily: F, fontSize: 12 };
+  const stats = numStats(rows.map(r => r.props[field]));
+  const sel = { padding: "6px 8px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: C.input, color: C.txt, fontFamily: F, fontSize: 11.5 };
+  const lbl = { fontSize: 9.5, color: C.dim, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 3, display: "block" };
 
-  // Rendu camembert (arcs SVG)
+  // Séries agrégées (bar/line/pie)
+  const series = useMemo(() => aggregate(rows, xField, yField, agg), [rows, xField, yField, agg]);
+  const maxV = Math.max(1, ...series.map(s => Math.abs(s[1])));
+  const totalV = series.reduce((a, s) => a + Math.abs(s[1]), 0) || 1;
+
+  // Histogramme (bins sur yField numérique)
+  const hist = useMemo(() => {
+    const vals = rows.map(r => Number(r.props[yField])).filter(v => isFinite(v));
+    if (!vals.length) return [];
+    const mn = Math.min(...vals), mx = Math.max(...vals), w = (mx - mn) / bins || 1;
+    const b = Array.from({ length: bins }, (_, i) => ({ lo: mn + i * w, hi: mn + (i + 1) * w, n: 0 }));
+    vals.forEach(v => { let i = Math.floor((v - mn) / w); if (i >= bins) i = bins - 1; if (i < 0) i = 0; b[i].n++; });
+    return b;
+  }, [rows, yField, bins]);
+  const maxH = Math.max(1, ...hist.map(b => b.n));
+
+  // Nuage de points (X num, Y num)
+  const scatter = useMemo(() => rows.map(r => [Number(r.props[xField]), Number(r.props[yField])]).filter(p => isFinite(p[0]) && isFinite(p[1])), [rows, xField, yField]);
+
   const renderPie = () => {
     const R = 70, cx = 90, cy = 90; let a0 = -Math.PI / 2;
     return (
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <svg width={180} height={180} viewBox="0 0 180 180">
-          {counts.map(([k, n], i) => {
-            const frac = n / total, a1 = a0 + frac * 2 * Math.PI;
+          {series.map(([k, v], i) => {
+            const frac = Math.abs(v) / totalV, a1 = a0 + frac * 2 * Math.PI;
             const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
             const x1 = cx + R * Math.cos(a1), y1 = cy + R * Math.sin(a1);
-            const large = frac > 0.5 ? 1 : 0;
-            const d = `M${cx},${cy} L${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} Z`;
+            const d = `M${cx},${cy} L${x0},${y0} A${R},${R} 0 ${frac > 0.5 ? 1 : 0} 1 ${x1},${y1} Z`;
             a0 = a1;
             return <path key={k} d={d} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke={C.bg} strokeWidth="1" />;
           })}
         </svg>
-        <div style={{ flex: 1, minWidth: 120 }}>
-          {counts.map(([k, n], i) => (
+        <div style={{ flex: 1, minWidth: 120, maxHeight: 200, overflow: "auto" }}>
+          {series.map(([k, v], i) => (
             <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, marginBottom: 3 }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
               <span style={{ flex: 1, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
-              <span style={{ color: C.dim, fontFamily: M }}>{Math.round(n / total * 100)}%</span>
+              <span style={{ color: C.dim, fontFamily: M }}>{Math.round(Math.abs(v) / totalV * 100)}%</span>
             </div>
           ))}
         </div>
@@ -271,82 +313,133 @@ function StatsChartPanel({ kind, col, cols, rows, C, onClose }) {
     );
   };
 
-  // Rendu ligne (polyline SVG)
   const renderLine = () => {
-    const W = 380, H = 160, pad = 24;
-    const pts = counts.map(([, n], i) => {
-      const x = pad + (counts.length === 1 ? 0 : i / (counts.length - 1) * (W - 2 * pad));
-      const y = H - pad - (n / maxC) * (H - 2 * pad);
-      return [x, y];
-    });
+    const W = 400, H = 170, pad = 26;
+    const pts = series.map(([, v], i) => [pad + (series.length === 1 ? 0 : i / (series.length - 1) * (W - 2 * pad)), H - pad - (Math.abs(v) / maxV) * (H - 2 * pad)]);
     return (
       <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
         <polyline fill="none" stroke={C.acc} strokeWidth="2" points={pts.map(p => p.join(",")).join(" ")} />
         {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="3" fill={C.acc} />)}
-        {counts.map(([k], i) => <text key={k} x={pts[i][0]} y={H - 6} fontSize="8" fill={C.dim} textAnchor="middle">{String(k).slice(0, 6)}</text>)}
+        {series.map(([k], i) => i % Math.ceil(series.length / 8 || 1) === 0 && <text key={k} x={pts[i][0]} y={H - 8} fontSize="8" fill={C.dim} textAnchor="middle">{String(k).slice(0, 7)}</text>)}
       </svg>
     );
   };
 
   const renderBars = () => (
-    <div>
-      {counts.map(([k, n], i) => (
+    <div style={{ maxHeight: 300, overflow: "auto" }}>
+      {series.map(([k, v], i) => (
         <div key={k} style={{ marginBottom: 6 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: C.mut, marginBottom: 2 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 240 }}>{k}</span><span style={{ fontFamily: M }}>{n}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>{k}</span><span style={{ fontFamily: M }}>{fmtNum(v)}</span>
           </div>
-          <div style={{ height: 8, borderRadius: 4, background: C.bdr, overflow: "hidden" }}>
-            <div style={{ width: `${(n / maxC) * 100}%`, height: "100%", background: PIE_COLORS[i % PIE_COLORS.length] }} />
+          <div style={{ height: 9, borderRadius: 4, background: C.bdr, overflow: "hidden" }}>
+            <div style={{ width: `${(Math.abs(v) / maxV) * 100}%`, height: "100%", background: PIE_COLORS[i % PIE_COLORS.length] }} />
           </div>
         </div>
       ))}
     </div>
   );
 
+  const renderHist = () => (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: C.dim }}>Classes</span>
+        <input type="range" min="4" max="24" value={bins} onChange={e => setBins(+e.target.value)} style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, fontFamily: M, color: C.txt }}>{bins}</span>
+      </div>
+      <svg width="100%" viewBox={`0 0 400 170`}>
+        {hist.map((b, i) => {
+          const w = 400 / hist.length, h = (b.n / maxH) * 140;
+          return <g key={i}><rect x={i * w + 1} y={150 - h} width={w - 2} height={h} fill={C.acc} rx="1" />
+            {i % Math.ceil(hist.length / 6 || 1) === 0 && <text x={i * w + w / 2} y={164} fontSize="7.5" fill={C.dim} textAnchor="middle">{fmtNum(b.lo)}</text>}</g>;
+        })}
+      </svg>
+    </div>
+  );
+
+  const renderScatter = () => {
+    const W = 400, H = 240, pad = 34;
+    const xs = scatter.map(p => p[0]), ys = scatter.map(p => p[1]);
+    const xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+    const sx = v => pad + (xmax === xmin ? 0.5 : (v - xmin) / (xmax - xmin)) * (W - 2 * pad);
+    const sy = v => H - pad - (ymax === ymin ? 0.5 : (v - ymin) / (ymax - ymin)) * (H - 2 * pad);
+    return (
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+        <line x1={pad} y1={H - pad} x2={W - pad} y2={H - pad} stroke={C.bdr} />
+        <line x1={pad} y1={pad} x2={pad} y2={H - pad} stroke={C.bdr} />
+        {scatter.map((p, i) => <circle key={i} cx={sx(p[0])} cy={sy(p[1])} r="3" fill={C.acc} opacity="0.7" />)}
+        <text x={W / 2} y={H - 4} fontSize="9" fill={C.dim} textAnchor="middle">{xField}</text>
+        <text x={10} y={H / 2} fontSize="9" fill={C.dim} transform={`rotate(-90 10 ${H / 2})`} textAnchor="middle">{yField}</text>
+      </svg>
+    );
+  };
+
+  const usesAgg = ctype === "bar" || ctype === "line" || ctype === "pie";
+  const usesY = usesAgg ? agg !== "count" : true;
+
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1400 }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1401, width: "min(480px, 94vw)", maxHeight: "82vh", overflow: "auto", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", padding: 18 }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1401, width: "min(520px, 95vw)", maxHeight: "84vh", overflow: "auto", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", padding: 18 }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: C.txt, margin: 0, flex: 1 }}>{kind === "stats" ? "Statistiques" : "Graphique"} — {field}</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: C.txt, margin: 0, flex: 1 }}>{kind === "stats" ? "Statistiques" : "Graphique"}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex" }}><IcX size={16} /></button>
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <select value={field} onChange={e => setField(e.target.value)} style={{ ...sel, flex: 1 }}>
-            {cols.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          {kind === "chart" && (
-            <select value={ctype} onChange={e => setCtype(e.target.value)} style={sel}>
-              <option value="bar">Barres</option>
-              <option value="pie">Camembert</option>
-              <option value="line">Ligne</option>
-            </select>
-          )}
         </div>
 
         {kind === "stats" ? (
-          stats ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {[["Nombre", stats.count], ["Minimum", stats.min], ["Maximum", stats.max], ["Moyenne", stats.mean.toFixed(2)], ["Médiane", stats.median]].map(([l, v]) => (
-                <div key={l} style={{ background: C.input, borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 10.5, color: C.dim }}>{l}</div>
-                  <div style={{ fontSize: 17, fontWeight: 600, color: C.txt, fontFamily: M }}>{typeof v === "number" ? v.toLocaleString("fr") : v}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div>
-              <div style={{ fontSize: 11.5, color: C.dim, marginBottom: 8 }}>Champ texte — répartition des valeurs :</div>
-              {counts.map(([k, n]) => (
-                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontSize: 11.5 }}>
-                  <span style={{ width: 120, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
-                  <span style={{ color: C.dim, fontFamily: M }}>{n}</span>
-                </div>
-              ))}
-            </div>
-          )
+          <>
+            <select value={field} onChange={e => setField(e.target.value)} style={{ ...sel, width: "100%", marginBottom: 12 }}>
+              {cols.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {stats ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[["Nombre", stats.count], ["Minimum", stats.min], ["Maximum", stats.max], ["Moyenne", stats.mean], ["Médiane", stats.median]].map(([l, v]) => (
+                  <div key={l} style={{ background: C.input, borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10.5, color: C.dim }}>{l}</div>
+                    <div style={{ fontSize: 17, fontWeight: 600, color: C.txt, fontFamily: M }}>{fmtNum(v)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ fontSize: 12, color: C.dim }}>Champ non numérique — choisissez un champ numérique pour les statistiques.</div>}
+          </>
         ) : (
-          ctype === "pie" ? renderPie() : ctype === "line" ? renderLine() : renderBars()
+          <>
+            {/* Contrôles : type + X + Y + agrégation */}
+            <div style={{ display: "grid", gridTemplateColumns: ctype === "scatter" ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+              <div><span style={lbl}>Type</span>
+                <select value={ctype} onChange={e => setCtype(e.target.value)} style={{ ...sel, width: "100%" }}>
+                  <option value="bar">Barres</option><option value="line">Ligne</option><option value="pie">Camembert</option>
+                  <option value="histogram">Histogramme</option><option value="scatter">Nuage de points</option>
+                </select>
+              </div>
+              {ctype === "histogram" ? (
+                <div style={{ gridColumn: "span 2" }}><span style={lbl}>Variable (numérique)</span>
+                  <select value={yField} onChange={e => setY(e.target.value)} style={{ ...sel, width: "100%" }}>{numericCols.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                </div>
+              ) : ctype === "scatter" ? (
+                <div><span style={lbl}>Axe X · Y (numériques)</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select value={xField} onChange={e => setX(e.target.value)} style={{ ...sel, flex: 1 }}>{numericCols.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                    <select value={yField} onChange={e => setY(e.target.value)} style={{ ...sel, flex: 1 }}>{numericCols.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div><span style={lbl}>Étiquette (X)</span>
+                    <select value={xField} onChange={e => setX(e.target.value)} style={{ ...sel, width: "100%" }}>{cols.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                  </div>
+                  <div><span style={lbl}>Valeur (Y)</span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <select value={agg} onChange={e => setAgg(e.target.value)} style={{ ...sel, width: 90 }}>{Object.entries(AGGS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+                      {usesY && <select value={yField} onChange={e => setY(e.target.value)} style={{ ...sel, flex: 1 }}>{numericCols.map(c => <option key={c} value={c}>{c}</option>)}</select>}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {ctype === "pie" ? renderPie() : ctype === "line" ? renderLine() : ctype === "histogram" ? renderHist() : ctype === "scatter" ? renderScatter() : renderBars()}
+          </>
         )}
       </div>
     </>
