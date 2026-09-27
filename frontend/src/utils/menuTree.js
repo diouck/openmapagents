@@ -318,7 +318,11 @@ export const MENU_TREE = [
   // opérations vecteur, raster (Whitebox), stats spatiales, chaleur/clusters,
   // jointure, analyse zonale, vectorisation, classif supervisée, SQL.
   { id: "outils", label: "Analyses spatiales", icon: IcVenn, items: [
-    { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Hub unifié : Vecteur (overlay, proximité, géométrie, stats spatiales, chaleur/clusters, jointure), Raster (Whitebox, analyse zonale, vectorisation) et Avancé (classif supervisée, SQL, PCA…).", icon: IcVenn },
+    { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Hub unifié : Vecteur (overlay, proximité, géométrie, stats spatiales, chaleur/clusters, jointure), Raster (Whitebox, analyse zonale, vectorisation) et Avancé (classif supervisée, SQL, PCA…).", icon: IcVenn, children: [
+      { section: "vecteur", label: "Vecteur", icon: IcVenn },
+      { section: "raster", label: "Raster", icon: IcMountain },
+      { section: "avance", label: "Avancé", icon: IcSparkles },
+    ] },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },
   ]},
   // ── Cartographie & mise en page : gestion, édition, habillage, export ──

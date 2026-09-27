@@ -9,9 +9,10 @@
  *     chaleur/clusters, jointure, analyse zonale, vectorisation, classif, SQL)
  * =============================================================================
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
+import { useSpatialSection } from "../utils/spatialNav";
 import { SPATIAL_OPS, SPATIAL_GROUPS, executeSpatialOp } from "../utils/spatial";
 import { getLayerAttrs } from "../utils/classification";
 import { getToolsByCategory, WHITEBOX_TOOLS_BY_ID, getCategories } from "../utils/whiteboxTools";
@@ -87,11 +88,17 @@ export default function SpatialAnalysisPanel({
   const sections = useMemo(buildSections, []);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
+  const navSection = useSpatialSection(); // section demandée depuis le menu latéral
   const [selected, setSelected] = useState(null); // { kind, id, module? }
-  const [expandedSections, setExpandedSections] = useState({}); // Vecteur/Raster/Avancé — pliés par défaut
+  const [expandedSections, setExpandedSections] = useState({ vecteur: true }); // Vecteur déplié par défaut
   const [expanded, setExpanded] = useState({}); // catégories (niveau 2)
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+
+  // Déplie la famille demandée depuis le menu latéral (Vecteur/Raster/Avancé)
+  useEffect(() => {
+    if (navSection) setExpandedSections(e => ({ ...e, [navSection]: true }));
+  }, [navSection]);
 
   // ── Formulaire VECTEUR (turf) ──
   const [vLayerA, setVLayerA] = useState("");

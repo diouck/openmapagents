@@ -15,6 +15,7 @@ import { MENU_TREE, INDICATORS } from "../utils/menuTree";
 import { buildSearchIndex, searchMenu } from "../utils/menuSearch";
 import { IcArrow, IcStack, IcUpload, IcPrint, IcChevronLeft, IcCaretRight, IcSearch, IcX, IcPlug } from "../icons";
 import { usePluginState, isVisible, setDisabled, uninstall, CORE_IDS } from "../plugins/pluginState";
+import { setSpatialSection } from "../utils/spatialNav";
 
 const shortLabel = (item) => {
   if (item.kind === "indicator") {
@@ -34,6 +35,7 @@ export default function ThematicMenu({
 }) {
   const [expanded, setExpanded] = useState(!isMobile);
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
+  const [openSub, setOpenSub] = useState({}); // items à sous-entrées dépliés
   const [query, setQuery] = useState("");
 
   const pstate = usePluginState();               // re-render quand l'état plugins change
@@ -120,8 +122,11 @@ export default function ThematicMenu({
                       const soon = it.kind === "soon";
                       const ItemIcon = itemIcon(it);
                       const canManage = it.kind === "tool" && !CORE_IDS.has(it.id);
+                      const hasChildren = Array.isArray(it.children) && it.children.length > 0;
+                      const subOpen = !!openSub[it.id];
                       return (
-                        <button key={it.id} onClick={() => onItem(it)} disabled={soon}
+                        <div key={it.id}>
+                        <button onClick={() => onItem(it)} disabled={soon}
                           onContextMenu={canManage ? (e) => { e.preventDefault(); setCtxMenu({ id: it.id, label: shortLabel(it), x: e.clientX, y: e.clientY }); } : undefined}
                           title={`${shortLabel(it)}${shortDesc(it) ? " — " + shortDesc(it) : ""}${canManage ? " · clic droit pour gérer" : ""}`} style={{
                           width: "100%", display: "flex", alignItems: "flex-start", gap: 9, padding: "6px 8px", borderRadius: 6,
@@ -149,7 +154,26 @@ export default function ThematicMenu({
                           {it.id === "layers" && layersCount > 0 && (
                             <span style={{ background: C.acc, color: "#fff", borderRadius: 8, fontSize: 8, padding: "0 4px", fontWeight: 700, marginTop: 1 }}>{layersCount}</span>
                           )}
+                          {hasChildren && (
+                            <span onClick={(e) => { e.stopPropagation(); setOpenSub(s => ({ ...s, [it.id]: !s[it.id] })); }}
+                              title={subOpen ? "Replier" : "Déplier"}
+                              style={{ display: "flex", color: C.dim, transform: subOpen ? "rotate(90deg)" : "none", transition: "transform .15s", marginTop: 1 }}>
+                              <IcCaretRight size={12} />
+                            </span>
+                          )}
                         </button>
+                        {hasChildren && subOpen && (
+                          <div style={{ margin: "1px 0 4px 24px", paddingLeft: 8, borderLeft: `0.5px solid ${C.bdr}` }}>
+                            {it.children.map(ch => (
+                              <button key={ch.section} onClick={() => { setSpatialSection(ch.section); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 11 }}>
+                                {ch.icon && <ch.icon size={13} color={C.mut} />}
+                                <span style={{ flex: 1, textAlign: "left" }}>{ch.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        </div>
                       );
                     })}
                   </div>
