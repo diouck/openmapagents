@@ -50,6 +50,7 @@ import GEEPanel from "./components/GEEPanel";
 import Scene3DPanel from "./components/Scene3DPanel";
 import LidarPanel from "./components/LidarPanel";
 import ThematicMenu from "./components/ThematicMenu";
+import PluginManager from "./components/PluginManager";
 import IndicatorModal from "./components/IndicatorModal";
 import BivariateModal from "./components/BivariateModal";
 import SearchPalette from "./components/SearchPalette";
@@ -669,6 +670,7 @@ export default function App() {
   const closeModal = useCallback((id) => setModals(prev => prev.filter(m => m.id !== id)), []);
   // Palette de recherche globale (Ctrl/⌘+K)
   const [searchOpen, setSearchOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   useEffect(() => {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setSearchOpen(v => !v); }
@@ -2895,8 +2897,11 @@ export default function App() {
           C={C} activeTool={activeTool} onActivate={activateItem} onIndicator={(id) => openModal({ type: "indicator", indKey: id })}
           layersCount={layers.length} openPanels={openPanels} panelIds={PANEL_IDS}
           onImport={() => fileRef.current?.click()} onPrint={() => activateItem("print")}
-          onOpenSearch={() => setSearchOpen(true)} isMobile={isMobile}
+          onOpenSearch={() => setSearchOpen(true)} onOpenPlugins={() => setPluginsOpen(true)} isMobile={isMobile}
         />
+
+        {/* ── Modal Plugins (installer / gérer) ── */}
+        <PluginManager open={pluginsOpen} onClose={() => setPluginsOpen(false)} C={C} />
 
         {/* ── Palette de recherche globale (Ctrl+K) ── */}
         {searchOpen && (

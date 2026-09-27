@@ -13,7 +13,7 @@
 import { useState, useMemo } from "react";
 import { MENU_TREE, INDICATORS } from "../utils/menuTree";
 import { buildSearchIndex, searchMenu } from "../utils/menuSearch";
-import { IcArrow, IcStack, IcUpload, IcPrint, IcChevronLeft, IcCaretRight, IcSearch, IcX } from "../icons";
+import { IcArrow, IcStack, IcUpload, IcPrint, IcChevronLeft, IcCaretRight, IcSearch, IcX, IcPlug } from "../icons";
 import { usePluginState, isVisible, setDisabled, uninstall, CORE_IDS } from "../plugins/pluginState";
 
 const shortLabel = (item) => {
@@ -30,7 +30,7 @@ const shortDesc = (item) =>
 
 export default function ThematicMenu({
   C, activeTool, onActivate, onIndicator, layersCount = 0,
-  openPanels, panelIds, onImport, onPrint, onOpenSearch, isMobile = false,
+  openPanels, panelIds, onImport, onPrint, onOpenSearch, onOpenPlugins, isMobile = false,
 }) {
   const [expanded, setExpanded] = useState(!isMobile);
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
@@ -189,6 +189,8 @@ export default function ThematicMenu({
           panelIds?.has("layers") && openPanels?.has("layers"), layersCount)}
         {stripBtn(IcUpload, "Importer un fichier", () => onImport?.())}
         {stripBtn(IcPrint, "Imprimer / exporter", () => onPrint?.(), activeTool === "print")}
+        <div style={{ width: "70%", height: 1, background: C.bdr, margin: "3px 0" }} />
+        {stripBtn(IcPlug, "Plugins — installer / gérer", () => onOpenPlugins?.())}
       </div>
 
       {/* Panneau déployé */}
