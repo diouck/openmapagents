@@ -53,6 +53,7 @@ import ThematicMenu from "./components/ThematicMenu";
 import { MENU_TREE } from "./utils/menuTree";
 import PluginManager from "./components/PluginManager";
 import GraticulePanel from "./components/GraticulePanel";
+import WhiteboxPanel from "./components/WhiteboxPanel";
 import IndicatorModal from "./components/IndicatorModal";
 import BivariateModal from "./components/BivariateModal";
 import SearchPalette from "./components/SearchPalette";
@@ -488,6 +489,7 @@ const PANEL_SIZES = {
   ogc:       { w: 360, h: 480 },
   agri:      { w: 440, h: 640 },
   graticule: { w: 268, h: "auto" },
+  whitebox_morphologie: { w: 600, h: 500 },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -2500,6 +2502,11 @@ export default function App() {
     // Sans Embed : hauteur naturelle → panneau "auto" ajusté au contenu (onglets).
     if (activeTool === "graticule") return (
       <GraticulePanel mapRef={mapRef} />
+    );
+
+    // ── Whitebox : analyse morphologie raster ──────────────────
+    if (activeTool === "whitebox_morphologie") return (
+      <WhiteboxPanel category="morphologie" onAddLayer={addLayer} />
     );
 
     // ── Story map (scrollytelling + export HTML) ──────────────
