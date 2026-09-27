@@ -24,7 +24,7 @@ export function buildSearchIndex() {
       for (const t of g.tools) {
         out.push({
           kind: "spatial", id: `sp_${sec.id}_${t.id}`,
-          section: sec.id, category: g.key,
+          section: sec.id, category: g.key, tool: t.id,
           label: t.name, full: t.name,
           sub: `Analyse spatiale · ${sec.label} · ${g.name}`,
           desc: t.desc, icon: null,

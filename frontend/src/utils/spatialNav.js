@@ -6,13 +6,13 @@
  */
 import { useSyncExternalStore } from "react";
 
-// _nav : { section, category, nonce } — nonce force une notif même si identique
-let _nav = { section: "vecteur", category: null, nonce: 0 };
+// _nav : { section, category, tool, nonce } — nonce force une notif même si identique
+let _nav = { section: "vecteur", category: null, tool: null, nonce: 0 };
 const listeners = new Set();
 
-// Pilote la navigation depuis le menu latéral : section (famille) + catégorie optionnelle
-export const setSpatialTarget = (section, category = null) => {
-  _nav = { section, category, nonce: _nav.nonce + 1 };
+// Pilote la navigation depuis le menu latéral : famille + catégorie + outil (optionnels)
+export const setSpatialTarget = (section, category = null, tool = null) => {
+  _nav = { section, category, tool, nonce: _nav.nonce + 1 };
   listeners.forEach(l => l());
 };
 // Compat : ancienne API section seule

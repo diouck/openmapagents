@@ -37,6 +37,7 @@ export default function ThematicMenu({
   const [expanded, setExpanded] = useState(!isMobile);
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
   const [openFam, setOpenFam] = useState({ vecteur: true }); // familles dépliées — Vecteur par défaut
+  const [openCat, setOpenCat] = useState({ "vec_Overlay": true }); // catégories dépliées — Overlay par défaut
   const [query, setQuery] = useState("");
   const spatialSections = useMemo(buildSpatialSections, []);
 
@@ -55,7 +56,7 @@ export default function ThematicMenu({
   const onItem = (it) => {
     if (it.kind === "soon") return;   // entrée grisée : donnée absente de GEE, non actionnable
     if (it.kind === "indicator") onIndicator?.(it.id);
-    else if (it.kind === "spatial") { setSpatialTarget(it.section, it.category); onActivate?.("spatial"); }
+    else if (it.kind === "spatial") { setSpatialTarget(it.section, it.category, it.tool); onActivate?.("spatial"); }
     else onActivate?.(it.id);
     if (isMobile) setExpanded(false);
   };
@@ -145,14 +146,30 @@ export default function ThematicMenu({
                                       <IcCaretRight size={12} />
                                     </span>
                                   </button>
-                                  {famOpen && sec.groups.map(g => (
-                                    <button key={g.key} onClick={() => { setSpatialTarget(sec.id, g.key); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
-                                      title={`${g.name} — ${g.tools.length} outil${g.tools.length > 1 ? "s" : ""}`}
-                                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
-                                      <span style={{ flex: 1, textAlign: "left", textTransform: "uppercase", letterSpacing: ".03em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
-                                      <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
-                                    </button>
-                                  ))}
+                                  {famOpen && sec.groups.map(g => {
+                                    const catOpen = !!openCat[g.key];
+                                    return (
+                                      <div key={g.key}>
+                                        {/* Catégorie : clic déplie/replie ses outils ; chevron idem */}
+                                        <button onClick={() => setOpenCat(c => ({ ...c, [g.key]: !c[g.key] }))}
+                                          title={`${g.name} — ${g.tools.length} outil${g.tools.length > 1 ? "s" : ""}`}
+                                          style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
+                                          <IcCaretRight size={10} style={{ color: C.dim, transform: catOpen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+                                          <span style={{ flex: 1, textAlign: "left", textTransform: "uppercase", letterSpacing: ".03em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                                          <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
+                                        </button>
+                                        {/* Outils : clic ouvre le hub sur l'outil précis */}
+                                        {catOpen && g.tools.map(tool => (
+                                          <button key={tool.id} onClick={() => { setSpatialTarget(sec.id, g.key, tool.id); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                            title={tool.desc}
+                                            style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "3px 8px 3px 42px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
+                                            <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tool.name}</span>
+                                            {tool.implemented === false && <span style={{ fontSize: 7.5, color: C.dim, border: `0.5px solid ${C.bdr}`, borderRadius: 3, padding: "0 3px", flexShrink: 0 }}>bientôt</span>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               );
                             })}

@@ -67,10 +67,17 @@ export default function SpatialAnalysisPanel({
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
 
-  // Déplie la famille (+ catégorie) demandée depuis le menu latéral
+  // Déplie la famille (+ catégorie) et sélectionne l'outil demandé depuis le menu
   useEffect(() => {
     if (nav?.section) setExpandedSections(e => ({ ...e, [nav.section]: true }));
     if (nav?.category) setExpanded(e => ({ ...e, [nav.category]: true }));
+    if (nav?.tool) {
+      const sec = sections.find(s => s.id === nav.section);
+      const grp = sec?.groups.find(g => g.key === nav.category);
+      const tool = grp?.tools.find(t => t.id === nav.tool);
+      if (tool) selectTool(tool);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav?.nonce]);
 
   // ── Formulaire VECTEUR (turf) ──
