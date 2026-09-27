@@ -328,5 +328,6 @@ export const MENU_TREE = [
     { kind: "tool", id: "draw", label: "Dessin libre", desc: "Croquis libre : points, lignes, polygones.", icon: IcPencil },
     { kind: "tool", id: "gee", label: "GEE — mode avancé", desc: "Accès direct au catalogue Earth Engine.", icon: IcSatellite },
     { kind: "tool", id: "projections", label: "Projections du monde", desc: "Composeur de carte : projection, habillage, PDF.", icon: IcMap },
+    { kind: "tool", id: "graticule", label: "Graticule (grille lat/lon)", desc: "Grille latitude/longitude de repérage superposée à la carte.", icon: IcGrid },
   ]},
 ];

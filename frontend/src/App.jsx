@@ -51,6 +51,7 @@ import Scene3DPanel from "./components/Scene3DPanel";
 import LidarPanel from "./components/LidarPanel";
 import ThematicMenu from "./components/ThematicMenu";
 import PluginManager from "./components/PluginManager";
+import GraticulePanel from "./components/GraticulePanel";
 import IndicatorModal from "./components/IndicatorModal";
 import BivariateModal from "./components/BivariateModal";
 import SearchPalette from "./components/SearchPalette";
@@ -2467,6 +2468,13 @@ export default function App() {
     if (activeTool === "shadow") return (
       <Embed>
         <ShadowPanel mapRef={mapRef} layers={layers} basemap={mapSt} setBasemap={setMapSt} />
+      </Embed>
+    );
+
+    // ── Graticule (grille lat/lon) ────────────────────────────
+    if (activeTool === "graticule") return (
+      <Embed>
+        <GraticulePanel mapRef={mapRef} />
       </Embed>
     );
 
