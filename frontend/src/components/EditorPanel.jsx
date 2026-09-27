@@ -242,6 +242,10 @@ export default function EditorPanel({ mapRef, layers = [], onSaveLayer, onClose 
           snapToMidPoints: true,
           snapVertexPriorityDistance: 0.0025,
         },
+        // Options lues par mapbox-gl-draw-additional-tools (ignorées si la lib absente)
+        userProperties: true,
+        union: true, copy: true, buffer: true, bufferSize: 0.5, bufferUnit: "kilometers",
+        length: true, lengthUnit: "kilometers", area: true,
         styles: [
           { id: "gl-draw-point",          type: "circle", filter: ["all", ["==", "$type", "Point"],      ["==", "meta", "feature"]],  paint: { "circle-radius": 6, "circle-color": ["case", ["==", ["get", "active"], "true"], "#1D9E75", "#378ADD"], "circle-stroke-width": 2, "circle-stroke-color": "#fff" } },
           { id: "gl-draw-line",           type: "line",   filter: ["all", ["==", "$type", "LineString"], ["!=", "mode", "static"]],   paint: { "line-color": ["case", ["==", ["get", "active"], "true"], "#1D9E75", "#378ADD"], "line-width": 2 } },
@@ -255,6 +259,12 @@ export default function EditorPanel({ mapRef, layers = [], onSaveLayer, onClose 
       map.addControl(draw, "top-right");
       drawRef.current = draw;
       drawLoaded.current = true;
+
+      // Outils géométriques additionnels (Union, Buffer, Copier, Couper, Centroïde,
+      // Longueur, Aire) — chargés seulement si la lib est installée ; sinon ignorés.
+      import("mapbox-gl-draw-additional-tools")
+        .then(({ additionalTools }) => { try { map.addControl(additionalTools(draw), "top-right"); } catch (e) { console.warn("[EditorPanel] additional-tools:", e); } })
+        .catch(() => { /* mapbox-gl-draw-additional-tools non installé : éditeur standard */ });
 
       // draw.create → ouvre la modale, NE supprime PAS la géométrie
       const onCreate = (e) => {
