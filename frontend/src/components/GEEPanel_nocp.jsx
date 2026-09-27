@@ -54,7 +54,7 @@ const NEEDS_DATES = new Set(["sentinel2","landsat9","landsat8","sentinel1","modi
 const NEEDS_CLOUD = new Set(["sentinel2","landsat9","landsat8"]);
 const STATIC_DS   = new Set(["srtm","hansen","worldcover"]); // ee.Image — pas de dates
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ── Composant calendrier compact ──────────────────────────────
 function DatePicker({ dates, value, onChange }) {

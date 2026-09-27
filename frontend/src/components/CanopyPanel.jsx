@@ -14,7 +14,7 @@ import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { IcTreePine, IcFileDown, IcCheck, IcLoader } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // Étapes affichées pendant le calcul (progression estimée, le calcul est un seul POST)
 const STEPS = ["Lecture du nuage", "MNT (sol)", "MNS (surface)", "MNH (canopée)", "Détection des arbres", "Houppiers"];

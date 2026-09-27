@@ -20,7 +20,7 @@ import {
   IcUser, IcBuilding, IcWaves, IcCalendar,
 } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 const LNAMES = ["Fond satellite", "Zone inondée", "Périmètre inondation"];
 const iso = d => d.toISOString().slice(0, 10);
 const shift = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };

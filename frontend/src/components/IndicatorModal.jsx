@@ -19,7 +19,7 @@ import TimeSeriesModal from "./TimeSeriesModal";
 import TimeAnimTab from "./TimeAnimTab";
 import IndicatorDoc from "./IndicatorDoc";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 // Emprise « monde entier » : couvre tout le globe pour que GEE garde TOUTES les
 // images (filterBounds), pas seulement la partie visible. Lat plafonnée à ±85°
 // (limite Web Mercator des tuiles raster ; au-delà les pôles ne se tuilent pas).

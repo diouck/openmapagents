@@ -39,7 +39,7 @@ const PALETTE_GROUPS = {
   "Pente":       ["pente","ombrage"],
 };
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ── Formatage surface (identique à ClassifMetricsModal) ───────
 function fmtArea(ha) {

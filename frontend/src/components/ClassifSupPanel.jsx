@@ -19,7 +19,7 @@ import { IcTreePine, IcShuffle, IcRocket, IcScissors, IcMapPin, IcBarChart,
   IcCloud, IcBulb, IcInfo, IcRefreshCw, IcClassif, IcZap, IcCircleDot, IcMap,
   IcLoader, IcAlert } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 const CLASS_COLORS = [

@@ -102,7 +102,7 @@ const STATS_INDICES = new Set([
   "Radiance nocturne", "Précipitations (cumul)",
   "Évapotranspiration", "Humidité du sol",
 ]);
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ── Composant calendrier compact ──────────────────────────────
 function DatePicker({ dates, value, onChange }) {

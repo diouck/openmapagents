@@ -21,7 +21,7 @@ import {
 import { showFrame, setFrameOpacity, clearAnim } from "../utils/rasterAnim";
 import { GLPopup } from "../mapgl";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 const RV_JSON = "https://api.rainviewer.com/public/weather-maps.json";
 const BID = { radar: "wx_radar", ir: "wx_ir", gfs: "wx_gfs" };
 const GFS_VARS = [

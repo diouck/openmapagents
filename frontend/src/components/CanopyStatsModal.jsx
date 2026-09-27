@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 function DistBar({ label, pct, color, ha }) {
   const C = useThemeContext();

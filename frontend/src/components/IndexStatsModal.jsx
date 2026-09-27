@@ -12,7 +12,7 @@ import { F, M } from "../config";
 import { IcX, IcLoader, IcMove } from "../icons";
 import { nextZ, bumpZ } from "../utils/zorder";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ══════════════════════════════════════════════════════════════
 // CONFIG PAR INDEX

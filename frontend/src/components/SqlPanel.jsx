@@ -13,7 +13,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // Réplique le _safe_ident du backend : nom de table réellement créé côté serveur.
 function safeIdent(name) {

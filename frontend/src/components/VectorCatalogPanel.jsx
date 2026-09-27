@@ -15,7 +15,7 @@ import {
   IcLoader, IcAlert, IcCheck, IcX, IcCalendar,
 } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 const GEOM_ICON = { point: IcMapPin, line: IcSpline, polygon: IcHexagon };
 const GEOM_LABEL = { point: "Points", line: "Lignes", polygon: "Polygones" };
 

@@ -23,7 +23,7 @@ import {
 } from "../icons";
 import { SOURCE_META, geeCatalog } from "../utils/datasetMeta";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 const DEFAULT_THR   = [-0.1, 0.1, 0.27, 0.44, 0.66];          // 6 classes
 const DEFAULT_THR_7 = [-0.251, -0.101, 0.1, 0.27, 0.44, 0.66]; // table USGS intégrale
 

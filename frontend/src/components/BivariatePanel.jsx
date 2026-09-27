@@ -12,7 +12,7 @@ import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { IcCheck, IcCloud, IcMap, IcHexagon, IcGrid } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // ── Variables disponibles (mappées vers le backend) ───────────────────────
 const BIVAR_VARS = [

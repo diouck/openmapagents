@@ -24,7 +24,7 @@ import {
   IcPlus, IcEye, IcEyeOff, IcX, IcInfo,
 } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 // Upload LiDAR avec progression (XHR) → distingue envoi vs conversion serveur
 function uploadLidar(file, onProgress) {

@@ -20,7 +20,7 @@ import {
   IcMountain, IcWaves, IcLandPlot, IcCloudRain, IcSpline, IcExternalLink,
 } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 const WS_NAMES = ["Bassin versant", "Réseau hydrographique",
                   "Réseau hydro (raster)", "Réseau hydro (lignes)", "Exutoire",
                   "MNT (élévation)", "Direction de flux (D8)", "Accumulation de flux", "Ordre de rivière"];

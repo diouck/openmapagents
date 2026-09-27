@@ -4,7 +4,7 @@ import { F, M } from "../config";
 import { IcDatabase, IcFile, IcCheck, IcX, IcLoader, IcPlug, IcSearch, IcTable,
   IcMap, IcEye, IcEyeOff, IcAlert, IcPlus, IcClipboard, IcChevronUp, IcChevronDown } from "../icons";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 const DB_TYPES = [
   { key: "postgresql", label: "PostgreSQL / PostGIS", port: 5432, icon: IcDatabase },
