@@ -14,6 +14,7 @@ import { useState, useMemo } from "react";
 import { MENU_TREE, INDICATORS } from "../utils/menuTree";
 import { buildSearchIndex, searchMenu } from "../utils/menuSearch";
 import { IcArrow, IcStack, IcUpload, IcPrint, IcChevronLeft, IcCaretRight, IcSearch, IcX } from "../icons";
+import { usePluginState, isVisible, setDisabled, uninstall, CORE_IDS } from "../plugins/pluginState";
 
 const shortLabel = (item) => {
   if (item.kind === "indicator") {
@@ -35,8 +36,14 @@ export default function ThematicMenu({
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
   const [query, setQuery] = useState("");
 
+  const pstate = usePluginState();               // re-render quand l'état plugins change
+  const [ctxMenu, setCtxMenu] = useState(null);  // clic droit : { id, label, x, y }
+
   const index = useMemo(() => buildSearchIndex(), []);
-  const results = useMemo(() => (query ? searchMenu(index, query) : []), [index, query]);
+  const results = useMemo(
+    () => (query ? searchMenu(index, query).filter(r => r.kind !== "tool" || isVisible(r.id)) : []),
+    [index, query, pstate]
+  );
 
   const themeActive = (t) => t.items.some(it =>
     it.kind === "tool" && (activeTool === it.id || (panelIds?.has(it.id) && openPanels?.has(it.id))));
@@ -108,13 +115,15 @@ export default function ThematicMenu({
                 </button>
                 {open && (
                   <div style={{ margin: "1px 0 5px 17px", paddingLeft: 8, borderLeft: `0.5px solid ${C.bdr}` }}>
-                    {t.items.map(it => {
+                    {t.items.filter(it => it.kind !== "tool" || isVisible(it.id)).map(it => {
                       const isAct = it.kind === "tool" && (activeTool === it.id || (panelIds?.has(it.id) && openPanels?.has(it.id)));
                       const soon = it.kind === "soon";
                       const ItemIcon = itemIcon(it);
+                      const canManage = it.kind === "tool" && !CORE_IDS.has(it.id);
                       return (
                         <button key={it.id} onClick={() => onItem(it)} disabled={soon}
-                          title={`${shortLabel(it)}${shortDesc(it) ? " — " + shortDesc(it) : ""}`} style={{
+                          onContextMenu={canManage ? (e) => { e.preventDefault(); setCtxMenu({ id: it.id, label: shortLabel(it), x: e.clientX, y: e.clientY }); } : undefined}
+                          title={`${shortLabel(it)}${shortDesc(it) ? " — " + shortDesc(it) : ""}${canManage ? " · clic droit pour gérer" : ""}`} style={{
                           width: "100%", display: "flex", alignItems: "flex-start", gap: 9, padding: "6px 8px", borderRadius: 6,
                           cursor: soon ? "not-allowed" : "pointer", opacity: soon ? 0.55 : 1,
                           background: isAct ? C.acc + "1e" : "transparent", border: "none", color: isAct ? C.acc : C.mut,
@@ -189,6 +198,30 @@ export default function ThematicMenu({
           <div style={{ position: "fixed", top: 0, left: 52, height: "100%", zIndex: 41, boxShadow: "4px 0 24px rgba(0,0,0,.3)" }}>{Panel}</div>
         </>
       ) : Panel)}
+
+      {ctxMenu && (
+        <>
+          <div onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+               style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div style={{
+            position: "fixed",
+            left: Math.min(ctxMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 196),
+            top:  Math.min(ctxMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 96),
+            zIndex: 61, minWidth: 180, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "6px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ctxMenu.label}</div>
+            <button onClick={() => { setDisabled(ctxMenu.id, true); if (activeTool === ctxMenu.id) onActivate?.("pointer"); setCtxMenu(null); }}
+                    style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: C.txt, cursor: "pointer", fontSize: 12 }}>
+              Désactiver le plugin
+            </button>
+            <button onClick={() => { uninstall(ctxMenu.id); if (activeTool === ctxMenu.id) onActivate?.("pointer"); setCtxMenu(null); }}
+                    style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: "#f0a8a8", cursor: "pointer", fontSize: 12 }}>
+              Désinstaller
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
