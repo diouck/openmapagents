@@ -2400,7 +2400,7 @@ export default function App() {
               else alert("Aucun résultat pour cette analyse rapide.");
             } catch (e) { alert("Analyse rapide : " + (e.message || e)); }
           }}
-          onOpenSpatial={() => { setSpatialTarget("vecteur", null); activateItem("spatial"); }}
+          onOpenSpatial={(layerId, section) => { setSpatialTarget(section || "vecteur", null); activateItem("spatial"); }}
         />
       </Embed>
     );

@@ -1244,21 +1244,11 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
                 </button>
               )}
 
-              {/* ── Analyse rapide (couches vecteur) ── */}
-              {!l.isRaster && l.geojson && (
-                <button onClick={e => openQuick(e, l)} title="Analyse rapide (tampon, centroïdes…)"
-                  style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 5px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
-                  <IcVenn size={12} />
-                </button>
-              )}
-
-              {/* ── Table attributaire (couches vecteur) ── */}
-              {!l.isRaster && l.geojson && onOpenTable && (
-                <button onClick={e => { e.stopPropagation(); onOpenTable(l.id); }} title="Table attributaire"
-                  style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 5px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
-                  <IcTable size={12} />
-                </button>
-              )}
+              {/* ── Menu couche « ⋯ » (analyse rapide + ouvrir dans Analyse spatiale) ── */}
+              <button onClick={e => openQuick(e, l)} title="Plus d'actions (analyse, table…)"
+                style={{ background: quickMenu?.layer?.id === l.id ? C.acc + "22" : "none", border: `0.5px solid ${quickMenu?.layer?.id === l.id ? C.acc : C.bdr}`, borderRadius: 4, cursor: "pointer", padding: "2px 5px", color: quickMenu?.layer?.id === l.id ? C.acc : C.dim, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", fontWeight: 700, fontSize: 13 }}>
+                ⋯
+              </button>
 
               <button
                 onClick={e => { e.stopPropagation(); onToggle(l.id); }}
@@ -1370,29 +1360,41 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
             zIndex: 61, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8,
             boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden",
           }}>
-            <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {quickMenu.layer.name}
-            </div>
-            {QUICK_ACTIONS.map((a, i) => a.sep
-              ? <div key={i} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />
-              : <button key={i} onClick={() => runQuick(a.op, a.params)}
-                  style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: C.txt, cursor: "pointer", fontSize: 12, fontFamily: F }}
+            {(() => {
+              const l = quickMenu.layer;
+              const isVec = !l.isRaster && l.geojson;
+              const item = (label, onClick, accent) => (
+                <button onClick={onClick}
+                  style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: accent ? C.acc : C.txt, cursor: "pointer", fontSize: 12, fontFamily: F, fontWeight: accent ? 600 : 400 }}
                   onMouseEnter={e => e.currentTarget.style.background = C.hover}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  {a.label}
+                  {label}
                 </button>
-            )}
-            {onOpenSpatial && (
-              <>
-                <div style={{ height: 1, background: C.bdr, margin: "3px 0" }} />
-                <button onClick={() => { onOpenSpatial(quickMenu.layer.id); setQuickMenu(null); }}
-                  style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: C.acc, cursor: "pointer", fontSize: 12, fontFamily: F, fontWeight: 600 }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.hover}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  Ouvrir dans Analyse spatiale…
-                </button>
-              </>
-            )}
+              );
+              const sep = (k) => <div key={k} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />;
+              const secHdr = (t) => <div style={{ padding: "6px 11px 2px", fontSize: 9, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim }}>{t}</div>;
+              return (
+                <>
+                  <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
+
+                  {isVec && onOpenTable && item("Ouvrir la table attributaire", () => { onOpenTable(l.id); setQuickMenu(null); })}
+
+                  {isVec && <>
+                    {sep("s1")}
+                    {secHdr("Analyse rapide")}
+                    {QUICK_ACTIONS.filter(a => !a.sep).map((a, i) => item(a.label, () => runQuick(a.op, a.params)))}
+                  </>}
+
+                  {onOpenSpatial && <>
+                    {sep("s2")}
+                    {secHdr("Ouvrir dans Analyse spatiale")}
+                    {isVec && item("→ Vecteur", () => { onOpenSpatial(l.id, "vecteur"); setQuickMenu(null); }, true)}
+                    {l.isRaster && item("→ Raster", () => { onOpenSpatial(l.id, "raster"); setQuickMenu(null); }, true)}
+                    {item("→ Avancé", () => { onOpenSpatial(l.id, "avance"); setQuickMenu(null); }, true)}
+                  </>}
+                </>
+              );
+            })()}
           </div>
         </>
       )}
