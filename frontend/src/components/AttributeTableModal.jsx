@@ -36,7 +36,8 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
   const [hidden, setHidden] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
   const [colMenu, setColMenu] = useState(null);  // { col, x, y }
-  const [panel, setPanel] = useState(null);      // { kind: "stats"|"chart", col }
+  const [panel, setPanel] = useState(null);      // { kind: "stats"|"chart"|"filter", col }
+  const [colFilters, setColFilters] = useState({}); // { col: Set(valeurs gardées) }
 
   const feats = layer?.geojson?.features || [];
   const allCols = useMemo(() => {
@@ -50,8 +51,10 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
+    const fcols = Object.keys(colFilters).filter(c => colFilters[c]?.size);
     let r = feats.map((f, i) => ({ i, props: f.properties || {}, f }))
-      .filter(x => !s || allCols.some(c => String(x.props[c] ?? "").toLowerCase().includes(s)));
+      .filter(x => !s || allCols.some(c => String(x.props[c] ?? "").toLowerCase().includes(s)))
+      .filter(x => fcols.every(c => colFilters[c].has(String(x.props[c] ?? ""))));
     if (sort) {
       const { col, dir } = sort;
       r = [...r].sort((a, b) => {
@@ -62,7 +65,7 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
       });
     }
     return r;
-  }, [feats, allCols, q, sort]);
+  }, [feats, allCols, q, sort, colFilters]);
 
   const exportRows = selected.size ? rows.filter(r => selected.has(r.i)) : rows;
   const allSel = rows.length > 0 && rows.every(r => selected.has(r.i));
@@ -143,6 +146,7 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
             {[
               ["Trier ▲", () => setSort({ col: colMenu.col, dir: "asc" })],
               ["Trier ▼", () => setSort({ col: colMenu.col, dir: "desc" })],
+              ["Filtrer par valeurs…", () => setPanel({ kind: "filter", col: colMenu.col })],
               ["Masquer le champ", () => setHidden(h => new Set(h).add(colMenu.col))],
               ["Statistiques du champ", () => setPanel({ kind: "stats", col: colMenu.col })],
               ["Graphique du champ", () => setPanel({ kind: "chart", col: colMenu.col })],
@@ -157,10 +161,62 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
         </>
       )}
 
-      {/* Sous-modal Statistiques / Graphiques */}
-      {panel && (
+      {/* Sous-modal Statistiques / Graphiques / Filtre par valeurs */}
+      {panel && panel.kind === "filter" && (
+        <UniqueFilterPanel col={panel.col} feats={feats} current={colFilters[panel.col]} C={C}
+          onApply={(set) => { setColFilters(f => ({ ...f, [panel.col]: set })); setPanel(null); }}
+          onClear={() => { setColFilters(f => { const n = { ...f }; delete n[panel.col]; return n; }); setPanel(null); }}
+          onClose={() => setPanel(null)} />
+      )}
+      {panel && panel.kind !== "filter" && (
         <StatsChartPanel kind={panel.kind} col={panel.col} cols={allCols} rows={rows} C={C} onClose={() => setPanel(null)} />
       )}
+    </>
+  );
+}
+
+// ── Sous-modal : filtre par valeurs uniques d'un champ ──
+function UniqueFilterPanel({ col, feats, current, C, onApply, onClear, onClose }) {
+  const uniques = useMemo(() => {
+    const m = new Map();
+    feats.forEach(f => { const v = String(f.properties?.[col] ?? ""); m.set(v, (m.get(v) || 0) + 1); });
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [feats, col]);
+  const [sel, setSel] = useState(() => new Set(current || uniques.map(u => u[0])));
+  const [q, setQ] = useState("");
+  const shown = uniques.filter(u => !q || u[0].toLowerCase().includes(q.toLowerCase()));
+  const toggle = (v) => setSel(s => { const n = new Set(s); n.has(v) ? n.delete(v) : n.add(v); return n; });
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1400 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1401, width: "min(380px, 94vw)", maxHeight: "80vh", display: "flex", flexDirection: "column", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}>
+        <div style={{ padding: 14, borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>Filtrer — {col}</div>
+            <div style={{ fontSize: 10.5, color: C.dim, marginTop: 1 }}>{uniques.length} valeurs uniques</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex" }}><IcX size={16} /></button>
+        </div>
+        <div style={{ padding: "8px 12px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", gap: 8 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher une valeur…" style={{ flex: 1, padding: "5px 9px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: C.input, color: C.txt, fontFamily: F, fontSize: 12, outline: "none" }} />
+          <button onClick={() => setSel(new Set(uniques.map(u => u[0])))} style={{ fontSize: 10.5, color: C.acc, background: "none", border: "none", cursor: "pointer" }}>Tout</button>
+          <button onClick={() => setSel(new Set())} style={{ fontSize: 10.5, color: C.dim, background: "none", border: "none", cursor: "pointer" }}>Aucun</button>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "6px 12px" }}>
+          {shown.map(([v, n]) => (
+            <label key={v} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: C.txt, cursor: "pointer" }}>
+              <input type="checkbox" checked={sel.has(v)} onChange={() => toggle(v)} />
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "(vide)"}</span>
+              <span style={{ color: C.dim, fontFamily: M, fontSize: 10.5 }}>{n}</span>
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: 12, borderTop: `0.5px solid ${C.bdr}`, display: "flex", gap: 8 }}>
+          <button onClick={onClear} style={{ flex: 1, padding: "8px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: "transparent", color: C.mut, fontFamily: F, fontSize: 12, cursor: "pointer" }}>Réinitialiser</button>
+          <button onClick={() => onApply(sel)} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 7, background: C.acc, color: "#04120a", fontFamily: F, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Appliquer ({sel.size})</button>
+        </div>
+      </div>
     </>
   );
 }
