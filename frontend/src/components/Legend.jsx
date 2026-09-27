@@ -1,9 +1,17 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useThemeContext } from "../theme";
-import { M, RAMPS } from "../config";
+import { M, F, RAMPS } from "../config";
 import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
-import { IcPalette, IcMove, IcEye, IcEyeOff, IcTrash } from "../icons";
+import { IcPalette, IcMove, IcEye, IcEyeOff, IcTrash, IcZoomIn } from "../icons";
+
+const QUICK_ACTIONS = [
+  { label: "Zone tampon 500 m", op: "buffer", params: { radius: 500 } },
+  { label: "Zone tampon 1 km", op: "buffer", params: { radius: 1000 } },
+  { label: "Zone tampon 5 km", op: "buffer", params: { radius: 5000 } },
+  { label: "Centroïdes", op: "centroid", params: {} },
+  { label: "Enveloppe convexe", op: "convex_hull", params: {} },
+];
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -262,26 +270,64 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
   const [editId, setEditId] = useState(null);   // couche en cours de renommage
+  const [menu, setMenu] = useState(null);        // menu « ⋯ » : { layer, x, y }
+  // Position + taille (déplaçable + redimensionnable comme un module)
+  const [pos, setPos] = useState(null);          // { x, y } ou null = ancré bas-gauche
+  const [size, setSize] = useState({ w: 260, h: null }); // h null = auto (maxHeight)
+  const move = useRef(null);                       // état de drag/resize en cours
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const m = move.current; if (!m) return;
+      if (m.mode === "drag") setPos({ x: m.px + (e.clientX - m.sx), y: m.py + (e.clientY - m.sy) });
+      else if (m.mode === "resize") {
+        setSize({ w: Math.max(210, m.pw + (e.clientX - m.sx)), h: Math.max(120, m.ph + (e.clientY - m.sy)) });
+      }
+    };
+    const onUp = () => { move.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  const startDrag = (e) => {
+    const r = e.currentTarget.closest("[data-legend]").getBoundingClientRect();
+    if (!pos) setPos({ x: r.left, y: r.top });
+    move.current = { mode: "drag", sx: e.clientX, sy: e.clientY, px: pos ? pos.x : r.left, py: pos ? pos.y : r.top };
+    e.preventDefault();
+  };
+  const startResize = (e) => {
+    move.current = { mode: "resize", sx: e.clientX, sy: e.clientY, pw: size.w, ph: size.h || e.currentTarget.closest("[data-legend]").getBoundingClientRect().height };
+    e.preventDefault(); e.stopPropagation();
+  };
+  const runQuick = (a) => { if (menu) onQuickAnalysis?.(menu.layer, a.op, a.params); setMenu(null); };
+
   if (!layers.length) return null;   // afficher TOUTES les couches (visibles ou non)
 
   return (
-    <div style={{
-      position: "absolute", bottom: 30, left: 10, zIndex: 10, width: 244, maxWidth: "calc(100vw - 20px)",
-      borderRadius: 12, padding: "8px 10px 9px", maxHeight: "48vh", overflowY: "auto",
+    <div data-legend style={{
+      position: "absolute", zIndex: 10,
+      ...(pos ? { top: pos.y, left: pos.x } : { bottom: 30, left: 10 }),
+      width: size.w, maxWidth: "calc(100vw - 20px)",
+      borderRadius: 12, padding: "8px 10px 9px",
+      ...(size.h ? { height: size.h } : { maxHeight: "48vh" }),
+      overflowY: "auto",
       background: C.card,
       border: `0.5px solid ${C.bdr}`,
       boxShadow: "0 16px 48px rgba(0,0,0,.4)",
       backdropFilter: "blur(8px)",
     }}>
-      {/* En-tête */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingBottom: 6, borderBottom: `0.5px solid ${C.bdr}` }}>
+      {/* En-tête — poignée de déplacement */}
+      <div onMouseDown={startDrag}
+        style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingBottom: 6, borderBottom: `0.5px solid ${C.bdr}`, cursor: "move", userSelect: "none" }}>
         <span style={{ display: "flex", color: C.acc }}><IcPalette size={12} /></span>
-        <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.dim, fontWeight: 600 }}>Légende</span>
+        <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.dim, fontWeight: 600, flex: 1 }}>Légende</span>
+        <IcMove size={11} style={{ color: C.dim }} />
       </div>
       {layers.map(layer => {
         // Détails de légende affichés uniquement pour les couches ACTIVES (visibles) ;
@@ -339,10 +385,21 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
                 style={{ background: layer.visible ? "none" : C.acc + "18", border: `0.5px solid ${layer.visible ? C.bdr : C.acc + "66"}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: layer.visible ? C.dim : C.acc, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
                 {layer.visible ? <IcEye size={12} /> : <IcEyeOff size={12} />}
               </button>
+              {/* Zoom sur l'emprise de la couche */}
+              <button onClick={() => onZoomExtent?.(layer.id)} title="Zoomer sur la couche"
+                style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                <IcZoomIn size={12} />
+              </button>
               {/* Bouton symbologie (ouvre la fenêtre de la couche) */}
               <button onClick={() => onOpenSymbology?.(layer.id)} title="Symbologie de la couche"
                 style={{ background: "none", border: `0.5px solid ${C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "2px 4px", color: C.dim, lineHeight: 0, flexShrink: 0, display: "flex", alignItems: "center" }}>
                 <IcPalette size={12} />
+              </button>
+              {/* Menu « ⋯ » — analyse rapide + ouvrir dans Analyse spatiale */}
+              <button onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ layer, x: r.left, y: r.bottom + 2 }); }}
+                title="Plus d'actions (analyse, table…)"
+                style={{ background: menu?.layer?.id === layer.id ? C.acc + "22" : "none", border: `0.5px solid ${menu?.layer?.id === layer.id ? C.acc : C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "1px 5px", color: menu?.layer?.id === layer.id ? C.acc : C.dim, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", fontWeight: 700, fontSize: 13 }}>
+                ⋯
               </button>
               {/* Corbeille — supprimer la couche */}
               <button onClick={() => onRemove?.(layer.id)} title="Supprimer la couche"
@@ -464,6 +521,44 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
           </div>
         );
       })}
+
+      {/* Poignée de redimensionnement (coin bas-droit) */}
+      <div onMouseDown={startResize} title="Redimensionner"
+        style={{ position: "sticky", bottom: 0, marginLeft: "auto", width: 14, height: 14, cursor: "nwse-resize",
+          borderRight: `2px solid ${C.dim}`, borderBottom: `2px solid ${C.dim}`, borderBottomRightRadius: 6, opacity: 0.5 }} />
+
+      {/* Menu « ⋯ » (popup) */}
+      {menu && (() => {
+        const l = menu.layer;
+        const isVec = !l.isRaster && l.geojson;
+        const item = (label, onClick, accent) => (
+          <button onClick={onClick}
+            style={{ width: "100%", textAlign: "left", padding: "8px 11px", background: "transparent", border: "none", color: accent ? C.acc : C.txt, cursor: "pointer", fontSize: 12, fontFamily: F, fontWeight: accent ? 600 : 400 }}
+            onMouseEnter={e => e.currentTarget.style.background = C.hover}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{label}</button>
+        );
+        const sep = (k) => <div key={k} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />;
+        const hdr = (t) => <div style={{ padding: "6px 11px 2px", fontSize: 9, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim }}>{t}</div>;
+        return (
+          <>
+            <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10060 }} />
+            <div style={{ position: "fixed", left: Math.min(menu.x, window.innerWidth - 236), top: Math.min(menu.y, window.innerHeight - 260), zIndex: 10061, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden" }}>
+              <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
+              {isVec && <>
+                {hdr("Analyse rapide")}
+                {QUICK_ACTIONS.map((a, i) => <div key={i}>{item(a.label, () => runQuick(a))}</div>)}
+              </>}
+              {onOpenSpatial && <>
+                {sep("s")}
+                {hdr("Ouvrir dans Analyse spatiale")}
+                {isVec && item("→ Vecteur", () => { onOpenSpatial(l.id, "vecteur"); setMenu(null); }, true)}
+                {l.isRaster && item("→ Raster", () => { onOpenSpatial(l.id, "raster"); setMenu(null); }, true)}
+                {item("→ Avancé", () => { onOpenSpatial(l.id, "avance"); setMenu(null); }, true)}
+              </>}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

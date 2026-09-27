@@ -3327,7 +3327,17 @@ export default function App() {
             </div>
           </>)}
 
-          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL} onRemove={removeL}/>
+          <Legend layers={layers} onOpenSymbology={openLayerSymbology} onReorder={reorderLayer} onToggle={toggleL} onRename={renameL} onRemove={removeL}
+            onZoomExtent={zoomToLayer}
+            onQuickAnalysis={(layer, opId, params) => {
+              try {
+                const result = executeSpatialOp(opId, layer, null, params || {});
+                if (result?.features?.length) addLayer(result, `${opId}_${(layer.name || "couche").slice(0, 12)}`, "analysis");
+                else alert("Aucun résultat pour cette analyse rapide.");
+              } catch (e) { alert("Analyse rapide : " + (e.message || e)); }
+            }}
+            onOpenSpatial={(layerId, section) => { setSpatialTarget(section || "vecteur", null); activateItem("spatial"); }}
+          />
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAPLIBRE_STYLES[mapSt]||MINIMAP_STYLE}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(
