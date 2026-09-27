@@ -50,6 +50,7 @@ import GEEPanel from "./components/GEEPanel";
 import Scene3DPanel from "./components/Scene3DPanel";
 import LidarPanel from "./components/LidarPanel";
 import ThematicMenu from "./components/ThematicMenu";
+import { MENU_TREE } from "./utils/menuTree";
 import PluginManager from "./components/PluginManager";
 import GraticulePanel from "./components/GraticulePanel";
 import IndicatorModal from "./components/IndicatorModal";
@@ -210,7 +211,20 @@ const RAIL_GROUPS = [
 ];
 
 const ALL_ITEMS = RAIL_GROUPS.flatMap(g => g.items);
-const PANEL_IDS = new Set(ALL_ITEMS.filter(i => i.hasPanel).map(i => i.id));
+
+// Outils du menu thématique déclarés `panel: true` (plugins comme Graticule) :
+// ils s'ouvrent dans un panneau flottant via renderPanelContent, exactement
+// comme les modules du rail. Un nouveau plugin-panneau n'a donc qu'à poser ce
+// drapeau dans menuTree.js pour être ouvrable.
+const MENU_PANEL_TOOLS = MENU_TREE.flatMap(t => t.items).filter(it => it.kind === "tool" && it.panel);
+const PANEL_IDS = new Set([
+  ...ALL_ITEMS.filter(i => i.hasPanel).map(i => i.id),
+  ...MENU_PANEL_TOOLS.map(it => it.id),
+]);
+
+// Titre affiché dans le bandeau du panneau flottant : rail d'abord, sinon menu.
+const MENU_LABELS = new Map(MENU_TREE.flatMap(t => t.items).map(it => [it.id, it.label]));
+const labelForId = (id) => ALL_ITEMS.find(i => i.id === id)?.label || MENU_LABELS.get(id) || id;
 
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 540;
@@ -2910,7 +2924,12 @@ export default function App() {
         />
 
         {/* ── Modal Plugins (installer / gérer) ── */}
-        <PluginManager open={pluginsOpen} onClose={() => setPluginsOpen(false)} C={C} />
+        <PluginManager
+          open={pluginsOpen}
+          onClose={() => setPluginsOpen(false)}
+          onOpen={(id) => { setPluginsOpen(false); activateItem(id); }}
+          C={C}
+        />
 
         {/* ── Palette de recherche globale (Ctrl+K) ── */}
         {searchOpen && (
@@ -3261,7 +3280,7 @@ export default function App() {
 
           {/* FloatingPanels — un par module ouvert */}
           {[...openPanels].map((pid, idx) => {
-            const lbl = ALL_ITEMS.find(i => i.id === pid)?.label || pid;
+            const lbl = labelForId(pid);
             return (
               <FloatingPanel key={pid} id={pid} title={lbl} onClose={()=>closePanel(pid)} offset={idx}>
                 {renderPanelContent(pid)}

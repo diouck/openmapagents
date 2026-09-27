@@ -14,7 +14,7 @@ import {
 } from "../plugins/pluginState";
 import { IcSearch, IcX, IcTrash, IcEye, IcEyeOff, IcCheck } from "../icons";
 
-export default function PluginManager({ open, onClose, C }) {
+export default function PluginManager({ open, onClose, onOpen, C }) {
   const pstate = usePluginState();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");   // all | installed | available
@@ -95,7 +95,7 @@ export default function PluginManager({ open, onClose, C }) {
                     {core ? (
                       <span style={{ fontSize: 10.5, color: C.dim }}>cœur</span>
                     ) : !inst ? (
-                      <button onClick={() => install(p.id)} style={{ fontSize: 12, fontWeight: 600, color: "#04120a", background: C.acc, border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>Installer</button>
+                      <button onClick={() => { install(p.id); onOpen?.(p.id); }} style={{ fontSize: 12, fontWeight: 600, color: "#04120a", background: C.acc, border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>Installer</button>
                     ) : (
                       <>
                         <button onClick={() => setDisabled(p.id, !off)} title={off ? "Activer" : "Désactiver"} style={iconBtn}>{off ? <IcEyeOff size={15} /> : <IcEye size={15} />}</button>
