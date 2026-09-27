@@ -808,6 +808,9 @@ export default function App() {
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
   const [tableLayer, setTableLayer] = useState(null);   // couche affichée en table attributaire
   const [filterLayer, setFilterLayer] = useState(null); // couche en cours de filtre (modal)
+  const [selectLayerId, setSelectLayerId] = useState(null); // couche en mode « sélection par clic »
+  const [selectedFeats, setSelectedFeats] = useState([]);   // entités sélectionnées (highlight + table)
+  const featKey = useCallback((f) => JSON.stringify(f?.geometry?.coordinates ?? f?.properties ?? {}), []);
 
   // ── Indicateur de % de chargement/rendu des couches (vecteur + raster) ──
   const [loadPct, setLoadPct] = useState(null);
@@ -2151,8 +2154,18 @@ export default function App() {
         setDrawProfilPts(p=>[...p,[lng,lat]]);
       }
     }
+    else if (selectLayerId) {
+      // Mode « sélection par clic » : bascule l'entité de la couche cible
+      const hit = (e.features || []).find(f => (f.layer?.id || "").startsWith(selectLayerId + "-"));
+      if (hit) {
+        const k = featKey(hit);
+        setSelectedFeats(prev => prev.some(p => featKey(p) === k)
+          ? prev.filter(p => featKey(p) !== k)
+          : [...prev, { type: "Feature", geometry: hit.geometry, properties: hit.properties }]);
+      }
+    }
     else { if (!e.features?.length){setPopup(null);return;} const f=e.features[0]; setPopup({lng,lat,properties:f.properties,layerName:f.layer?.id||""}); }
-  }, [activeTool, measurePts, bufferRadius, routePickMode, routeMarkers, profilDrawMode]);
+  }, [activeTool, measurePts, bufferRadius, routePickMode, routeMarkers, profilDrawMode, selectLayerId, featKey]);
 
   useEffect(() => { setMeasurePts([]); setMeasureRes(null); setBufferLayer(null); setDrawPts([]); setRoutePickMode(null); if (!openPanels.has("route")&&!openPanels.has("isochrone")) { setRouteLayer(null); setIsoLayer(null); setRouteMarkers(null); } }, [activeTool, openPanels]);
 
@@ -2171,6 +2184,8 @@ export default function App() {
     else if (drawPts.length>=2) feats.push({type:"Feature",geometry:{type:"LineString",coordinates:drawPts},properties:{}});
     return {type:"FeatureCollection",features:feats};
   }, [drawPts]);
+
+  const selectionGJ = useMemo(() => selectedFeats.length ? { type: "FeatureCollection", features: selectedFeats } : null, [selectedFeats]);
 
   const intIds = useMemo(() => {
     const ids = [];
@@ -3248,6 +3263,7 @@ export default function App() {
             {measureGJ&&<Source id="measure" type="geojson" data={measureGJ}><Layer id="mpts" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":"#fff","circle-stroke-width":2,"circle-stroke-color":C.amb}}/><Layer id="mline" type="line" filter={["==",["geometry-type"],"LineString"]} paint={{"line-color":C.amb,"line-width":2,"line-dasharray":[4,2]}}/><Layer id="mpoly" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.amb,"fill-opacity":.15}}/></Source>}
             {bufferLayer&&<Source id="buffer" type="geojson" data={bufferLayer}><Layer id="bfill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.pnk,"fill-opacity":.15}}/><Layer id="bline" type="line" filter={["==",["geometry-type"],"Polygon"]} paint={{"line-color":C.pnk,"line-width":2,"line-dasharray":[4,2]}}/><Layer id="bpt" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":6,"circle-color":C.pnk,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/></Source>}
             {drawGJ&&<Source id="draw" type="geojson" data={drawGJ}><Layer id="dpts" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":5,"circle-color":"#fff","circle-stroke-width":2,"circle-stroke-color":C.blu}}/><Layer id="dline" type="line" filter={["any",["==",["geometry-type"],"LineString"],["==",["geometry-type"],"Polygon"]]} paint={{"line-color":C.blu,"line-width":2}}/><Layer id="dfill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.blu,"fill-opacity":.1}}/></Source>}
+            {selectionGJ&&<Source id="selection-hl" type="geojson" data={selectionGJ}><Layer id="sel-fill" type="fill" filter={["==",["geometry-type"],"Polygon"]} paint={{"fill-color":C.amb,"fill-opacity":.35}}/><Layer id="sel-line" type="line" filter={["any",["==",["geometry-type"],"Polygon"],["==",["geometry-type"],"LineString"]]} paint={{"line-color":C.amb,"line-width":3}}/><Layer id="sel-pt" type="circle" filter={["==",["geometry-type"],"Point"]} paint={{"circle-radius":7,"circle-color":C.amb,"circle-stroke-width":2,"circle-stroke-color":"#fff"}}/></Source>}
 
             {/* Route / iso layers */}
             {routeLayer&&<Source id="route" type="geojson" data={routeLayer}><Layer id="rline" type="line" filter={["==",["geometry-type"],"LineString"]} paint={{"line-color":"#378ADD","line-width":4,"line-opacity":0.85}}/><Layer id="rpts" type="circle" filter={["all",["==",["geometry-type"],"Point"],["==",["get","type"],"waypoint"]]} paint={{"circle-radius":8,"circle-color":"#378ADD","circle-stroke-width":2,"circle-stroke-color":"#fff"}}/><Layer id="rlbl" type="symbol" filter={["all",["==",["geometry-type"],"Point"],["==",["get","type"],"waypoint"]]} layout={{"text-field":["get","label"],"text-size":11,"text-offset":[0,1.5],"text-anchor":"top"}} paint={{"text-color":"#378ADD","text-halo-color":"#fff","text-halo-width":1.5}}/></Source>}
@@ -3343,7 +3359,16 @@ export default function App() {
             onOpenSpatial={(layerId, section) => { setSpatialTarget(section || "vecteur", null); activateItem("spatial"); }}
             onOpenTable={(layer) => setTableLayer(layer)}
             onOpenFilter={(layer) => setFilterLayer(layer)}
+            onSelectEntities={(layer) => { setSelectedFeats([]); setSelectLayerId(layer.id); activateItem("pointer"); }}
           />
+          {selectLayerId && (
+            <div style={{ position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)", zIndex: 45, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 10, padding: "8px 12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+              <span style={{ color: C.txt }}>Sélection : <b style={{ color: C.acc }}>{selectedFeats.length}</b> entité{selectedFeats.length > 1 ? "s" : ""} — cliquez sur la carte</span>
+              <button onClick={() => { const lay = layers.find(l => l.id === selectLayerId); if (lay) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)` }); }} disabled={!selectedFeats.length} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: "transparent", color: selectedFeats.length ? C.acc : C.dim, cursor: selectedFeats.length ? "pointer" : "default" }}>Table</button>
+              <button onClick={() => setSelectedFeats([])} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `0.5px solid ${C.bdr}`, background: "transparent", color: C.mut, cursor: "pointer" }}>Effacer</button>
+              <button onClick={() => { setSelectLayerId(null); setSelectedFeats([]); }} style={{ fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, border: "none", background: C.acc, color: "#04120a", fontWeight: 600, cursor: "pointer" }}>Terminer</button>
+            </div>
+          )}
           {tableLayer && (
             <AttributeTableModal layer={tableLayer} onClose={() => setTableLayer(null)}
               onZoomFeature={(f) => { try { const b = turf.bbox(f); mapRef.current?.getMap?.()?.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, duration: 800 }); } catch (_) {} }} />
