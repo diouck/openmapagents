@@ -314,8 +314,9 @@ export default function EditorPanel({ mapRef, layers = [], onSaveLayer, onClose 
         draw.set({ type: "FeatureCollection", features: currentFeatures });
       }
       setDrawActive(true);
-    }).catch(() => {
-      setStatus({ type: "error", msg: "Installez @mapbox/mapbox-gl-draw : npm install @mapbox/mapbox-gl-draw" });
+    }).catch((err) => {
+      console.error("[EditorPanel] échec chargement @mapbox/mapbox-gl-draw :", err);
+      setStatus({ type: "error", msg: `Erreur chargement outil de dessin : ${err?.message || err}` });
     });
 
     return () => {
