@@ -2506,7 +2506,7 @@ export default function App() {
 
     // ── Whitebox : analyse morphologie raster ──────────────────
     if (activeTool === "whitebox_morphologie") return (
-      <WhiteboxPanel category="morphologie" onAddLayer={addLayer} />
+      <WhiteboxPanel category="morphologie" onAddLayer={addLayer} mapRef={mapRef} layers={layers} />
     );
 
     // ── Story map (scrollytelling + export HTML) ──────────────

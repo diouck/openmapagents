@@ -9,9 +9,64 @@ import { useState } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { WHITEBOX_TOOLS, WHITEBOX_TOOLS_BY_ID, getToolsByCategory, getCategoryName } from "../utils/whiteboxTools";
-import { IcLoader, IcCheck, IcX } from "../icons";
+import { IcTrendingUp, IcNavigation, IcWaves, IcSun, IcMountain, IcChevronDown, IcMap, IcGlobe, IcStack } from "../icons";
 
-export default function WhiteboxPanel({ category = "morphologie", onAddLayer, mapRef }) {
+// Mapping id outil → composant icône
+const TOOL_ICONS = {
+  slope: IcTrendingUp,
+  aspect: IcNavigation,
+  curvature: IcWaves,
+  hillshade: IcSun,
+  tpi: IcMountain,
+};
+
+// Calcul bbox [west, south, east, north] depuis un GeoJSON
+function geojsonBbox(gj) {
+  if (!gj?.features?.length) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const walk = (coords) => {
+    if (typeof coords[0] === "number") {
+      minX = Math.min(minX, coords[0]); maxX = Math.max(maxX, coords[0]);
+      minY = Math.min(minY, coords[1]); maxY = Math.max(maxY, coords[1]);
+    } else {
+      coords.forEach(walk);
+    }
+  };
+  gj.features.forEach(f => { if (f.geometry?.coordinates) walk(f.geometry.coordinates); });
+  if (!isFinite(minX)) return null;
+  return [minX, minY, maxX, maxY];
+}
+
+// Rendu markdown minimal : **gras**, listes, sauts de ligne
+function renderDefinition(text, C) {
+  if (!text) return null;
+  const lines = text.split("\n").map(l => l.trim());
+  return lines.map((line, i) => {
+    if (!line) return <div key={i} style={{ height: 8 }} />;
+    // Titre gras **xxx :**
+    const boldMatch = line.match(/^\*\*(.+?)\*\*(.*)$/);
+    if (boldMatch) {
+      return (
+        <div key={i} style={{ marginTop: i > 0 ? 10 : 0, marginBottom: 4 }}>
+          <span style={{ fontWeight: 700, color: C.txt }}>{boldMatch[1]}</span>
+          <span>{boldMatch[2]}</span>
+        </div>
+      );
+    }
+    // Liste - xxx
+    if (line.startsWith("- ")) {
+      return (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 2, paddingLeft: 4 }}>
+          <span style={{ color: C.acc }}>•</span>
+          <span>{line.slice(2)}</span>
+        </div>
+      );
+    }
+    return <div key={i} style={{ marginBottom: 2 }}>{line}</div>;
+  });
+}
+
+export default function WhiteboxPanel({ category = "morphologie", onAddLayer, mapRef, layers = [] }) {
   const C = useThemeContext();
   const [selectedToolId, setSelectedToolId] = useState("slope");
   const [params, setParams] = useState({});
@@ -19,8 +74,11 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [activeTab, setActiveTab] = useState("reglages"); // "reglages" ou "definition"
-  const [zoneMode, setZoneMode] = useState("map"); // "map" ou "monde"
+  const [zoneMode, setZoneMode] = useState("map"); // "map", "monde" ou "layer"
   const [bbox, setBbox] = useState({ south: "", west: "", north: "", east: "" });
+  const [selectedLayerId, setSelectedLayerId] = useState("");
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 500;
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile); // replié par défaut sur mobile
 
   const tools = getToolsByCategory(category);
   const selectedTool = WHITEBOX_TOOLS_BY_ID[selectedToolId];
@@ -55,9 +113,14 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
   // Récupérer bounds de la carte
   const fillBboxFromView = () => {
     const map = mapRef?.current?.getMap?.();
-    if (!map) return;
-    const b = map.getBounds();
-    setBbox({ south: b.getSouth().toFixed(4), west: b.getWest().toFixed(4), north: b.getNorth().toFixed(4), east: b.getEast().toFixed(4) });
+    if (!map || !map.isStyleLoaded?.()) return;
+    try {
+      const b = map.getBounds?.();
+      if (!b) return;
+      setBbox({ south: b.getSouth().toFixed(4), west: b.getWest().toFixed(4), north: b.getNorth().toFixed(4), east: b.getEast().toFixed(4) });
+    } catch (e) {
+      console.warn("Erreur getBounds:", e);
+    }
   };
 
   // Exécuter l'outil (mock pour tester)
@@ -69,16 +132,26 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
 
     try {
       // Déterminer la bbox à utiliser
-      let bounds = null;
+      let bounds = [-180, -90, 180, 90]; // fallback: monde
       if (zoneMode === "map") {
         const map = mapRef?.current?.getMap?.();
-        if (map) {
-          const b = map.getBounds();
-          bounds = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+        if (map && map.isStyleLoaded?.()) {
+          const b = map.getBounds?.();
+          if (b) bounds = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
         }
-      } else {
-        // Zone mondiale
-        bounds = [-180, -90, 180, 90];
+      } else if (zoneMode === "layer") {
+        if (!selectedLayerId) {
+          setError("Sélectionnez une couche pour définir l'emprise.");
+          setRunning(false);
+          return;
+        }
+        const layer = layers.find(l => l.id === selectedLayerId);
+        if (layer?.bbox) bounds = layer.bbox;
+        else if (layer?.data) {
+          // Calcul bbox depuis GeoJSON
+          const bb = geojsonBbox(layer.data);
+          if (bb) bounds = bb;
+        }
       }
 
       // TODO: appel vrai à POST /api/whitebox/run
@@ -109,7 +182,8 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
         onAddLayer(mockResult, `${selectedTool.name}_result`, "whitebox");
       }
 
-      setSuccess(`✓ ${selectedTool.name} exécuté (${zoneMode === "map" ? "zone visible" : "zone mondiale"})`);
+      const zoneLabel = zoneMode === "map" ? "zone visible" : zoneMode === "monde" ? "zone mondiale" : "couche sélectionnée";
+      setSuccess(`✓ ${selectedTool.name} exécuté (${zoneLabel})`);
       setRunning(false);
     } catch (e) {
       setError(`Erreur : ${e.message}`);
@@ -159,7 +233,6 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
     fontSize: 12,
     color: C.txt,
     lineHeight: "1.6",
-    whiteSpace: "pre-wrap",
     wordWrap: "break-word"
   };
 
@@ -224,35 +297,77 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
       height: "100%",
       minHeight: 0
     }}>
-      {/* ── GAUCHE : Liste d'outils ─ */}
+      {/* ── GAUCHE : Liste d'outils (sidebar repliable) ─ */}
       <div style={{
         ...toolListStyle,
-        width: window.innerWidth < 500 ? "100%" : 240,
-        borderRight: window.innerWidth < 500 ? "none" : `0.5px solid ${C.bdr}`,
-        borderBottom: window.innerWidth < 500 ? `0.5px solid ${C.bdr}` : "none",
-        maxHeight: window.innerWidth < 500 ? "150px" : "auto"
+        width: isMobile ? "100%" : (sidebarOpen ? 240 : 48),
+        borderRight: isMobile ? "none" : `0.5px solid ${C.bdr}`,
+        borderBottom: isMobile ? `0.5px solid ${C.bdr}` : "none",
+        maxHeight: isMobile && sidebarOpen ? "180px" : (isMobile ? "auto" : "none"),
+        padding: sidebarOpen ? "16px 0" : "16px 0 8px",
+        transition: "width 0.2s"
       }}>
-        <div style={{ padding: "0 16px 12px", borderBottom: `0.5px solid ${C.bdr}`, marginBottom: "12px" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>
-            {getCategoryName(category)}
-          </div>
-          <div style={{ fontSize: 11, color: C.dim, marginTop: "3px" }}>
-            {tools.length} outil{tools.length > 1 ? "s" : ""}
-          </div>
-        </div>
-        {tools.map(tool => (
+        {/* En-tête + toggle */}
+        <div style={{
+          padding: sidebarOpen ? "0 16px 12px" : "0 8px 12px",
+          borderBottom: `0.5px solid ${C.bdr}`,
+          marginBottom: "12px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}>
+          {sidebarOpen && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>
+                {getCategoryName(category)}
+              </div>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: "3px" }}>
+                {tools.length} outil{tools.length > 1 ? "s" : ""}
+              </div>
+            </div>
+          )}
           <button
-            key={tool.id}
-            onClick={() => handleSelectTool(tool.id)}
+            onClick={() => setSidebarOpen(o => !o)}
+            title={sidebarOpen ? "Replier" : "Déplier"}
             style={{
-              ...toolBtnStyle(selectedToolId === tool.id),
-              marginLeft: "8px",
-              marginRight: "8px"
+              border: "none",
+              background: "transparent",
+              color: C.mut,
+              cursor: "pointer",
+              padding: 4,
+              display: "flex",
+              alignItems: "center",
+              transform: sidebarOpen ? "rotate(90deg)" : "rotate(-90deg)",
+              transition: "transform 0.2s"
             }}
           >
-            {tool.name}
+            <IcChevronDown size={16} />
           </button>
-        ))}
+        </div>
+        {tools.map(tool => {
+          const Icon = TOOL_ICONS[tool.id];
+          const active = selectedToolId === tool.id;
+          return (
+            <button
+              key={tool.id}
+              onClick={() => handleSelectTool(tool.id)}
+              title={tool.name}
+              style={{
+                ...toolBtnStyle(active),
+                marginLeft: "8px",
+                marginRight: "8px",
+                display: "flex",
+                alignItems: "center",
+                gap: sidebarOpen ? "10px" : 0,
+                justifyContent: sidebarOpen ? "flex-start" : "center",
+                padding: sidebarOpen ? "10px 16px" : "10px 0"
+              }}
+            >
+              {Icon && <Icon size={16} style={{ flexShrink: 0 }} />}
+              {sidebarOpen && <span>{tool.name}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── DROITE : Détail + Formulaire ─ */}
@@ -314,7 +429,7 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
             {/* Définition (onglet) */}
             {activeTab === "definition" && (
               <div style={defBoxStyle}>
-                {selectedTool.definition}
+                {renderDefinition(selectedTool.definition, C)}
               </div>
             )}
 
@@ -391,48 +506,63 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
                   Sélectionner la zone d'intérêt
                 </p>
                 <div style={{ display: "flex", gap: "6px" }}>
-                  <button
-                    type="button"
-                    onClick={() => { setZoneMode("map"); fillBboxFromView(); }}
-                    style={{
-                      flex: 1,
-                      padding: "8px",
-                      border: `0.5px solid ${zoneMode === "map" ? C.acc : C.bdr}`,
-                      background: zoneMode === "map" ? C.acc + "18" : "transparent",
-                      color: zoneMode === "map" ? C.acc : C.mut,
-                      borderRadius: 6,
-                      fontFamily: F,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      transition: "all 0.2s"
-                    }}
-                  >
-                    Zone sur la carte
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setZoneMode("monde")}
-                    style={{
-                      flex: 1,
-                      padding: "8px",
-                      border: `0.5px solid ${zoneMode === "monde" ? C.acc : C.bdr}`,
-                      background: zoneMode === "monde" ? C.acc + "18" : "transparent",
-                      color: zoneMode === "monde" ? C.acc : C.mut,
-                      borderRadius: 6,
-                      fontFamily: F,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      transition: "all 0.2s"
-                    }}
-                  >
-                    Zone mondiale
-                  </button>
+                  {[
+                    { id: "map", label: "Vue carte", Icon: IcMap },
+                    { id: "monde", label: "Zone mondiale", Icon: IcGlobe },
+                    { id: "layer", label: "Couche", Icon: IcStack },
+                  ].map(({ id, label, Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => { setZoneMode(id); if (id === "map") fillBboxFromView(); }}
+                      style={{
+                        flex: 1,
+                        padding: "8px 4px",
+                        border: `0.5px solid ${zoneMode === id ? C.acc : C.bdr}`,
+                        background: zoneMode === id ? C.acc + "18" : "transparent",
+                        color: zoneMode === id ? C.acc : C.mut,
+                        borderRadius: 6,
+                        fontFamily: F,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 4
+                      }}
+                    >
+                      <Icon size={15} />
+                      {label}
+                    </button>
+                  ))}
                 </div>
                 {zoneMode === "map" && bbox.south && (
                   <p style={{ fontSize: 10, color: C.dim, margin: "6px 0 0 0" }}>
                     S:{bbox.south}° W:{bbox.west}° N:{bbox.north}° E:{bbox.east}°
+                  </p>
+                )}
+                {zoneMode === "monde" && (
+                  <p style={{ fontSize: 10, color: C.dim, margin: "6px 0 0 0" }}>
+                    Emprise globale (-180, -90, 180, 90)
+                  </p>
+                )}
+                {zoneMode === "layer" && (
+                  <select
+                    style={{ ...inputStyle, marginTop: "6px" }}
+                    value={selectedLayerId}
+                    onChange={(e) => setSelectedLayerId(e.target.value)}
+                  >
+                    <option value="">Sélectionner une couche...</option>
+                    {layers.map(l => (
+                      <option key={l.id} value={l.id}>{l.name || l.id}</option>
+                    ))}
+                  </select>
+                )}
+                {zoneMode === "layer" && !layers.length && (
+                  <p style={{ fontSize: 10, color: C.dim, margin: "6px 0 0 0" }}>
+                    Aucune couche disponible — importez une couche vecteur/raster
                   </p>
                 )}
               </div>
