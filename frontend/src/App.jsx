@@ -29,6 +29,7 @@ import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
 import AttributeTableModal from "./components/AttributeTableModal";
 import FilterModal, { applyFilter } from "./components/FilterModal";
 import { setSpatialTarget } from "./utils/spatialNav";
+import { createSelectionControl } from "./utils/selectionControl";
 import JoinPanel from "./components/JoinPanel";
 import BurnSeverityPanel from "./components/BurnSeverityPanel";
 import WatershedPanel from "./components/WatershedPanel";
@@ -2212,6 +2213,31 @@ export default function App() {
     setPolyPts([]);
   }, [polyPts, layers, selectLayerId, featKey]);
 
+  // Contrôle natif de sélection (map.addControl) — actions/état via refs
+  const selApiRef = useRef({});
+  selApiRef.current = {
+    setMode: (m) => { setSelectMode(m); setPolyPts([]); },
+    applyPoly: () => applyPolygonSelect(),
+    clear: () => { setSelectedFeats([]); setPolyPts([]); },
+    finish: () => { setSelectLayerId(null); setSelectedFeats([]); setSelectMode("click"); setPolyPts([]); },
+    openTable: () => { const lay = layers.find(l => l.id === selectLayerId); if (lay && selectedFeats.length) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)` }); },
+  };
+  const selStateRef = useRef({});
+  selStateRef.current = { mode: selectMode, count: selectedFeats.length, polyLen: polyPts.length };
+  const selCtrlRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectLayerId) return;
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+    const ctrl = createSelectionControl({ actions: () => selApiRef.current, getState: () => selStateRef.current, colors: C });
+    try { map.addControl(ctrl, "top-left"); } catch (_) { return; }
+    selCtrlRef.current = ctrl;
+    return () => { try { map.removeControl(ctrl); } catch (_) {} selCtrlRef.current = null; };
+  }, [selectLayerId]);
+
+  useEffect(() => { selCtrlRef.current?.updateUI?.(); }, [selectMode, selectedFeats, polyPts]);
+
   const intIds = useMemo(() => {
     const ids = [];
     layers.filter(l=>l.visible).forEach(l => {
@@ -3444,31 +3470,6 @@ export default function App() {
             onOpenFilter={(layer) => setFilterLayer(layer)}
             onSelectEntities={(layer) => { setSelectedFeats([]); setSelectLayerId(layer.id); activateItem("pointer"); }}
           />
-          {selectLayerId && (
-            {(() => {
-              const tool = (title, active, onClick, Icon, danger) => (
-                <button title={title} onClick={onClick}
-                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8,
-                    border: `0.5px solid ${active ? C.acc : C.bdr}`, background: active ? C.acc + "20" : C.card,
-                    color: danger ? C.red : active ? C.acc : C.mut, cursor: "pointer" }}>
-                  <Icon size={16} />
-                </button>
-              );
-              return (
-                <div style={{ position: "absolute", top: 70, left: 10, zIndex: 45, display: "flex", flexDirection: "column", gap: 5, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 10, padding: 5, boxShadow: "0 8px 24px rgba(0,0,0,.3)" }}>
-                  <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: C.acc, fontFamily: M, padding: "2px 0" }}>{selectedFeats.length}</div>
-                  {tool("Sélection par clic", selectMode === "click", () => { setSelectMode("click"); setPolyPts([]); }, IcArrow)}
-                  {tool("Sélection par rectangle", selectMode === "rect", () => { setSelectMode("rect"); setPolyPts([]); }, IcSquare)}
-                  {tool("Sélection par polygone", selectMode === "polygon", () => { setSelectMode("polygon"); setPolyPts([]); }, IcHexagon)}
-                  {selectMode === "polygon" && polyPts.length >= 3 && tool("Fermer le polygone", false, applyPolygonSelect, IcCheck)}
-                  <div style={{ height: 1, background: C.bdr, margin: "2px 0" }} />
-                  {tool("Table de la sélection", false, () => { const lay = layers.find(l => l.id === selectLayerId); if (lay && selectedFeats.length) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)` }); }, IcTable)}
-                  {tool("Effacer la sélection", false, () => { setSelectedFeats([]); setPolyPts([]); }, IcTrash, true)}
-                  {tool("Terminer", false, () => { setSelectLayerId(null); setSelectedFeats([]); setSelectMode("click"); setPolyPts([]); }, IcX)}
-                </div>
-              );
-            })()}
-          )}
           {tableLayer && (
             <AttributeTableModal layer={tableLayer} onClose={() => setTableLayer(null)}
               onZoomFeature={(f) => { try { const b = turf.bbox(f); mapRef.current?.getMap?.()?.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, duration: 800 }); } catch (_) {} }} />
