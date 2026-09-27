@@ -1138,6 +1138,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
             <div
               style={{
                 padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
+                flexWrap: "wrap", rowGap: 5,
                 cursor: "default", background: exp === l.id ? C.hover : "transparent",
               }}
               onDoubleClick={() => setEditName(l.id)}
