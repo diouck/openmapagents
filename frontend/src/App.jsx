@@ -2472,7 +2472,11 @@ export default function App() {
 
     if (activeTool === "spatial") return (
       <Embed>
-        <SpatialAnalysisPanel layers={layers} onAddLayer={addLayer} onAddRasterLayer={addRasterLayer} mapRef={mapRef} />
+        <SpatialAnalysisPanel
+          layers={layers} onAddLayer={addLayer} onAddRasterLayer={addRasterLayer} mapRef={mapRef}
+          addLayerSilent={addLayerSilent} addImageLayer={addImageLayer}
+          updateRasterLayer={updateRasterLayer} classifClickRef={classifClickRef}
+        />
       </Embed>
     );
 
