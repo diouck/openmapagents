@@ -26,6 +26,8 @@ import MiniMap from "./components/MiniMap";
 import PrintPanel from "./components/PrintPanel";
 import SpatialPanel from "./components/SpatialPanel";
 import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
+import AttributeTableModal from "./components/AttributeTableModal";
+import FilterModal, { applyFilter } from "./components/FilterModal";
 import { setSpatialTarget } from "./utils/spatialNav";
 import JoinPanel from "./components/JoinPanel";
 import BurnSeverityPanel from "./components/BurnSeverityPanel";
@@ -804,6 +806,8 @@ export default function App() {
   // reste ouverte même si l'on ferme le panneau et passe au-dessus au clic (z partagé).
   const [symbolLayerId, setSymbolLayerId] = useState(null);
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
+  const [tableLayer, setTableLayer] = useState(null);   // couche affichée en table attributaire
+  const [filterLayer, setFilterLayer] = useState(null); // couche en cours de filtre (modal)
 
   // ── Indicateur de % de chargement/rendu des couches (vecteur + raster) ──
   const [loadPct, setLoadPct] = useState(null);
@@ -3337,7 +3341,22 @@ export default function App() {
               } catch (e) { alert("Analyse rapide : " + (e.message || e)); }
             }}
             onOpenSpatial={(layerId, section) => { setSpatialTarget(section || "vecteur", null); activateItem("spatial"); }}
+            onOpenTable={(layer) => setTableLayer(layer)}
+            onOpenFilter={(layer) => setFilterLayer(layer)}
           />
+          {tableLayer && (
+            <AttributeTableModal layer={tableLayer} onClose={() => setTableLayer(null)}
+              onZoomFeature={(f) => { try { const b = turf.bbox(f); mapRef.current?.getMap?.()?.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, duration: 800 }); } catch (_) {} }} />
+          )}
+          {filterLayer && (
+            <FilterModal layer={filterLayer} onClose={() => setFilterLayer(null)}
+              onApply={({ rules, logic }) => {
+                const src = filterLayer._sourceGeojson || filterLayer.geojson;
+                const fs = { rules, logic };
+                if (!rules?.length) filterL(filterLayer.id, { filterState: { rules: [], logic: "AND" }, geojson: src, _sourceGeojson: src });
+                else filterL(filterLayer.id, { filterState: fs, geojson: applyFilter(src, fs), _sourceGeojson: src });
+              }} />
+          )}
           {!isMobile&&<MiniMap center={[vs.longitude,vs.latitude]} zoom={vs.zoom} mapStyle={MAPLIBRE_STYLES[mapSt]||MINIMAP_STYLE}/>}
 
           {layers.length===0&&activeTool==="pointer"&&(

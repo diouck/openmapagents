@@ -271,7 +271,7 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent, onOpenTable, onOpenFilter }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -562,7 +562,10 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
             <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10060 }} />
             <div style={{ position: "fixed", left: Math.min(menu.x, window.innerWidth - 236), top: Math.min(menu.y, window.innerHeight - 260), zIndex: 10061, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden" }}>
               <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
+              {isVec && onOpenTable && item("Ouvrir la table attributaire", () => { onOpenTable(l); setMenu(null); })}
+              {isVec && onOpenFilter && item("Filtrer par attribut", () => { onOpenFilter(l); setMenu(null); })}
               {isVec && <>
+                {sep("s0")}
                 {hdr("Analyse rapide")}
                 {QUICK_ACTIONS.map((a, i) => <div key={i}>{item(a.label, () => runQuick(a))}</div>)}
               </>}
