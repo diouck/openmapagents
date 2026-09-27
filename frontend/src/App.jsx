@@ -727,8 +727,8 @@ export default function App() {
   // Vue initiale : restaure la position sauvegardée avant un basculement de moteur
   // (MapLibre ⟷ Mapbox se fait par rechargement) pour ne pas « sauter ».
   const [vs,     setVs]     = useState(() => {
-    // Vue initiale : Afrique entière (centroïde ~17°E, 2°N ; zoom 3 = tout le continent).
-    const def = { longitude: 17, latitude: 2, zoom: 3, pitch: 0, bearing: 0 };
+    // Vue initiale : planisphère entière, centrée sur l'Afrique (~15°E ; zoom 1.6 = tout le monde visible).
+    const def = { longitude: 15, latitude: 7, zoom: 1.6, pitch: 0, bearing: 0 };
     try {
       const saved = localStorage.getItem("mapVS");
       if (saved) { localStorage.removeItem("mapVS"); const p = JSON.parse(saved); if (p && Number.isFinite(p.longitude)) return { ...def, ...p }; }
