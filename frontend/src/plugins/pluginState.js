@@ -29,6 +29,9 @@ export const PLUGIN_CATALOG = MENU_TREE.flatMap((theme) =>
       desc: it.desc || "",
       category: theme.label,       // le thème du menu = la catégorie du plugin
       external: false,             // interne (bundlé) ; les tiers viendront en phase 2
+      version: "1.0",
+      author: "OpenMapAgents",
+      tags: [theme.label],
     }))
 );
 
