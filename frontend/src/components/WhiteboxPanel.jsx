@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { useThemeContext } from "../theme";
-import { F, M } from "../config";
+import { F, M, API } from "../config";
 import { WHITEBOX_TOOLS, WHITEBOX_TOOLS_BY_ID, getToolsByCategory, getCategoryName } from "../utils/whiteboxTools";
 import { IcTrendingUp, IcNavigation, IcWaves, IcSun, IcMountain, IcChevronDown, IcMap, IcGlobe, IcStack } from "../icons";
 
@@ -66,7 +66,7 @@ function renderDefinition(text, C) {
   });
 }
 
-export default function WhiteboxPanel({ category = "morphologie", onAddLayer, mapRef, layers = [] }) {
+export default function WhiteboxPanel({ category = "morphologie", onAddRasterLayer, mapRef, layers = [] }) {
   const C = useThemeContext();
   const [selectedToolId, setSelectedToolId] = useState("slope");
   const [params, setParams] = useState({});
@@ -123,7 +123,7 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
     }
   };
 
-  // Exécuter l'outil (mock pour tester)
+  // Exécuter l'outil via GEE (POST /api/whitebox/run)
   const handleExecute = async () => {
     if (!selectedTool) return;
     setError(null);
@@ -147,43 +147,43 @@ export default function WhiteboxPanel({ category = "morphologie", onAddLayer, ma
         }
         const layer = layers.find(l => l.id === selectedLayerId);
         if (layer?.bbox) bounds = layer.bbox;
-        else if (layer?.data) {
-          // Calcul bbox depuis GeoJSON
-          const bb = geojsonBbox(layer.data);
+        else if (layer?.geojson) {
+          const bb = geojsonBbox(layer.geojson);
           if (bb) bounds = bb;
         }
       }
 
-      // TODO: appel vrai à POST /api/whitebox/run
-      // Pour MVP : mock delay + succès avec bbox réelle
-      await new Promise(r => setTimeout(r, 2000));
+      // Récupère la source MNT choisie + les paramètres du formulaire
+      const demSource = params.dem || "SRTM_30m";
+      const toolParams = { ...params };
+      delete toolParams.dem;
 
-      // Simulation : retourner un GeoJSON raster (TIF) ou vecteur
-      const mockResult = {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [[
-                [bounds[0], bounds[1]], [bounds[2], bounds[1]],
-                [bounds[2], bounds[3]], [bounds[0], bounds[3]],
-                [bounds[0], bounds[1]]
-              ]]
-            },
-            properties: { tool: selectedTool.id, zone: zoneMode }
-          }
-        ]
-      };
+      const res = await fetch(`${API}/api/whitebox/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool: selectedTool.id,
+          bbox: bounds,
+          dem_source: demSource,
+          params: toolParams,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
 
-      // Simuler onAddLayer
-      if (onAddLayer) {
-        onAddLayer(mockResult, `${selectedTool.name}_result`, "whitebox");
-      }
-
+      // Ajoute la couche raster de tuiles GEE
       const zoneLabel = zoneMode === "map" ? "zone visible" : zoneMode === "monde" ? "zone mondiale" : "couche sélectionnée";
-      setSuccess(`✓ ${selectedTool.name} exécuté (${zoneLabel})`);
+      onAddRasterLayer?.({
+        id:        `wbx_${selectedTool.id}_${Date.now()}`,
+        name:      `${selectedTool.name} (${zoneLabel})`,
+        type:      "wms",
+        tileUrl:   data.tile_url,
+        opacity:   0.85,
+        bbox:      zoneMode === "monde" ? null : bounds,
+        visParams: data.vis_params || null,
+      });
+
+      setSuccess(`✓ ${selectedTool.name} calculé (${zoneLabel})`);
       setRunning(false);
     } catch (e) {
       setError(`Erreur : ${e.message}`);

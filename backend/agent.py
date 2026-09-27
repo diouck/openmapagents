@@ -960,6 +960,14 @@ try:
 except Exception as e:
     log.warning(f"✗Maxar Open Data non chargé: {e}")
 
+# Whitebox/Morphologie (slope, aspect, curvature, hillshade, TPI via GEE)
+try:
+    from whitebox_routes import router as whitebox_router
+    app.include_router(whitebox_router)
+    log.info("✓Whitebox chargé (/api/whitebox/run)")
+except Exception as e:
+    log.warning(f"✗Whitebox non chargé: {e}")
+
 # Ombres portées — canopée Meta (GEE) vectorisée pour l'outil d'ombrage
 try:
     from shadow_routes import router as shadow_router
