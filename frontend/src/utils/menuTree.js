@@ -312,26 +312,25 @@ export const MENU_TREE = [
     { kind: "tool", id: "database", label: "Base de données", desc: "Interroge et importe depuis DuckDB.", icon: IcDatabase },
     { kind: "tool", id: "georef", label: "Géoréférenceur (caler une image)", desc: "Cale un plan scanné ou une photo sur la carte via des points d'appui (affine/projective).", icon: IcMap },
   ]},
-  // ── Analyses spatiales : traitements, mesures, mise en page ──
-  { id: "outils", label: "Analyses spatiales", icon: IcWrench, items: [
-    { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
-    { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Intersections, jointures, agrégations.", icon: IcVenn },
-    { kind: "tool", id: "whitebox", label: "Analyse raster (Whitebox)", desc: "Morphologie, hydrologie, filtres, segmentation… Grand panneau d'outils raster (Whitebox/GEE).", icon: IcMountain, panel: true },
+  // ── Analyses spatiales : UNIQUEMENT des modules d'analyse ──
+  // « Analyse spatiale » = grand panneau unifié Vecteur/Raster/Avancé.
+  { id: "outils", label: "Analyses spatiales", icon: IcVenn, items: [
+    { kind: "tool", id: "spatial", label: "Analyse spatiale (vecteur + raster)", desc: "Grand panneau unifié : opérations vecteur (overlay, proximité, géométrie…), raster (Whitebox : morphologie, hydrologie, filtres…) et avancé.", icon: IcVenn },
     { kind: "tool", id: "rasteranalysis", label: "Analyse raster (zonal + calc)", desc: "Statistiques zonales et calculatrice (map algebra) sur un GeoTIFF importé.", icon: IcGrid },
     { kind: "tool", id: "rastervec", label: "Vectorisation raster (polygones + contours)", desc: "Transforme un GeoTIFF en polygones (par classes) ou en courbes de niveau.", icon: IcHexagon },
     { kind: "tool", id: "spatialstats", label: "Stats spatiales (Moran, hotspots)", desc: "Autocorrélation spatiale (Moran) et points chauds/froids (Getis-Ord Gi*) d'un champ.", icon: IcCircleDot },
-    { kind: "tool", id: "vectorviz", label: "Chaleur & clusters", desc: "Carte de chaleur (densité) et regroupement de points. Hexagones/flux : voir Analyse spatiale.", icon: IcRadar },
+    { kind: "tool", id: "vectorviz", label: "Chaleur & clusters", desc: "Carte de chaleur (densité) et regroupement de points.", icon: IcRadar },
     { kind: "tool", id: "viewshed", label: "Analyse de visibilité (viewshed)", desc: "Ce qui est visible depuis un point, sur le relief (MNT mondial ~30 m).", icon: IcMountain },
     { kind: "tool", id: "bivariate", label: "Carte bivariée (2 variables)", desc: "Croise deux variables en une seule palette.", icon: IcGrid },
     { kind: "tool", id: "stats", label: "Statistiques", desc: "Statistiques descriptives d'une couche.", icon: IcBarChart },
     { kind: "tool", id: "join", label: "Jointure attributaire", desc: "Rapatrie les colonnes d'un CSV vers une couche.", icon: IcTable },
     { kind: "tool", id: "classif", label: "Classification supervisée", desc: "Entraîne un modèle sur vos échantillons.", icon: IcClassif },
-    { kind: "tool", id: "editor", label: "Éditeur vectoriel", desc: "Dessine et modifie des entités vectorielles.", icon: IcEdit },
     { kind: "tool", id: "sql", label: "SQL Workspace", desc: "Éditeur SQL spatial (DuckDB) sur vos couches → résultat en carte.", icon: IcTable },
-    { kind: "tool", id: "measure_dist", label: "Mesure distance", desc: "Longueur d'une ligne sur la carte.", icon: IcRulerTool },
-    { kind: "tool", id: "measure_area", label: "Mesure surface", desc: "Superficie d'un polygone tracé.", icon: IcHexagon },
-    { kind: "tool", id: "buffer", label: "Zone tampon", desc: "Zone d'influence autour d'une entité.", icon: IcCircleDot },
-    { kind: "tool", id: "draw", label: "Dessin libre", desc: "Croquis libre : points, lignes, polygones.", icon: IcPencil },
+  ]},
+  // ── Cartographie & mise en page : gestion, édition, habillage ──
+  { id: "carto", label: "Cartographie & mise en page", icon: IcMap, items: [
+    { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
+    { kind: "tool", id: "editor", label: "Éditeur vectoriel", desc: "Dessine et modifie des entités vectorielles.", icon: IcEdit },
     { kind: "tool", id: "projections", label: "Projections du monde", desc: "Composeur de carte : projection, habillage, PDF.", icon: IcMap },
     { kind: "tool", id: "graticule", label: "Graticule (grille lat/lon)", desc: "Grille latitude/longitude de repérage superposée à la carte.", icon: IcGrid, panel: true },
   ]},

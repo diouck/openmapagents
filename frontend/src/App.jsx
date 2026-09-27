@@ -25,6 +25,7 @@ import BottomPanel from "./components/BottomPanel";
 import MiniMap from "./components/MiniMap";
 import PrintPanel from "./components/PrintPanel";
 import SpatialPanel from "./components/SpatialPanel";
+import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
 import JoinPanel from "./components/JoinPanel";
 import BurnSeverityPanel from "./components/BurnSeverityPanel";
 import WatershedPanel from "./components/WatershedPanel";
@@ -53,7 +54,6 @@ import ThematicMenu from "./components/ThematicMenu";
 import { MENU_TREE } from "./utils/menuTree";
 import PluginManager from "./components/PluginManager";
 import GraticulePanel from "./components/GraticulePanel";
-import WhiteboxPanel from "./components/WhiteboxPanel";
 import IndicatorModal from "./components/IndicatorModal";
 import BivariateModal from "./components/BivariateModal";
 import SearchPalette from "./components/SearchPalette";
@@ -483,13 +483,12 @@ const PANEL_SIZES = {
   stats:     { w: 420, h: 460 },
   solarsystem: { w: 460, h: 520 },
   export:    { w: 280, h: "auto" },
-  spatial:   { w: 520, h: 480 },
+  spatial:   { w: 740, h: 560 },
   database:  { w: 380, h: 480 },
   gee:       { w: 360, h: 500 },
   ogc:       { w: 360, h: 480 },
   agri:      { w: 440, h: 640 },
   graticule: { w: 268, h: "auto" },
-  whitebox: { w: 720, h: 540 },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -2473,7 +2472,7 @@ export default function App() {
 
     if (activeTool === "spatial") return (
       <Embed>
-        <SpatialPanel layers={layers.filter(l=>l.visible&&!l.isRaster)} onAddLayer={addLayer} />
+        <SpatialAnalysisPanel layers={layers} onAddLayer={addLayer} onAddRasterLayer={addRasterLayer} mapRef={mapRef} />
       </Embed>
     );
 
@@ -2502,11 +2501,6 @@ export default function App() {
     // Sans Embed : hauteur naturelle → panneau "auto" ajusté au contenu (onglets).
     if (activeTool === "graticule") return (
       <GraticulePanel mapRef={mapRef} />
-    );
-
-    // ── Whitebox : grand panneau d'analyse raster (multi-catégories) ──
-    if (activeTool === "whitebox") return (
-      <WhiteboxPanel onAddRasterLayer={addRasterLayer} mapRef={mapRef} layers={layers} />
     );
 
     // ── Story map (scrollytelling + export HTML) ──────────────

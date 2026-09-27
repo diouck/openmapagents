@@ -68,12 +68,6 @@ export default function SpatialPanel({ layers, onAddLayer }) {
     outline: "none", width: "100%", boxSizing: "border-box",
   };
 
-  if (!layers.length) return (
-    <div style={{ padding: 20, fontSize: 12, color: C.dim, textAlign: "center" }}>
-      Chargez des couches vectorielles pour utiliser l'analyse spatiale
-    </div>
-  );
-
   return (
     <div style={{ display: "flex", height: "100%", width: "100%", minHeight: 0, overflow: "hidden" }}>
 

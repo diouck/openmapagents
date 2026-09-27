@@ -65,9 +65,10 @@ function renderDefinition(text, C) {
   });
 }
 
-export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [] }) {
+export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [], filterCategories = null }) {
   const C = useThemeContext();
-  const categories = getCategories();
+  const allCategories = getCategories();
+  const categories = filterCategories ? allCategories.filter(c => filterCategories.includes(c.key)) : allCategories;
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   const [selectedToolId, setSelectedToolId] = useState(null); // null = vue d'ensemble
