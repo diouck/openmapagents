@@ -7,7 +7,11 @@
  */
 import { useState } from "react";
 import { useThemeContext } from "../theme";
-import { F, M, API } from "../config";
+import { F, M } from "../config";
+
+// Base API relative en prod (nginx proxie /api), localhost en dev. Ne PAS importer
+// le API="/api" de config.js ici : on préfixe déjà /api → sinon /api/api (404).
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 import { WHITEBOX_TOOLS, WHITEBOX_TOOLS_BY_ID, getToolsByCategory, getCategoryName } from "../utils/whiteboxTools";
 import { IcTrendingUp, IcNavigation, IcWaves, IcSun, IcMountain, IcChevronDown, IcMap, IcGlobe, IcStack } from "../icons";
 
