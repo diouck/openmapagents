@@ -727,8 +727,8 @@ export default function App() {
   // Vue initiale : restaure la position sauvegardée avant un basculement de moteur
   // (MapLibre ⟷ Mapbox se fait par rechargement) pour ne pas « sauter ».
   const [vs,     setVs]     = useState(() => {
-    // Vue initiale : planisphère entière, centrée sur l'Afrique (~15°E ; zoom 1.6 = tout le monde visible).
-    const def = { longitude: 15, latitude: 7, zoom: 1.6, pitch: 0, bearing: 0 };
+    // Vue initiale : presqu'île de Dakar (Cap-Vert) entièrement visible.
+    const def = { longitude: -17.45, latitude: 14.7, zoom: 11, pitch: 0, bearing: 0 };
     try {
       const saved = localStorage.getItem("mapVS");
       if (saved) { localStorage.removeItem("mapVS"); const p = JSON.parse(saved); if (p && Number.isFinite(p.longitude)) return { ...def, ...p }; }
