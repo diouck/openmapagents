@@ -84,7 +84,7 @@ export default function SearchPalette({ onSelect, onClose }) {
                   <span style={{ display: "block", fontSize: 12.5, fontWeight: on ? 600 : 400, color: on ? C.acc : C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.full}</span>
                   <span style={{ display: "block", fontSize: 9.5, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sub}</span>
                 </span>
-                <span style={{ fontSize: 8.5, color: C.dim, border: `0.5px solid ${C.bdr}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0, textTransform: "uppercase", letterSpacing: ".04em" }}>{r.kind === "tool" ? "Outil" : "Indice"}</span>
+                <span style={{ fontSize: 8.5, color: C.dim, border: `0.5px solid ${C.bdr}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0, textTransform: "uppercase", letterSpacing: ".04em" }}>{r.kind === "tool" ? "Outil" : r.kind === "spatial" ? "Analyse" : "Indice"}</span>
               </button>
             );
           })}

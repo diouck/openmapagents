@@ -9,12 +9,31 @@
  *   - indicator → onIndicator(id) / openModal ; tool → onActivate(id).
  */
 import { MENU_TREE, INDICATORS } from "./menuTree";
+import { buildSpatialSections } from "./spatialSections";
 
 // minuscule + suppression des accents (é→e) via décomposition NFD.
 const _norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 export function buildSearchIndex() {
   const out = [];
+
+  // ── Outils d'analyse spatiale (hub) : chaque op/outil devient cherchable ──
+  // kind "spatial" → ouvre le hub sur (section, catégorie) via setSpatialTarget.
+  for (const sec of buildSpatialSections()) {
+    for (const g of sec.groups) {
+      for (const t of g.tools) {
+        out.push({
+          kind: "spatial", id: `sp_${sec.id}_${t.id}`,
+          section: sec.id, category: g.key,
+          label: t.name, full: t.name,
+          sub: `Analyse spatiale · ${sec.label} · ${g.name}`,
+          desc: t.desc, icon: null,
+          keywords: _norm(`${t.name} ${t.desc || ""} ${g.name} ${sec.label} analyse spatiale ${t.id}`),
+        });
+      }
+    }
+  }
+
   for (const theme of MENU_TREE) {
     for (const it of theme.items) {
       if (it.kind === "tool") {

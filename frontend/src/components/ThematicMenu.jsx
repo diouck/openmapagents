@@ -36,8 +36,7 @@ export default function ThematicMenu({
 }) {
   const [expanded, setExpanded] = useState(!isMobile);
   const [openTheme, setOpenTheme] = useState(MENU_TREE[0]?.id || null);
-  const [openSub, setOpenSub] = useState({}); // items à sous-entrées dépliés (ex : Analyse spatiale)
-  const [openFam, setOpenFam] = useState({}); // familles Vecteur/Raster/Avancé dépliées dans le menu
+  const [openFam, setOpenFam] = useState({ vecteur: true }); // familles dépliées — Vecteur par défaut
   const [query, setQuery] = useState("");
   const spatialSections = useMemo(buildSpatialSections, []);
 
@@ -56,6 +55,7 @@ export default function ThematicMenu({
   const onItem = (it) => {
     if (it.kind === "soon") return;   // entrée grisée : donnée absente de GEE, non actionnable
     if (it.kind === "indicator") onIndicator?.(it.id);
+    else if (it.kind === "spatial") { setSpatialTarget(it.section, it.category); onActivate?.("spatial"); }
     else onActivate?.(it.id);
     if (isMobile) setExpanded(false);
   };
@@ -89,7 +89,7 @@ export default function ThematicMenu({
           ) : results.map(r => {
             const RIcon = r.icon;
             return (
-              <button key={r.kind + ":" + r.id} onClick={() => onItem({ kind: r.kind, id: r.id })} title={r.full} style={{
+              <button key={r.kind + ":" + r.id} onClick={() => onItem(r)} title={r.full} style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", borderRadius: 6, cursor: "pointer",
                 background: "transparent", border: "none", color: C.txt,
               }}>
@@ -98,7 +98,7 @@ export default function ThematicMenu({
                   <span style={{ display: "block", fontSize: 11.5, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.full}</span>
                   <span style={{ display: "block", fontSize: 8.5, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sub}</span>
                 </span>
-                <span style={{ fontSize: 8, color: C.dim, border: `0.5px solid ${C.bdr}`, borderRadius: 3, padding: "0 4px", flexShrink: 0 }}>{r.kind === "tool" ? "Outil" : "Indice"}</span>
+                <span style={{ fontSize: 8, color: C.dim, border: `0.5px solid ${C.bdr}`, borderRadius: 3, padding: "0 4px", flexShrink: 0 }}>{r.kind === "tool" ? "Outil" : r.kind === "spatial" ? "Analyse" : "Indice"}</span>
               </button>
             );
           })
@@ -126,7 +126,39 @@ export default function ThematicMenu({
                       const ItemIcon = itemIcon(it);
                       const canManage = it.kind === "tool" && !CORE_IDS.has(it.id);
                       const hasChildren = Array.isArray(it.children) && it.children.length > 0;
-                      const subOpen = !!openSub[it.id];
+                      // Item « Analyse spatiale » : pas de bouton intermédiaire (évite le
+                      // doublon avec le titre du thème). Rend directement familles → catégories.
+                      if (hasChildren) {
+                        return (
+                          <div key={it.id} style={{ marginTop: 2 }}>
+                            {spatialSections.map(sec => {
+                              const famOpen = !!openFam[sec.id];
+                              const famIcon = it.children.find(c => c.section === sec.id)?.icon;
+                              return (
+                                <div key={sec.id}>
+                                  <button onClick={() => { setSpatialTarget(sec.id, null); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "6px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.txt, fontSize: 12, fontWeight: 600 }}>
+                                    {famIcon && <famIcon size={14} color={C.acc} />}
+                                    <span style={{ flex: 1, textAlign: "left" }}>{sec.label}</span>
+                                    <span onClick={(e) => { e.stopPropagation(); setOpenFam(f => ({ ...f, [sec.id]: !f[sec.id] })); }}
+                                      style={{ display: "flex", color: C.dim, transform: famOpen ? "rotate(90deg)" : "none", transition: "transform .15s", padding: "0 2px" }}>
+                                      <IcCaretRight size={12} />
+                                    </span>
+                                  </button>
+                                  {famOpen && sec.groups.map(g => (
+                                    <button key={g.key} onClick={() => { setSpatialTarget(sec.id, g.key); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
+                                      title={`${g.name} — ${g.tools.length} outil${g.tools.length > 1 ? "s" : ""}`}
+                                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
+                                      <span style={{ flex: 1, textAlign: "left", textTransform: "uppercase", letterSpacing: ".03em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                                      <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
                       return (
                         <div key={it.id}>
                         <button onClick={() => onItem(it)} disabled={soon}
@@ -157,45 +189,7 @@ export default function ThematicMenu({
                           {it.id === "layers" && layersCount > 0 && (
                             <span style={{ background: C.acc, color: "#fff", borderRadius: 8, fontSize: 8, padding: "0 4px", fontWeight: 700, marginTop: 1 }}>{layersCount}</span>
                           )}
-                          {hasChildren && (
-                            <span onClick={(e) => { e.stopPropagation(); setOpenSub(s => ({ ...s, [it.id]: !s[it.id] })); }}
-                              title={subOpen ? "Replier" : "Déplier"}
-                              style={{ display: "flex", color: C.dim, transform: subOpen ? "rotate(90deg)" : "none", transition: "transform .15s", marginTop: 1 }}>
-                              <IcCaretRight size={12} />
-                            </span>
-                          )}
                         </button>
-                        {hasChildren && subOpen && (
-                          <div style={{ margin: "1px 0 4px 24px", paddingLeft: 8, borderLeft: `0.5px solid ${C.bdr}` }}>
-                            {spatialSections.map(sec => {
-                              const famOpen = !!openFam[sec.id];
-                              const famIcon = it.children.find(c => c.section === sec.id)?.icon;
-                              return (
-                                <div key={sec.id}>
-                                  {/* Famille : clic ouvre le hub sur la famille, chevron déplie les catégories */}
-                                  <button onClick={() => { setSpatialTarget(sec.id, null); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
-                                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "5px 6px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.txt, fontSize: 11.5, fontWeight: 600 }}>
-                                    {famIcon && <famIcon size={13} color={C.acc} />}
-                                    <span style={{ flex: 1, textAlign: "left" }}>{sec.label}</span>
-                                    <span onClick={(e) => { e.stopPropagation(); setOpenFam(f => ({ ...f, [sec.id]: !f[sec.id] })); }}
-                                      style={{ display: "flex", color: C.dim, transform: famOpen ? "rotate(90deg)" : "none", transition: "transform .15s", padding: "0 2px" }}>
-                                      <IcCaretRight size={11} />
-                                    </span>
-                                  </button>
-                                  {/* Catégories : clic ouvre le hub sur (famille, catégorie) */}
-                                  {famOpen && sec.groups.map(g => (
-                                    <button key={g.key} onClick={() => { setSpatialTarget(sec.id, g.key); onActivate?.(it.id); if (isMobile) setExpanded(false); }}
-                                      title={`${g.name} — ${g.tools.length} outil${g.tools.length > 1 ? "s" : ""}`}
-                                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 22px", borderRadius: 5, cursor: "pointer", background: "transparent", border: "none", color: C.mut, fontSize: 10.5 }}>
-                                      <span style={{ flex: 1, textAlign: "left", textTransform: "uppercase", letterSpacing: ".03em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
-                                      <span style={{ fontSize: 9, color: C.dim }}>{g.tools.length}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
                         </div>
                       );
                     })}

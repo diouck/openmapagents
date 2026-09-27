@@ -2959,7 +2959,7 @@ export default function App() {
         {searchOpen && (
           <SearchPalette
             onClose={() => setSearchOpen(false)}
-            onSelect={(r) => { if (r.kind === "indicator") openModal({ type: "indicator", indKey: r.id }); else activateItem(r.id); }}
+            onSelect={(r) => { if (r.kind === "indicator") openModal({ type: "indicator", indKey: r.id }); else if (r.kind === "spatial") { setSpatialTarget(r.section, r.category); activateItem("spatial"); } else activateItem(r.id); }}
           />
         )}
 
