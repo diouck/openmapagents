@@ -23,10 +23,11 @@ server {
     location ^~ /doc/ { try_files /app.html =404; }
 
     # --- API proxy to the backend container ---
-    # Les routes backend sont a /api/* (ex. /api/gee/*, /api/chat) : on NE strippe PAS
-    # le prefixe -> PAS de slash final sur proxy_pass, sinon 404 sur toutes les routes.
+    # Le backend expose des routes NUES (/gee, /db, /config, /chat...). Le slash final
+    # sur proxy_pass STRIPPE le prefixe /api/ : /api/gee/tiles -> backend:8000/gee/tiles.
+    # (design du commit b15a47c "remove /api prefix from all routers")
     location /api/ {
-        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_pass ${BACKEND_UPSTREAM}/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
