@@ -312,8 +312,8 @@ export const MENU_TREE = [
     { kind: "tool", id: "database", label: "Base de données", desc: "Interroge et importe depuis DuckDB.", icon: IcDatabase },
     { kind: "tool", id: "georef", label: "Géoréférenceur (caler une image)", desc: "Cale un plan scanné ou une photo sur la carte via des points d'appui (affine/projective).", icon: IcMap },
   ]},
-  // ── Outils & analyse : traitements, mesures, mise en page ──
-  { id: "outils", label: "Outils & analyse", icon: IcWrench, items: [
+  // ── Analyses spatiales : traitements, mesures, mise en page ──
+  { id: "outils", label: "Analyses spatiales", icon: IcWrench, items: [
     { kind: "tool", id: "layers", label: "Gestionnaire de couches", desc: "Ordre, style, opacité et export des couches.", icon: IcStack },
     { kind: "tool", id: "spatial", label: "Analyse spatiale", desc: "Intersections, jointures, agrégations.", icon: IcVenn },
     { kind: "tool", id: "whitebox_morphologie", label: "Morphologie (Whitebox)", desc: "Analyse topographique : pente, aspect, courbure, ombrage, TPI.", icon: IcMountain, panel: true },
