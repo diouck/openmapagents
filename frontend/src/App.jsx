@@ -487,6 +487,7 @@ const PANEL_SIZES = {
   gee:       { w: 360, h: 500 },
   ogc:       { w: 360, h: 480 },
   agri:      { w: 440, h: 640 },
+  graticule: { w: 268, h: "auto" },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -530,21 +531,29 @@ function FloatingPanel({ id, title, onClose, children, offset = 0 }) {
     setPos({ x, y });
   }, []);
 
-  // Auto-fit hauteur au contenu (uniquement pour les modules "auto")
+  // Auto-fit hauteur au contenu (modules "auto"). On mesure la hauteur NATURELLE
+  // du contenu (1er enfant, non-flex-grow) pour suivre grandissement ET
+  // rétrécissement (ex. changement d'onglet interne) via ResizeObserver.
   useEffect(() => {
     if (!autoH || !contentRef.current) return;
+    const host = contentRef.current;
     const measure = () => {
-      const sh = contentRef.current?.scrollHeight || 0;
+      const target = host.firstElementChild || host;
+      const sh = target.scrollHeight || 0;
       if (sh < 10) return;
       const maxH = window.innerHeight - 80;
       const h = Math.min(sh + 42, maxH); // 42 = hauteur header
       stateRef.current.size = { ...stateRef.current.size, h };
-      setSize(s => ({ ...s, h }));
+      setSize(s => (s.h === h ? s : { ...s, h })); // no-op garde contre boucle RO
     };
-    // Mesure immédiate + après paint
     measure();
-    const t = requestAnimationFrame(measure);
-    return () => cancelAnimationFrame(t);
+    const raf = requestAnimationFrame(measure);
+    let ro;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(measure);
+      ro.observe(host.firstElementChild || host);
+    }
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); };
   }, [children, autoH]);
 
   // Garde stateRef en sync
@@ -2487,10 +2496,9 @@ export default function App() {
     );
 
     // ── Graticule (grille lat/lon) ────────────────────────────
+    // Sans Embed : hauteur naturelle → panneau "auto" ajusté au contenu (onglets).
     if (activeTool === "graticule") return (
-      <Embed>
-        <GraticulePanel mapRef={mapRef} />
-      </Embed>
+      <GraticulePanel mapRef={mapRef} />
     );
 
     // ── Story map (scrollytelling + export HTML) ──────────────
