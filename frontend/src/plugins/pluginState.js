@@ -15,13 +15,14 @@
  */
 import { useSyncExternalStore } from "react";
 import { MENU_TREE } from "../utils/menuTree";
+import { IcTable, IcBarChart, IcStack, IcArrow } from "../icons";
 
 const LS_KEY = "oma.plugins.v1";
 
-/** Catalogue dérivé de MENU_TREE : chaque outil est un plugin. */
-export const PLUGIN_CATALOG = MENU_TREE.flatMap((theme) =>
+/** Catalogue dérivé de MENU_TREE : tous les éléments (outils, indicateurs, à venir). */
+const MENU_PLUGINS = MENU_TREE.flatMap((theme) =>
   theme.items
-    .filter((it) => it.kind === "tool")
+    .filter((it) => ["tool", "indicator", "soon"].includes(it.kind))
     .map((it) => ({
       id: it.id,
       label: it.label,
@@ -32,8 +33,19 @@ export const PLUGIN_CATALOG = MENU_TREE.flatMap((theme) =>
       version: "1.0",
       author: "OpenMapAgents",
       tags: [theme.label],
+      kind: it.kind,
     }))
 );
+
+/** Modules d'analyse accessibles via le menu ⋯ de la légende (hors menu thématique). */
+const EXTRA_MODULES = [
+  { id: "attr_table",     label: "Table attributaire",        icon: IcTable,    desc: "Table, statistiques, graphiques, filtres, édition de champs" },
+  { id: "dashboard",      label: "Tableau de bord",           icon: IcBarChart, desc: "Grille de graphiques multiples d'une couche" },
+  { id: "interpolate",    label: "Interpolation (kriging/IDW)", icon: IcStack,  desc: "Couche de points → surface raster continue" },
+  { id: "feature_select", label: "Sélection d'entités",       icon: IcArrow,    desc: "Sélection carte par clic / rectangle / polygone" },
+].map((m) => ({ ...m, category: "Analyse de données", external: false, version: "1.0", author: "OpenMapAgents", tags: ["Analyse de données"], kind: "module" }));
+
+export const PLUGIN_CATALOG = [...MENU_PLUGINS, ...EXTRA_MODULES];
 
 const CATALOG_INDEX = new Map(PLUGIN_CATALOG.map((p) => [p.id, p]));
 export const getPlugin = (id) => CATALOG_INDEX.get(id) || null;
