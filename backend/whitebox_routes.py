@@ -75,6 +75,14 @@ VIS = {
     # ── Nettoyage MNT / Distance ──
     "smooth_dem":         {"min": 0, "max": 3000,  "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
     "euclidean_distance": {"min": 0, "max": 20000, "palette": ["#08306b", "#2171b5", "#6baed6", "#c6dbef", "#f7fbff"]},
+    "fill_missing_data":  {"min": 0, "max": 3000,  "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "cost_distance":      {"min": 0, "max": 50000, "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]},
+    # ── Segmentation ──
+    "connected_components": {"min": 0, "max": 60, "palette": ["#9e0142", "#f46d43", "#fee08b", "#e6f598", "#66c2a5", "#5e4fa2", "#3288bd"]},
+    "clump":                {"min": 0, "max": 60, "palette": ["#9e0142", "#f46d43", "#fee08b", "#e6f598", "#66c2a5", "#5e4fa2", "#3288bd"]},
+    "sieve":                {"min": 0, "max": 7,  "palette": ["#9e0142", "#f46d43", "#fee08b", "#e6f598", "#66c2a5", "#5e4fa2"]},
+    # ── Avancé ──
+    "pca": {"min": -500, "max": 500, "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]},
 }
 
 
@@ -253,6 +261,53 @@ def _build_image(ee, tool: str, dem, params: dict, region=None):
         streams = ee.Image("WWF/HydroSHEDS/15ACC").select(0).gte(1000)
         # fastDistanceTransform → distance² en pixels ; ~463 m par pixel (15 arc-sec)
         return streams.fastDistanceTransform(256).sqrt().multiply(463).rename("euclidean_distance")
+
+    # ── Nettoyage : combler les NoData par interpolation focale ──
+    if tool == "fill_missing_data":
+        filled = demz.focal_mean(radius=2, kernelType="square", units="pixels", iterations=3)
+        return demz.unmask(filled).rename("fill_missing_data")
+
+    # ── Distance de coût (pente comme coût, source = réseau hydro) ──
+    if tool == "cost_distance":
+        cost = ee.Terrain.slope(demz).add(1)
+        source = ee.Image("WWF/HydroSHEDS/15ACC").select(0).gte(1000)
+        return cost.cumulativeCost(source=source, maxDistance=50000).rename("cost_distance")
+
+    # ── Segmentation : classification auto (8 tranches) puis composantes ──
+    if tool in ("connected_components", "clump", "sieve"):
+        v = demz.rename("v")
+        reg = region if region is not None else v.geometry()
+        mm = v.reduceRegion(reducer=ee.Reducer.minMax(), geometry=reg, scale=90, maxPixels=int(1e9), bestEffort=True)
+        mn = ee.Number(mm.get("v_min")); mx = ee.Number(mm.get("v_max"))
+        classes = v.subtract(mn).divide(mx.subtract(mn).max(1e-9)).multiply(8).floor().min(7).toInt()
+        diag = str(params.get("diag", "oui")) != "non"
+        if tool == "sieve":
+            min_size = int(params.get("min_size", 10) or 10)
+            count = classes.connectedPixelCount(maxSize=256, eightConnected=diag)
+            return classes.updateMask(count.gte(min_size)).rename("sieve")
+        kernel = ee.Kernel.square(1) if diag else ee.Kernel.plus(1)
+        labeled = classes.connectedComponents(connectedness=kernel, maxSize=256)
+        # labels bruts très grands → repliés (mod) pour un rendu catégoriel lisible
+        return labeled.select("labels").mod(60).rename(tool)
+
+    # ── Avancé : ACP (PCA) sur pile élévation/pente/TPI → PC1 ──
+    if tool == "pca":
+        slope = ee.Terrain.slope(demz)
+        tpi = demz.subtract(demz.focal_mean(radius=10, kernelType="circle", units="pixels"))
+        stack = demz.rename("b1").addBands(slope.rename("b2")).addBands(tpi.rename("b3"))
+        reg = region if region is not None else stack.geometry()
+        names = stack.bandNames()
+        mean_dict = stack.reduceRegion(reducer=ee.Reducer.mean(), geometry=reg, scale=90, maxPixels=int(1e9), bestEffort=True)
+        means = ee.Image.constant(mean_dict.values(names))
+        centered = stack.subtract(means)
+        arrays = centered.toArray()
+        covar = arrays.reduceRegion(reducer=ee.Reducer.centeredCovariance(), geometry=reg, scale=90, maxPixels=int(1e9), bestEffort=True)
+        covar_array = ee.Array(covar.get("array"))
+        eigens = covar_array.eigen()
+        eigen_vectors = eigens.slice(1, 1)                 # retire la colonne des valeurs propres
+        principal = ee.Image(eigen_vectors).matrixMultiply(arrays.toArray(1))
+        pc = principal.arrayProject([0]).arrayFlatten([["pc1", "pc2", "pc3"]])
+        return pc.select("pc1").rename("pca")
 
     raise HTTPException(422, f"Outil inconnu : {tool}")
 

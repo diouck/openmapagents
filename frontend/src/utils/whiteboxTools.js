@@ -184,7 +184,7 @@ export const WHITEBOX_TOOLS = {
     description: "Correction et conditionnement du MNT",
     tools: [
       { id: "breach_depressions", name: "Percer les dépressions", category: "Nettoyage MNT", implemented: false, engine: "whitebox", description: "Ouvre un exutoire aux cuvettes (moins destructif que remplir)", inputs: IN_DEM, params: [], outputs: { filename: "breached", format: "GeoTIFF" } },
-      { id: "fill_missing_data", name: "Combler les trous", category: "Nettoyage MNT", implemented: false, engine: "whitebox", description: "Interpole les pixels NoData", inputs: IN_DEM, params: [], outputs: { filename: "filled_nodata", format: "GeoTIFF" } },
+      { id: "fill_missing_data", name: "Combler les trous", category: "Nettoyage MNT", implemented: true, engine: "gee", description: "Interpole les pixels NoData", inputs: IN_DEM, params: [], outputs: { filename: "filled_nodata", format: "GeoTIFF" } },
       { id: "smooth_dem", name: "Lissage du MNT", category: "Nettoyage MNT", implemented: true, engine: "gee", description: "Réduit le bruit d'acquisition", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "smoothed", format: "GeoTIFF" } },
     ],
   },
@@ -197,9 +197,9 @@ export const WHITEBOX_TOOLS = {
     icon: "boxes",
     description: "Regroupement de pixels en objets",
     tools: [
-      { id: "connected_components", name: "Composantes connexes", category: "Segmentation", implemented: false, engine: "whitebox", description: "Étiquette les groupes de pixels contigus", inputs: IN_RASTER, params: [], outputs: { filename: "components", format: "GeoTIFF" } },
-      { id: "clump", name: "Clump (agrégats)", category: "Segmentation", implemented: false, engine: "whitebox", description: "Regroupe les pixels de même valeur", inputs: IN_RASTER, params: [{ id: "diag", label: "Inclure diagonales", type: "select", default: "oui", options: ["oui", "non"], description: "Connexité 8 vs 4" }], outputs: { filename: "clumps", format: "GeoTIFF" } },
-      { id: "sieve", name: "Sieve (nettoyage)", category: "Segmentation", implemented: false, engine: "whitebox", description: "Supprime les petits objets sous un seuil", inputs: IN_RASTER, params: [{ id: "min_size", label: "Taille min (pixels)", type: "number", default: 10, description: "Objets plus petits fusionnés" }], outputs: { filename: "sieved", format: "GeoTIFF" } },
+      { id: "connected_components", name: "Composantes connexes", category: "Segmentation", implemented: true, engine: "gee", description: "Étiquette les groupes de pixels contigus", inputs: IN_RASTER, params: [], outputs: { filename: "components", format: "GeoTIFF" } },
+      { id: "clump", name: "Clump (agrégats)", category: "Segmentation", implemented: true, engine: "gee", description: "Regroupe les pixels de même valeur", inputs: IN_RASTER, params: [{ id: "diag", label: "Inclure diagonales", type: "select", default: "oui", options: ["oui", "non"], description: "Connexité 8 vs 4" }], outputs: { filename: "clumps", format: "GeoTIFF" } },
+      { id: "sieve", name: "Sieve (nettoyage)", category: "Segmentation", implemented: true, engine: "gee", description: "Supprime les petits objets sous un seuil", inputs: IN_RASTER, params: [{ id: "min_size", label: "Taille min (pixels)", type: "number", default: 10, description: "Objets plus petits fusionnés" }], outputs: { filename: "sieved", format: "GeoTIFF" } },
     ],
   },
 
@@ -241,7 +241,7 @@ export const WHITEBOX_TOOLS = {
     description: "Distances euclidienne et de coût",
     tools: [
       { id: "euclidean_distance", name: "Distance euclidienne", category: "Distance", implemented: true, engine: "gee", description: "Distance à l'objet le plus proche", inputs: IN_RASTER, params: [], outputs: { filename: "eucl_dist", format: "GeoTIFF" } },
-      { id: "cost_distance", name: "Distance de coût", category: "Distance", implemented: false, engine: "gee", description: "Coût cumulé de déplacement", inputs: [{ id: "source", label: "Sources", type: "raster", required: true, description: "Points/zones de départ" }, { id: "cost", label: "Surface de coût", type: "raster", required: true, description: "Résistance au déplacement" }], params: [], outputs: { filename: "cost_dist", format: "GeoTIFF" } },
+      { id: "cost_distance", name: "Distance de coût", category: "Distance", implemented: true, engine: "gee", description: "Coût cumulé de déplacement", inputs: [{ id: "source", label: "Sources", type: "raster", required: true, description: "Points/zones de départ" }, { id: "cost", label: "Surface de coût", type: "raster", required: true, description: "Résistance au déplacement" }], params: [], outputs: { filename: "cost_dist", format: "GeoTIFF" } },
     ],
   },
 
@@ -267,7 +267,7 @@ export const WHITEBOX_TOOLS = {
     icon: "sparkles",
     description: "Réduction, interpolation, classification",
     tools: [
-      { id: "pca", name: "ACP (PCA)", category: "Avancé", implemented: false, engine: "gee", description: "Réduction de dimension multibande", inputs: [{ id: "raster", label: "Raster multibande", type: "raster", required: true, description: "Plusieurs bandes" }], params: [{ id: "components", label: "Composantes", type: "number", default: 3, description: "Nombre à garder" }], outputs: { filename: "pca", format: "GeoTIFF" } },
+      { id: "pca", name: "ACP (PCA)", category: "Avancé", implemented: true, engine: "gee", description: "Réduction de dimension multibande", inputs: [{ id: "raster", label: "Raster multibande", type: "raster", required: true, description: "Plusieurs bandes" }], params: [{ id: "components", label: "Composantes", type: "number", default: 3, description: "Nombre à garder" }], outputs: { filename: "pca", format: "GeoTIFF" } },
       { id: "kriging", name: "Krigeage", category: "Avancé", implemented: false, engine: "whitebox", description: "Interpolation géostatistique", inputs: [{ id: "points", label: "Points de mesure", type: "vector", required: true, description: "Échantillons" }], params: [], outputs: { filename: "kriging", format: "GeoTIFF" } },
       { id: "kmeans", name: "Classification k-means", category: "Avancé", implemented: true, engine: "gee", description: "Segmentation non supervisée", inputs: [{ id: "raster", label: "Raster multibande", type: "raster", required: true, description: "Plusieurs bandes" }], params: [{ id: "clusters", label: "Nombre de classes", type: "number", default: 5, min: 2, max: 20, description: "Clusters" }], outputs: { filename: "kmeans", format: "GeoTIFF" } },
     ],
