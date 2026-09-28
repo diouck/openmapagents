@@ -2220,7 +2220,7 @@ export default function App() {
     applyPoly: () => applyPolygonSelect(),
     clear: () => { setSelectedFeats([]); setPolyPts([]); },
     finish: () => { setSelectLayerId(null); setSelectedFeats([]); setSelectMode("click"); setPolyPts([]); },
-    openTable: () => { const lay = layers.find(l => l.id === selectLayerId); if (lay && selectedFeats.length) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)` }); },
+    openTable: () => { const lay = layers.find(l => l.id === selectLayerId); if (lay && selectedFeats.length) setTableLayer({ ...lay, geojson: { type: "FeatureCollection", features: selectedFeats }, name: `${lay.name} (sélection)`, _selection: true }); },
   };
   const selStateRef = useRef({});
   selStateRef.current = { mode: selectMode, count: selectedFeats.length, polyLen: polyPts.length };
@@ -3472,7 +3472,11 @@ export default function App() {
           />
           {tableLayer && (
             <AttributeTableModal layer={tableLayer} onClose={() => setTableLayer(null)}
-              onZoomFeature={(f) => { try { const b = turf.bbox(f); mapRef.current?.getMap?.()?.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, duration: 800 }); } catch (_) {} }} />
+              onZoomFeature={(f) => { try { const b = turf.bbox(f); mapRef.current?.getMap?.()?.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, duration: 800 }); } catch (_) {} }}
+              onUpdateFeatures={tableLayer._selection ? null : ((features) => {
+                setLayers(p => p.map(l => l.id === tableLayer.id ? { ...l, geojson: { type: "FeatureCollection", features }, featureCount: features.length } : l));
+                setTableLayer(t => t ? { ...t, geojson: { type: "FeatureCollection", features } } : t);
+              })} />
           )}
           {filterLayer && (
             <FilterModal layer={filterLayer} onClose={() => setFilterLayer(null)}

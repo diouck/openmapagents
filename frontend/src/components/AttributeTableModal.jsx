@@ -4,7 +4,7 @@
  * lignes, menu par colonne (trier, masquer, statistiques, graphique). Ouvert
  * depuis le menu « ⋯ » de la légende / du gestionnaire de couches.
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { IcX, IcSearch, IcZoomIn, IcBarChart, IcFileDown, IcChevronDown } from "../icons";
@@ -29,17 +29,45 @@ function numStats(vals) {
   return { count: n.length, min: n[0], max: n[n.length - 1], mean: sum / n.length, median: n[Math.floor(n.length / 2)] };
 }
 
-export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
+export default function AttributeTableModal({ layer, onClose, onZoomFeature, onUpdateFeatures }) {
   const C = useThemeContext();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState(null);       // { col, dir }
   const [hidden, setHidden] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
   const [colMenu, setColMenu] = useState(null);  // { col, x, y }
-  const [panel, setPanel] = useState(null);      // { kind: "stats"|"chart"|"filter", col }
+  const [panel, setPanel] = useState(null);      // { kind: "stats"|"chart"|"filter"|"calc", col }
   const [colFilters, setColFilters] = useState({}); // { col: Set(valeurs gardées) }
 
-  const feats = layer?.geojson?.features || [];
+  // État local des entités : permet l'édition des champs sans attendre le parent.
+  const [feats, setFeats] = useState(layer?.geojson?.features || []);
+  useEffect(() => { setFeats(layer?.geojson?.features || []); }, [layer?.id]);
+  const editable = typeof onUpdateFeatures === "function";
+  // Applique une transformation aux entités puis remonte au parent.
+  const commit = (nextFeats) => { setFeats(nextFeats); onUpdateFeatures?.(nextFeats); };
+  const renameField = (col, name) => {
+    const nm = (name || "").trim(); if (!nm || nm === col) return;
+    commit(feats.map(f => { const p = { ...(f.properties || {}) }; p[nm] = p[col]; delete p[col]; return { ...f, properties: p }; }));
+  };
+  const deleteField = (col) => commit(feats.map(f => { const p = { ...(f.properties || {}) }; delete p[col]; return { ...f, properties: p }; }));
+  const addField = (name, def = "") => {
+    const nm = (name || "").trim(); if (!nm) return;
+    commit(feats.map(f => ({ ...f, properties: { ...(f.properties || {}), [nm]: def } })));
+  };
+  // Calculatrice : expression type "[pop] / [area] * 100" évaluée par entité.
+  const calcField = (target, expr) => {
+    const nm = (target || "").trim(); if (!nm || !expr) return;
+    commit(feats.map(f => {
+      const p = { ...(f.properties || {}) };
+      try {
+        const filled = expr.replace(/\[([^\]]+)\]/g, (_, k) => { const v = Number(p[k]); return isFinite(v) ? v : 0; });
+        // eslint-disable-next-line no-new-func
+        const val = Function(`"use strict"; return (${filled});`)();
+        p[nm] = (typeof val === "number" && isFinite(val)) ? val : "";
+      } catch { p[nm] = ""; }
+      return { ...f, properties: p };
+    }));
+  };
   const allCols = useMemo(() => {
     const seen = new Set(), out = [];
     feats.forEach(f => Object.keys(f.properties || {}).forEach(k => {
@@ -91,6 +119,8 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
             <IcSearch size={13} style={{ color: C.dim, flexShrink: 0 }} />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher…" style={{ border: "none", background: "transparent", color: C.txt, fontFamily: F, fontSize: 12, width: "100%", outline: "none" }} />
           </div>
+          {editable && <button style={toolBtn} onClick={() => { const n = window.prompt("Nom du nouveau champ :"); if (n) addField(n); }}>+ Champ</button>}
+          {editable && <button style={toolBtn} onClick={() => setPanel({ kind: "calc", col: allCols[0] || "" })}>Calculer…</button>}
           <button style={toolBtn} onClick={() => setPanel({ kind: "stats", col: null })}><IcBarChart size={13} />Statistiques</button>
           <button style={toolBtn} onClick={() => setPanel({ kind: "chart", col: null })}><IcBarChart size={13} />Graphiques</button>
           <button style={toolBtn} onClick={() => download(`${(layer?.name || "table").replace(/[^\w.-]+/g, "_")}.csv`, toCsv(cols, exportRows))}>
@@ -150,6 +180,11 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
               ["Masquer le champ", () => setHidden(h => new Set(h).add(colMenu.col))],
               ["Statistiques du champ", () => setPanel({ kind: "stats", col: colMenu.col })],
               ["Graphique du champ", () => setPanel({ kind: "chart", col: colMenu.col })],
+              ...(editable ? [
+                ["Renommer le champ…", () => { const n = window.prompt("Nouveau nom du champ :", colMenu.col); if (n) renameField(colMenu.col, n); }],
+                ["Calculer dans ce champ…", () => setPanel({ kind: "calc", col: colMenu.col })],
+                ["Supprimer le champ", () => { if (window.confirm(`Supprimer le champ « ${colMenu.col} » ?`)) deleteField(colMenu.col); }],
+              ] : []),
             ].map(([lbl, fn]) => (
               <button key={lbl} onClick={() => { fn(); setColMenu(null); }} style={{ width: "100%", textAlign: "left", padding: "7px 11px", background: "transparent", border: "none", color: C.txt, cursor: "pointer", fontSize: 12, fontFamily: F }}
                 onMouseEnter={e => e.currentTarget.style.background = C.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{lbl}</button>
@@ -168,9 +203,44 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature }) {
           onClear={() => { setColFilters(f => { const n = { ...f }; delete n[panel.col]; return n; }); setPanel(null); }}
           onClose={() => setPanel(null)} />
       )}
-      {panel && panel.kind !== "filter" && (
+      {panel && panel.kind === "calc" && (
+        <CalcPanel cols={allCols} col={panel.col} C={C}
+          onApply={(target, expr) => { calcField(target, expr); setPanel(null); }}
+          onClose={() => setPanel(null)} />
+      )}
+      {panel && panel.kind !== "filter" && panel.kind !== "calc" && (
         <StatsChartPanel kind={panel.kind} col={panel.col} cols={allCols} rows={rows} C={C} onClose={() => setPanel(null)} />
       )}
+    </>
+  );
+}
+
+// ── Sous-modal : calculatrice de champ (expression [a] / [b] * 100) ──
+function CalcPanel({ cols, col, C, onApply, onClose }) {
+  const [target, setTarget] = useState(col || cols[0] || "");
+  const [expr, setExpr] = useState("");
+  const sel = { padding: "7px 10px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: C.input, color: C.txt, fontFamily: F, fontSize: 12, width: "100%" };
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1400 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1401, width: "min(460px, 94vw)", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: C.txt, margin: 0, flex: 1 }}>Calculatrice de champ</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex" }}><IcX size={16} /></button>
+        </div>
+        <label style={{ fontSize: 11, color: C.dim, display: "block", marginBottom: 4 }}>Champ cible (existant ou nouveau nom)</label>
+        <input list="calc-cols" value={target} onChange={e => setTarget(e.target.value)} placeholder="ex : densite" style={{ ...sel, marginBottom: 12 }} />
+        <datalist id="calc-cols">{cols.map(c => <option key={c} value={c} />)}</datalist>
+        <label style={{ fontSize: 11, color: C.dim, display: "block", marginBottom: 4 }}>Expression (champs entre crochets)</label>
+        <input value={expr} onChange={e => setExpr(e.target.value)} placeholder="[pop] / [area] * 100" style={{ ...sel, marginBottom: 8, fontFamily: M }} />
+        <div style={{ fontSize: 10.5, color: C.dim, marginBottom: 14 }}>
+          Opérateurs : + − * / ( ). Champs disponibles : {cols.slice(0, 8).map(c => `[${c}]`).join(" ")}{cols.length > 8 ? "…" : ""}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: "transparent", color: C.mut, fontFamily: F, fontSize: 12, cursor: "pointer" }}>Annuler</button>
+          <button onClick={() => onApply(target, expr)} disabled={!target || !expr} style={{ flex: 1, padding: "9px", border: "none", borderRadius: 7, background: (target && expr) ? C.acc : C.bdr, color: "#04120a", fontFamily: F, fontSize: 12, fontWeight: 600, cursor: (target && expr) ? "pointer" : "default" }}>Calculer</button>
+        </div>
+      </div>
     </>
   );
 }
