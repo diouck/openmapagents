@@ -29,7 +29,7 @@ function numStats(vals) {
   return { count: n.length, min: n[0], max: n[n.length - 1], mean: sum / n.length, median: n[Math.floor(n.length / 2)] };
 }
 
-export default function AttributeTableModal({ layer, onClose, onZoomFeature, onUpdateFeatures }) {
+export default function AttributeTableModal({ layer, onClose, onZoomFeature, onUpdateFeatures, onOpenDashboard }) {
   const C = useThemeContext();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState(null);       // { col, dir }
@@ -123,6 +123,7 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature, onU
           {editable && <button style={toolBtn} onClick={() => setPanel({ kind: "calc", col: allCols[0] || "" })}>Calculer…</button>}
           <button style={toolBtn} onClick={() => setPanel({ kind: "stats", col: null })}><IcBarChart size={13} />Statistiques</button>
           <button style={toolBtn} onClick={() => setPanel({ kind: "chart", col: null })}><IcBarChart size={13} />Graphiques</button>
+          {onOpenDashboard && <button style={toolBtn} onClick={onOpenDashboard}><IcBarChart size={13} />Tableau de bord</button>}
           <button style={toolBtn} onClick={() => download(`${(layer?.name || "table").replace(/[^\w.-]+/g, "_")}.csv`, toCsv(cols, exportRows))}>
             <IcFileDown size={13} />Exporter{selected.size ? ` (${selected.size})` : ""}
           </button>

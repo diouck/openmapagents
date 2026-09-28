@@ -27,6 +27,7 @@ import PrintPanel from "./components/PrintPanel";
 import SpatialPanel from "./components/SpatialPanel";
 import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
 import AttributeTableModal from "./components/AttributeTableModal";
+import DashboardModal from "./components/DashboardModal";
 import FilterModal, { applyFilter } from "./components/FilterModal";
 import { setSpatialTarget } from "./utils/spatialNav";
 import { createSelectionControl } from "./utils/selectionControl";
@@ -808,6 +809,7 @@ export default function App() {
   const [symbolLayerId, setSymbolLayerId] = useState(null);
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
   const [tableLayer, setTableLayer] = useState(null);   // couche affichée en table attributaire
+  const [dashLayer, setDashLayer] = useState(null);     // couche affichée en tableau de bord
   const [filterLayer, setFilterLayer] = useState(null); // couche en cours de filtre (modal)
   const [selectLayerId, setSelectLayerId] = useState(null); // couche en mode sélection
   const [selectedFeats, setSelectedFeats] = useState([]);   // entités sélectionnées (highlight + table)
@@ -3468,6 +3470,7 @@ export default function App() {
             onOpenSpatial={(layerId, section) => { setSpatialTarget(section || "vecteur", null); activateItem("spatial"); }}
             onOpenTable={(layer) => setTableLayer(layer)}
             onOpenFilter={(layer) => setFilterLayer(layer)}
+            onOpenDashboard={(layer) => setDashLayer(layer)}
             onSelectEntities={(layer) => { setSelectedFeats([]); setSelectLayerId(layer.id); activateItem("pointer"); }}
           />
           {tableLayer && (
@@ -3476,7 +3479,11 @@ export default function App() {
               onUpdateFeatures={tableLayer._selection ? null : ((features) => {
                 setLayers(p => p.map(l => l.id === tableLayer.id ? { ...l, geojson: { type: "FeatureCollection", features }, featureCount: features.length } : l));
                 setTableLayer(t => t ? { ...t, geojson: { type: "FeatureCollection", features } } : t);
-              })} />
+              })}
+              onOpenDashboard={() => setDashLayer(tableLayer)} />
+          )}
+          {dashLayer && (
+            <DashboardModal layer={dashLayer} onClose={() => setDashLayer(null)} />
           )}
           {filterLayer && (
             <FilterModal layer={filterLayer} onClose={() => setFilterLayer(null)}

@@ -271,7 +271,7 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent, onOpenTable, onOpenFilter, onSelectEntities }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent, onOpenTable, onOpenFilter, onSelectEntities, onOpenDashboard }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -579,6 +579,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
               <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
               {isVec && onOpenTable && item("Ouvrir la table attributaire", () => { onOpenTable(l); setMenu(null); })}
               {isVec && onOpenFilter && item("Filtrer par attribut", () => { onOpenFilter(l); setMenu(null); })}
+              {isVec && onOpenDashboard && item("Tableau de bord", () => { onOpenDashboard(l); setMenu(null); })}
               {isVec && onSelectEntities && item("Sélectionner des entités (clic)", () => { onSelectEntities(l); setMenu(null); })}
               {isVec && <>
                 {sep("s0")}
