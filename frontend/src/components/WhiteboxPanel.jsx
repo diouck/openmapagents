@@ -158,6 +158,8 @@ export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [], f
           name: `${selectedTool.name} (${zoneLabel})`,
           type: "wms", tileUrl: data.tile_url, opacity: 0.85,
           bbox: zoneMode === "monde" ? null : bounds, visParams: data.vis_params || null,
+          // Contexte de recalcul → permet la re-symbologie/reclassification (LayerPanel).
+          geeParams: { _whitebox: true, tool: selectedTool.id, bbox: bounds, dem_source: demSource, params: toolParams },
         });
       }
       setSuccess(`✓ ${selectedTool.name} calculé (${zoneLabel})`);

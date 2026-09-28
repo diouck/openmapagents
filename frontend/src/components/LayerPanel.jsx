@@ -99,14 +99,23 @@ function RasterStylePanel({ layer, onUpdateLayer }) {
     setStatus(null);
     try {
       const newVis = { ...vp, palette: colors.map(c => c.replace("#","")), min: minVal, max: maxVal };
-      const body = { ...layer._geeParams, vis_params_override: newVis };
-      if (opts.auto) body.auto_stretch = true;
-      if (classify !== "none") { body.classify = classify; body.n_classes = nClasses; }
-      const res  = await fetch(`${API}/api/gee/tiles`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const gp = layer._geeParams;
+      let res;
+      if (gp._whitebox) {
+        // Couche Whitebox → rejouer /whitebox/run avec la nouvelle symbologie.
+        res = await fetch(`${API}/api/whitebox/run`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: gp.tool, bbox: gp.bbox, dem_source: gp.dem_source, params: gp.params, vis_params_override: newVis }),
+        });
+      } else {
+        const body = { ...gp, vis_params_override: newVis };
+        if (opts.auto) body.auto_stretch = true;
+        if (classify !== "none") { body.classify = classify; body.n_classes = nClasses; }
+        res = await fetch(`${API}/api/gee/tiles`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
       // Refléter les min/max renvoyés (auto-stretch) dans les champs.
@@ -990,7 +999,7 @@ function LayerSymbology({ l, geomLabel, onClose, onStyle, onClassify, onExport, 
               {isVec ? EXPORT_FORMATS.map(fmt => (
                 <button key={fmt} onClick={() => { setExpMenu(false); fmt === "GeoJSON" ? onExport(l.id) : onExportFmt(l.id, fmt); }}
                   style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{fmt}</button>
-              )) : (exportImageTiff && l.kind === "image" && l.imageUrl && l.coordinates)
+              )) : (exportImageTiff && ((l.kind === "image" && l.imageUrl && l.coordinates) || l._geeParams?._whitebox))
                 ? <button onClick={() => { setExpMenu(false); exportImageTiff(l); }} style={{ fontFamily: F, fontSize: 11.5, textAlign: "left", padding: "6px 9px", borderRadius: 6, border: "none", background: "transparent", color: C.txt, cursor: "pointer", width: "100%" }}>{tiffBusy === l.id ? "Export…" : "GeoTIFF (.tif)"}</button>
                 : <div style={{ fontSize: 11, color: C.dim, padding: "6px 9px" }}>Export indisponible</div>}
             </div>
@@ -1029,11 +1038,24 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
   const [overId,   setOverId]   = useState(null);   // couche survolée (indicateur de dépôt)
   const [tiffBusy, setTiffBusy] = useState(null);
 
-  // Export d'une couche image (overlay géoréférencé) → GeoTIFF téléchargé.
+  // Export raster → GeoTIFF : couche image (overlay) OU couche Whitebox GEE (re-calcul).
   const exportImageTiff = async (l) => {
-    if (!l.imageUrl || !l.coordinates) return;
+    const base = (l.name || "couche").replace(/[^\w.-]+/g, "_");
     setTiffBusy(l.id);
     try {
+      if (l._geeParams?._whitebox) {
+        const gp = l._geeParams;
+        const r = await fetch(`${API}/api/whitebox/geotiff`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: gp.tool, bbox: gp.bbox, dem_source: gp.dem_source, params: gp.params }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+        const a = document.createElement("a"); a.href = d.download_url; a.download = `${base}.tif`;
+        document.body.appendChild(a); a.click(); a.remove();
+        return;
+      }
+      if (!l.imageUrl || !l.coordinates) return;
       const r = await fetch(`${API}/api/raster/to_geotiff`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_b64: l.imageUrl, coordinates: l.coordinates, name: l.name }),
@@ -1043,7 +1065,7 @@ export default function LayerPanel({ layers, onToggle, onRemove, onStyle, onExpo
       const bin = atob(d.geotiff_b64); const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const url = URL.createObjectURL(new Blob([bytes], { type: "image/tiff" }));
-      const a = document.createElement("a"); a.href = url; a.download = `${(l.name || "couche").replace(/[^\w.-]+/g, "_")}.tif`;
+      const a = document.createElement("a"); a.href = url; a.download = `${base}.tif`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (e) { alert("Export GeoTIFF : " + (e.message || e)); }
     finally { setTiffBusy(null); }

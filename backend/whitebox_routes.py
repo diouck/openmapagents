@@ -93,6 +93,7 @@ class WhiteboxRunRequest(BaseModel):
     roi_geojson: Optional[dict]        = None
     dem_source:  Optional[str]         = "SRTM_30m"
     params:      Optional[dict]        = {}
+    vis_params_override: Optional[dict] = None  # {palette, min, max} pour re-symboliser
 
 
 def _dem_asset(source: str):
@@ -355,6 +356,11 @@ def whitebox_run(req: WhiteboxRunRequest):
             img = img.clip(region)
 
         vis = dict(VIS[tool])
+        ov = req.vis_params_override or {}
+        if ov.get("palette"):
+            vis["palette"] = ["#" + c.lstrip("#") for c in ov["palette"]]
+        if ov.get("min") is not None: vis["min"] = ov["min"]
+        if ov.get("max") is not None: vis["max"] = ov["max"]
         map_id  = img.getMapId(vis)
         fetcher = map_id.get("tile_fetcher")
         tile_url = fetcher.url_format if (fetcher and hasattr(fetcher, "url_format")) else map_id.get("urlFormat", "")
@@ -381,6 +387,36 @@ class InterpolateRequest(BaseModel):
     bbox:           List[float]                # [west, south, east, north]
     resolution:     Optional[int] = 120        # cellules par côté
     method:         Optional[str] = "kriging"  # kriging | idw
+
+
+@router.post("/geotiff")
+def whitebox_geotiff(req: WhiteboxRunRequest):
+    """Export GeoTIFF d'un outil Whitebox GEE (re-calcul + getDownloadURL)."""
+    if not init_gee():
+        raise HTTPException(503, "GEE non disponible")
+    ee = get_ee()
+    tool = (req.tool or "").lower()
+    if tool in LOCAL_TOOLS or tool not in VIS:
+        raise HTTPException(422, f"Export GeoTIFF non supporté pour : {tool}")
+    region = None
+    if req.roi_geojson:
+        try:
+            region = ee.Geometry(req.roi_geojson.get("geometry", req.roi_geojson))
+        except Exception:
+            region = None
+    if region is None and req.bbox and len(req.bbox) == 4:
+        w, s, e, n = req.bbox
+        region = ee.Geometry.BBox(w, s, e, n)
+    if region is None:
+        raise HTTPException(422, "Une emprise (ROI) est requise pour l'export GeoTIFF.")
+    try:
+        dem = ee.Image(_dem_asset(req.dem_source or "SRTM_30m")).select(0)
+        img = _build_image(ee, tool, dem, req.params or {}, region).clip(region)
+        scale = int((req.params or {}).get("export_scale", 90) or 90)
+        url = img.getDownloadURL({"region": region, "scale": scale, "format": "GEO_TIFF", "crs": "EPSG:4326"})
+        return {"status": "ok", "download_url": url, "tool": tool}
+    except Exception as e:
+        raise HTTPException(500, f"Erreur export GeoTIFF/{tool} : {e}")
 
 
 @router.post("/interpolate")
