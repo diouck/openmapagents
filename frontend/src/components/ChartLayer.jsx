@@ -22,6 +22,11 @@ import { Source, Layer } from "../mapgl";
 import { pointOnFeature, centroid, booleanPointInPolygon, area } from "@turf/turf";
 import { RAMPS } from "../config";
 import { renderSprite, spriteKey, sizeFactor, resolveChartColors, DEFAULT_PX } from "../utils/chartSprites";
+import { MAP_ENGINE } from "../mapgl";
+
+// Sur Mapbox (style Standard v3), placer la couche dans le slot « top » pour
+// qu'elle passe au-dessus du fond de plan ; ignoré par MapLibre.
+const MB_SLOT = MAP_ENGINE === "mapbox" ? "top" : undefined;
 
 const valid = (c) => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]);
 
@@ -165,6 +170,7 @@ export default function ChartLayer({ layer, mapRef }) {
       <Layer
         id={`${layer.id}-charts-layer`}
         type="symbol"
+        slot={MB_SLOT}
         minzoom={minz}
         layout={{
           visibility: layer.visible ? "visible" : "none",
