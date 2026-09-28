@@ -1,9 +1,9 @@
 """
 whitebox_local.py — Outils raster calculés EN LOCAL (hors GEE).
 
-Certains traitements hydrologiques (routage D8, percement de dépressions, ordre
+Certains traitements hydrologiques (routage D8, remplissage de dépressions, ordre
 des cours d'eau, bassin versant) ne sont pas calculables dans Earth Engine. Ils
-sont exécutés ici avec **pysheds** sur un MNT :
+sont exécutés ici en **numpy + scikit-image** (aucune dépendance lourde) sur un MNT :
   • soit récupéré depuis GEE (SRTM) pour la ROI ;
   • soit fourni par l'appelant (MNT importé) via `params["dem_tif_path"]`.
 
@@ -77,13 +77,66 @@ def _fetch_dem_geotiff(ee, region, scale, dem_asset):
     return path
 
 
-def run_local(ee, tool, region, params, dem_asset):
-    """Exécute un outil hydrologique local et renvoie un overlay image."""
-    try:
-        from pysheds.grid import Grid
-    except Exception as e:
-        raise HTTPException(503, f"Moteur local indisponible (pysheds non installé) : {e}")
+def _fill_depressions(dem):
+    """Remplissage des cuvettes par reconstruction morphologique (priority-flood)."""
+    from skimage.morphology import reconstruction
+    seed = dem.copy()
+    seed[1:-1, 1:-1] = dem.max()
+    return reconstruction(seed, dem, method="erosion")
 
+
+_OFFS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+_DIST = [1.4142, 1.0, 1.4142, 1.0, 1.0, 1.4142, 1.0, 1.4142]
+
+
+def _d8(dem):
+    """Direction D8 (récepteur de plus forte pente) + accumulation d'écoulement."""
+    ny, nx = dem.shape
+    flat = dem.ravel()
+    n = dem.size
+    idxgrid = np.arange(n).reshape(dem.shape)
+    receiver = np.arange(n)
+    best = np.zeros(n)
+    for k, (dy, dx) in enumerate(_OFFS):
+        ys = slice(max(0, dy), ny + min(0, dy)); xs = slice(max(0, dx), nx + min(0, dx))
+        yt = slice(max(0, -dy), ny + min(0, -dy)); xt = slice(max(0, -dx), nx + min(0, -dx))
+        drop = np.full(dem.shape, -np.inf)
+        drop[yt, xt] = (dem[yt, xt] - dem[ys, xs]) / _DIST[k]
+        nidx = np.full(dem.shape, -1, dtype=np.int64)
+        nidx[yt, xt] = idxgrid[ys, xs]
+        d = drop.ravel(); ni = nidx.ravel()
+        better = (d > best) & (ni >= 0)
+        best = np.where(better, d, best)
+        receiver = np.where(better, ni, receiver)
+    # Accumulation : traiter les cellules de la plus haute à la plus basse.
+    acc = np.ones(n)
+    for i in np.argsort(-flat):
+        r = receiver[i]
+        if r != i:
+            acc[r] += acc[i]
+    return acc.reshape(dem.shape), receiver
+
+
+def _catchment(receiver, outlet, shape):
+    """Bassin versant : cellules dont l'écoulement atteint l'exutoire (remontée amont)."""
+    n = receiver.size
+    donors = [[] for _ in range(n)]
+    for i in range(n):
+        r = receiver[i]
+        if r != i:
+            donors[r].append(i)
+    seen = np.zeros(n, dtype=bool)
+    stack = [outlet]; seen[outlet] = True
+    while stack:
+        c = stack.pop()
+        for d in donors[c]:
+            if not seen[d]:
+                seen[d] = True; stack.append(d)
+    return seen.reshape(shape)
+
+
+def run_local(ee, tool, region, params, dem_asset):
+    """Exécute un outil hydrologique local (numpy/skimage) et renvoie un overlay image."""
     if region is None:
         raise HTTPException(422, "Une emprise (ROI) est requise pour les outils locaux — choisissez « Vue carte » ou une couche.")
 
@@ -92,44 +145,31 @@ def run_local(ee, tool, region, params, dem_asset):
     tif = imported or _fetch_dem_geotiff(ee, region, scale, dem_asset)
 
     try:
-        grid = Grid.from_raster(tif)
-        dem = grid.read_raster(tif)
         with rasterio.open(tif) as src:
+            raw = src.read(1).astype(float)
             b = src.bounds                          # left, bottom, right, top (WGS84)
+            nod = src.nodata
+        nodata_mask = ~np.isfinite(raw)
+        if nod is not None:
+            nodata_mask |= (raw == nod)
+        fillv = np.nanmin(np.where(nodata_mask, np.nan, raw)) if nodata_mask.any() else raw.min()
+        dem = np.where(nodata_mask, fillv, raw)
 
-        pit = grid.fill_pits(dem)
-        flooded = grid.fill_depressions(pit)
-        inflated = grid.resolve_flats(flooded)
-        fdir = grid.flowdir(inflated)
-        acc = grid.accumulation(fdir)
+        filled = _fill_depressions(dem)
         thr = float(params.get("threshold", 1000) or 1000)
 
         if tool == "breach_depressions":
-            arr = np.asarray(flooded, dtype=float)
-            vis = LOCAL_VIS[tool]
-            mask = None
-
+            arr, vis, mask = filled, LOCAL_VIS[tool], nodata_mask
         elif tool == "stream_order":
-            accv = np.asarray(acc, dtype=float)
-            streams = accv >= thr
-            # Hiérarchie proxy (log10 de l'accumulation, 1..7) sur le réseau.
-            order = np.where(streams, np.clip(np.floor(np.log10(np.maximum(accv, 1))), 1, 7), np.nan)
-            arr, vis, mask = order, LOCAL_VIS[tool], ~streams
-
+            acc, _ = _d8(filled)
+            streams = acc >= thr
+            order = np.where(streams, np.clip(np.floor(np.log10(np.maximum(acc, 1))), 1, 7), np.nan)
+            arr, vis, mask = order, LOCAL_VIS[tool], ~streams | nodata_mask
         elif tool == "watershed":
-            accv = np.asarray(acc, dtype=float)
-            iy, ix = np.unravel_index(np.nanargmax(accv), accv.shape)
-            x = b.left + (ix + 0.5) * (b.right - b.left) / accv.shape[1]
-            y = b.top - (iy + 0.5) * (b.top - b.bottom) / accv.shape[0]
-            try:
-                x, y = grid.snap_to_mask(accv >= thr, (x, y))
-            except Exception:
-                pass
-            catch = grid.catchment(x=x, y=y, fdir=fdir, xytype="coordinate")
-            ca = np.asarray(catch, dtype=float)
-            inside = ca > 0
-            arr, vis, mask = np.where(inside, 1.0, np.nan), LOCAL_VIS[tool], ~inside
-
+            acc, receiver = _d8(filled)
+            outlet = int(np.argmax(acc))
+            inside = _catchment(receiver, outlet, dem.shape)
+            arr, vis, mask = np.where(inside, 1.0, np.nan), LOCAL_VIS[tool], ~inside | nodata_mask
         else:
             raise HTTPException(422, f"Outil local inconnu : {tool}")
 
