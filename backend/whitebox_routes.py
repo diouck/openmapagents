@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from gee_auth import init_gee, get_ee
+from whitebox_local import run_local, LOCAL_TOOLS
 
 router = APIRouter(prefix="/whitebox", tags=["whitebox"])
 
@@ -319,25 +320,35 @@ def whitebox_run(req: WhiteboxRunRequest):
     ee = get_ee()
 
     tool = (req.tool or "").lower()
+
+    # ── Emprise (ROI) — commune GEE & local ────────────────────
+    region = None
+    if req.roi_geojson:
+        try:
+            geom = req.roi_geojson.get("geometry", req.roi_geojson)
+            region = ee.Geometry(geom)
+        except Exception:
+            region = None
+    if region is None and req.bbox and len(req.bbox) == 4:
+        w, s, e, n = req.bbox
+        # Emprise ~mondiale → pas de clip (inutile, plus lent)
+        if not (w <= -179 and s <= -89 and e >= 179 and n >= 89):
+            region = ee.Geometry.BBox(w, s, e, n)
+
+    # ── Outils calculés EN LOCAL (hydrologie hors GEE) → overlay image ──
+    if tool in LOCAL_TOOLS:
+        try:
+            return run_local(ee, tool, region, req.params or {}, _dem_asset(req.dem_source or "SRTM_30m"))
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"Erreur calcul local/{tool} : {e}")
+
     if tool not in VIS:
         raise HTTPException(422, f"Outil non supporté : {tool}")
 
     try:
         dem = ee.Image(_dem_asset(req.dem_source or "SRTM_30m")).select(0)
-
-        # ── Emprise (ROI) ──────────────────────────────────────
-        region = None
-        if req.roi_geojson:
-            try:
-                geom = req.roi_geojson.get("geometry", req.roi_geojson)
-                region = ee.Geometry(geom)
-            except Exception:
-                region = None
-        if region is None and req.bbox and len(req.bbox) == 4:
-            w, s, e, n = req.bbox
-            # Emprise ~mondiale → pas de clip (inutile, plus lent)
-            if not (w <= -179 and s <= -89 and e >= 179 and n >= 89):
-                region = ee.Geometry.BBox(w, s, e, n)
 
         img = _build_image(ee, tool, dem, req.params or {}, region)
         if region is not None:

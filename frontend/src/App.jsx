@@ -1267,6 +1267,19 @@ export default function App() {
 
   const addRasterLayer = useCallback((info) => {
     setPlanet3D(null);
+    // Résultat « overlay image » (calcul local hors GEE) : couche image géoréférencée.
+    if (info.imageUrl && info.coordinates) {
+      const ci0 = lctr.current % LAYER_COLORS.length; lctr.current++;
+      setLayers(p => [...p, {
+        id: info.id || `img_${Date.now()}_${lctr.current}`, name: info.name,
+        theme: "image", isRaster: true, kind: "image",
+        imageUrl: info.imageUrl, coordinates: info.coordinates,
+        geojson: null, visible: true, color: LAYER_COLORS[ci0], opacity: info.opacity ?? 0.85,
+        featureCount: "raster", classCfg: null, classResult: null,
+        bbox: info.bbox || null, visParams: info.visParams || null,
+      }]);
+      return;
+    }
     const ci = lctr.current % LAYER_COLORS.length; lctr.current++;
     setLayers(p => [...p, {
       id:info.id, name:info.name, theme:info.type||"wms", isRaster:true,

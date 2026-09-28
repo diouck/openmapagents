@@ -154,8 +154,8 @@ export const WHITEBOX_TOOLS = {
       { id: "flow_direction", name: "Direction d'écoulement (D8)", category: "Hydrologie", implemented: true, engine: "gee", description: "Sens de l'écoulement pixel par pixel", inputs: IN_DEM, params: [], outputs: { filename: "flow_dir", format: "GeoTIFF" } },
       { id: "flow_accumulation", name: "Accumulation d'écoulement", category: "Hydrologie", implemented: true, engine: "gee", description: "Surface drainée cumulée (réseau hydro)", inputs: IN_DEM, params: [], outputs: { filename: "flow_accum", format: "GeoTIFF" } },
       { id: "stream_network", name: "Réseau hydrographique", category: "Hydrologie", implemented: true, engine: "gee", description: "Extraction des cours d'eau par seuil", inputs: IN_DEM, params: [{ id: "threshold", label: "Seuil d'accumulation", type: "number", default: 1000, description: "Pixels drainés min" }], outputs: { filename: "streams", format: "GeoTIFF" } },
-      { id: "stream_order", name: "Ordre de Strahler", category: "Hydrologie", implemented: false, engine: "whitebox", description: "Hiérarchie des tronçons de rivière", inputs: IN_DEM, params: [], outputs: { filename: "strahler", format: "GeoTIFF" } },
-      { id: "watershed", name: "Bassin versant", category: "Hydrologie", implemented: false, engine: "whitebox", description: "Délimite le bassin depuis un exutoire", inputs: IN_DEM, params: [], outputs: { filename: "watershed", format: "GeoTIFF" } },
+      { id: "stream_order", name: "Ordre de Strahler", category: "Hydrologie", implemented: true, engine: "local", description: "Hiérarchie des tronçons de rivière", inputs: IN_DEM, params: [], outputs: { filename: "strahler", format: "GeoTIFF" } },
+      { id: "watershed", name: "Bassin versant", category: "Hydrologie", implemented: true, engine: "local", description: "Délimite le bassin depuis un exutoire", inputs: IN_DEM, params: [], outputs: { filename: "watershed", format: "GeoTIFF" } },
     ],
   },
 
@@ -183,7 +183,7 @@ export const WHITEBOX_TOOLS = {
     icon: "wrench",
     description: "Correction et conditionnement du MNT",
     tools: [
-      { id: "breach_depressions", name: "Percer les dépressions", category: "Nettoyage MNT", implemented: false, engine: "whitebox", description: "Ouvre un exutoire aux cuvettes (moins destructif que remplir)", inputs: IN_DEM, params: [], outputs: { filename: "breached", format: "GeoTIFF" } },
+      { id: "breach_depressions", name: "Percer les dépressions", category: "Nettoyage MNT", implemented: true, engine: "local", description: "Ouvre un exutoire aux cuvettes (moins destructif que remplir)", inputs: IN_DEM, params: [], outputs: { filename: "breached", format: "GeoTIFF" } },
       { id: "fill_missing_data", name: "Combler les trous", category: "Nettoyage MNT", implemented: true, engine: "gee", description: "Interpole les pixels NoData", inputs: IN_DEM, params: [], outputs: { filename: "filled_nodata", format: "GeoTIFF" } },
       { id: "smooth_dem", name: "Lissage du MNT", category: "Nettoyage MNT", implemented: true, engine: "gee", description: "Réduit le bruit d'acquisition", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "smoothed", format: "GeoTIFF" } },
     ],

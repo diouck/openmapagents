@@ -143,12 +143,23 @@ export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [], f
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
 
       const zoneLabel = zoneMode === "map" ? "zone visible" : zoneMode === "monde" ? "zone mondiale" : "couche";
-      onAddRasterLayer?.({
-        id: `wbx_${selectedTool.id}_${Date.now()}`,
-        name: `${selectedTool.name} (${zoneLabel})`,
-        type: "wms", tileUrl: data.tile_url, opacity: 0.85,
-        bbox: zoneMode === "monde" ? null : bounds, visParams: data.vis_params || null,
-      });
+      if (data.png_b64) {
+        // Résultat calculé en local (hydrologie hors GEE) → overlay image PNG
+        onAddRasterLayer?.({
+          id: `wbx_${selectedTool.id}_${Date.now()}`,
+          name: `${selectedTool.name} (${zoneLabel})`,
+          imageUrl: `data:image/png;base64,${data.png_b64}`,
+          coordinates: data.image_coordinates,
+          bbox: data.bbox || bounds, visParams: data.vis_params || null, opacity: 0.85,
+        });
+      } else {
+        onAddRasterLayer?.({
+          id: `wbx_${selectedTool.id}_${Date.now()}`,
+          name: `${selectedTool.name} (${zoneLabel})`,
+          type: "wms", tileUrl: data.tile_url, opacity: 0.85,
+          bbox: zoneMode === "monde" ? null : bounds, visParams: data.vis_params || null,
+        });
+      }
       setSuccess(`✓ ${selectedTool.name} calculé (${zoneLabel})`);
       setRunning(false);
     } catch (e) { setError(`Erreur : ${e.message}`); setRunning(false); }
