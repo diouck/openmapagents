@@ -65,6 +65,13 @@ VIS = {
     "plan_curvature":    {"min": -1, "max": 1,  "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
     "profile_curvature": {"min": -1, "max": 1,  "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
     "relative_position": {"min": -30, "max": 30, "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    # ── Hydrologie (HydroSHEDS ~500 m) ──
+    "fill_depressions":   {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "flow_direction":     {"min": 1, "max": 128,  "palette": ["#9e0142", "#f46d43", "#fee08b", "#e6f598", "#66c2a5", "#5e4fa2"]},
+    "flow_accumulation":  {"min": 0, "max": 6,    "palette": ["#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"]},
+    "stream_network":     {"min": 0, "max": 1,    "palette": ["#ffffff", "#08519c"]},
+    # ── Avancé ──
+    "kmeans": {"min": 0, "max": 20, "palette": ["#9e0142", "#f46d43", "#fee08b", "#66c2a5", "#5e4fa2", "#3288bd"]},
 }
 
 
@@ -208,6 +215,30 @@ def _build_image(ee, tool: str, dem, params: dict, region=None):
         tpi0 = demz.subtract(demz.focal_mean(radius=r0, kernelType="circle", units="pixels"))
         tpi1 = demz.subtract(demz.focal_mean(radius=r1, kernelType="circle", units="pixels"))
         return tpi0.add(tpi1).divide(2).rename("relative_position")
+
+    # ── Hydrologie (produits HydroSHEDS pré-calculés, ~500 m) ──
+    if tool == "fill_depressions":
+        return ee.Image("WWF/HydroSHEDS/03CONDEM").select(0).rename("fill_depressions")
+    if tool == "flow_direction":
+        return ee.Image("WWF/HydroSHEDS/03DIR").select(0).rename("flow_direction")
+    if tool == "flow_accumulation":
+        acc = ee.Image("WWF/HydroSHEDS/15ACC").select(0)
+        return acc.add(1).log10().rename("flow_accumulation")
+    if tool == "stream_network":
+        thr = float(params.get("threshold", 1000) or 1000)
+        acc = ee.Image("WWF/HydroSHEDS/15ACC").select(0)
+        return acc.gte(thr).selfMask().rename("stream_network")
+
+    # ── Avancé : classification non supervisée k-means ────────
+    if tool == "kmeans":
+        n = int(params.get("clusters", 5) or 5)
+        slope = ee.Terrain.slope(demz)
+        tpi = demz.subtract(demz.focal_mean(radius=10, kernelType="circle", units="pixels"))
+        stack = demz.rename("elev").addBands(slope.rename("slope")).addBands(tpi.rename("tpi"))
+        reg = region if region is not None else demz.geometry()
+        training = stack.sample(region=reg, scale=90, numPixels=5000, seed=1, tileScale=4)
+        clusterer = ee.Clusterer.wekaKMeans(n).train(training)
+        return stack.cluster(clusterer).rename("kmeans")
 
     raise HTTPException(422, f"Outil inconnu : {tool}")
 
