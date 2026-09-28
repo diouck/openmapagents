@@ -46,6 +46,25 @@ VIS = {
     # Détails / contours → diverging & magnitude.
     "highpass_filter": {"min": -40, "max": 40, "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
     "sobel_filter":    {"min": 0, "max": 40, "palette": ["#000004", "#3b0f70", "#8c2981", "#de4968", "#fe9f6d", "#fcfdbf"]},
+    # ── Stats locales (focales) ──
+    "local_mean":   {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "local_max":    {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "local_median": {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "local_std":    {"min": 0, "max": 100,  "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]},
+    # ── Reclassification ──
+    "threshold": {"min": 0, "max": 1,  "palette": ["#111111", "#f7f7f7"]},
+    "slice":     {"min": 0, "max": 12, "palette": ["#9e0142", "#f46d43", "#fee08b", "#e6f598", "#66c2a5", "#5e4fa2"]},
+    "normalize": {"min": 0, "max": 1,  "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]},
+    # ── Image / Texture ──
+    "edge_detection": {"min": 0, "max": 1,   "palette": ["#111111", "#f7f7f7"]},
+    "texture":        {"min": 0, "max": 100, "palette": ["#000004", "#8c2981", "#de4968", "#fe9f6d", "#fcfdbf"]},
+    "directional":    {"min": -50, "max": 50, "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    # ── Morphologie (reste) ──
+    "tri":               {"min": 0, "max": 50,  "palette": ["#ffffcc", "#fd8d3c", "#e31a1c", "#800026"]},
+    "roughness":         {"min": 0, "max": 200, "palette": ["#ffffcc", "#fd8d3c", "#e31a1c", "#800026"]},
+    "plan_curvature":    {"min": -1, "max": 1,  "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    "profile_curvature": {"min": -1, "max": 1,  "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    "relative_position": {"min": -30, "max": 30, "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
 }
 
 
@@ -61,7 +80,7 @@ def _dem_asset(source: str):
     return DEM_SOURCES.get(source, DEFAULT_DEM)
 
 
-def _build_image(ee, tool: str, dem, params: dict):
+def _build_image(ee, tool: str, dem, params: dict, region=None):
     """Construit l'image GEE de l'outil demandé à partir du MNT `dem`."""
     z = float(params.get("zfactor", 1.0) or 1.0)
     demz = dem.multiply(z) if z != 1.0 else dem
@@ -120,6 +139,76 @@ def _build_image(ee, tool: str, dem, params: dict):
         grad = demz.gradient()
         return grad.select("x").pow(2).add(grad.select("y").pow(2)).sqrt().rename("sobel")
 
+    # ── Stats locales (focales) ───────────────────────────────
+    if tool == "local_mean":
+        r = int(params.get("radius", 3) or 3)
+        return demz.focal_mean(radius=r, kernelType="square", units="pixels").rename("local_mean")
+    if tool == "local_median":
+        r = int(params.get("radius", 3) or 3)
+        return demz.focal_median(radius=r, kernelType="square", units="pixels").rename("local_median")
+    if tool == "local_max":
+        r = int(params.get("radius", 3) or 3)
+        return demz.focal_max(radius=r, kernelType="square", units="pixels").rename("local_max")
+    if tool == "local_std":
+        r = int(params.get("radius", 3) or 3)
+        return demz.reduceNeighborhood(ee.Reducer.stdDev(), ee.Kernel.square(r, "pixels")).rename("local_std")
+
+    # ── Reclassification ──────────────────────────────────────
+    if tool == "threshold":
+        v = float(params.get("value", 0) or 0)
+        return demz.gt(v).rename("threshold")
+    if tool in ("normalize", "slice"):
+        v = demz.rename("v")
+        reg = region if region is not None else v.geometry()
+        mm = v.reduceRegion(reducer=ee.Reducer.minMax(), geometry=reg, scale=90, maxPixels=int(1e9), bestEffort=True)
+        mn = ee.Number(mm.get("v_min")); mx = ee.Number(mm.get("v_max"))
+        norm = v.subtract(mn).divide(mx.subtract(mn).max(1e-9))
+        if tool == "normalize":
+            return norm.rename("normalize")
+        n = int(params.get("n_classes", 5) or 5)
+        return norm.multiply(n).floor().min(n - 1).rename("slice")
+
+    # ── Image / Texture ───────────────────────────────────────
+    if tool == "edge_detection":
+        thr = float(params.get("threshold", 0.5) or 0.5)
+        return ee.Algorithms.CannyEdgeDetector(image=demz, threshold=thr, sigma=1).rename("edge_detection")
+    if tool == "texture":
+        size = int(params.get("size", 3) or 3)
+        glcm = demz.toInt32().rename("v").glcmTexture(size=size)
+        return glcm.select("v_contrast").rename("texture")
+    if tool == "directional":
+        import math
+        az = math.radians(float(params.get("azimuth", 45) or 45))
+        grad = demz.gradient()
+        return grad.select("x").multiply(math.sin(az)).add(grad.select("y").multiply(math.cos(az))).rename("directional")
+
+    # ── Morphologie (reste) ───────────────────────────────────
+    if tool == "tri":
+        r = int(params.get("radius", 3) or 3)
+        return demz.reduceNeighborhood(ee.Reducer.stdDev(), ee.Kernel.square(r, "pixels")).rename("tri")
+    if tool == "roughness":
+        r = int(params.get("radius", 3) or 3)
+        hi = demz.focal_max(radius=r, kernelType="square", units="pixels")
+        lo = demz.focal_min(radius=r, kernelType="square", units="pixels")
+        return hi.subtract(lo).rename("roughness")
+    if tool in ("plan_curvature", "profile_curvature"):
+        # Zevenbergen-Thorne via dérivées de gradient.
+        g = demz.gradient(); gx = g.select("x"); gy = g.select("y")
+        gxx = gx.gradient().select("x"); gyy = gy.gradient().select("y")
+        gxy = gx.gradient().select("y")
+        p = gx.pow(2).add(gy.pow(2)).max(1e-9)
+        if tool == "profile_curvature":
+            num = gxx.multiply(gx.pow(2)).add(gyy.multiply(gy.pow(2))).add(gxy.multiply(gx).multiply(gy).multiply(2))
+            return num.divide(p).rename("profile_curvature")
+        num = gxx.multiply(gy.pow(2)).add(gyy.multiply(gx.pow(2))).subtract(gxy.multiply(gx).multiply(gy).multiply(2))
+        return num.divide(p).rename("plan_curvature")
+    if tool == "relative_position":
+        r0 = int(params.get("min_radius", 3) or 3)
+        r1 = int(params.get("max_radius", 30) or 30)
+        tpi0 = demz.subtract(demz.focal_mean(radius=r0, kernelType="circle", units="pixels"))
+        tpi1 = demz.subtract(demz.focal_mean(radius=r1, kernelType="circle", units="pixels"))
+        return tpi0.add(tpi1).divide(2).rename("relative_position")
+
     raise HTTPException(422, f"Outil inconnu : {tool}")
 
 
@@ -150,7 +239,7 @@ def whitebox_run(req: WhiteboxRunRequest):
             if not (w <= -179 and s <= -89 and e >= 179 and n >= 89):
                 region = ee.Geometry.BBox(w, s, e, n)
 
-        img = _build_image(ee, tool, dem, req.params or {})
+        img = _build_image(ee, tool, dem, req.params or {}, region)
         if region is not None:
             img = img.clip(region)
 

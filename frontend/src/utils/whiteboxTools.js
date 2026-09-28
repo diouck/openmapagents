@@ -134,11 +134,11 @@ export const WHITEBOX_TOOLS = {
         outputs: { filename: "tpi", format: "GeoTIFF" },
       },
       // ── À venir (Whitebox) ──
-      { id: "tri", name: "TRI (Rugosité)", category: "Morphologie", implemented: false, engine: "gee", description: "Indice de rugosité du terrain (Riley)", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, min: 1, max: 50, description: "Voisinage" }], outputs: { filename: "tri", format: "GeoTIFF" } },
-      { id: "roughness", name: "Roughness (Aspérité)", category: "Morphologie", implemented: false, engine: "gee", description: "Écart max d'altitude dans le voisinage", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, min: 1, max: 50, description: "Voisinage" }], outputs: { filename: "roughness", format: "GeoTIFF" } },
-      { id: "plan_curvature", name: "Courbure planimétrique", category: "Morphologie", implemented: false, engine: "whitebox", description: "Convergence/divergence horizontale de l'écoulement", inputs: IN_DEM, params: [P_ZFACTOR], outputs: { filename: "plan_curv", format: "GeoTIFF" } },
-      { id: "profile_curvature", name: "Courbure de profil", category: "Morphologie", implemented: false, engine: "whitebox", description: "Accélération/décélération de l'écoulement", inputs: IN_DEM, params: [P_ZFACTOR], outputs: { filename: "prof_curv", format: "GeoTIFF" } },
-      { id: "relative_position", name: "Position relative multi-échelle", category: "Morphologie", implemented: false, engine: "whitebox", description: "TPI normalisé sur plusieurs échelles", inputs: IN_DEM, params: [{ id: "min_radius", label: "Rayon min", type: "number", default: 3, description: "px" }, { id: "max_radius", label: "Rayon max", type: "number", default: 30, description: "px" }], outputs: { filename: "rel_pos", format: "GeoTIFF" } },
+      { id: "tri", name: "TRI (Rugosité)", category: "Morphologie", implemented: true, engine: "gee", description: "Indice de rugosité du terrain (Riley)", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, min: 1, max: 50, description: "Voisinage" }], outputs: { filename: "tri", format: "GeoTIFF" } },
+      { id: "roughness", name: "Roughness (Aspérité)", category: "Morphologie", implemented: true, engine: "gee", description: "Écart max d'altitude dans le voisinage", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, min: 1, max: 50, description: "Voisinage" }], outputs: { filename: "roughness", format: "GeoTIFF" } },
+      { id: "plan_curvature", name: "Courbure planimétrique", category: "Morphologie", implemented: true, engine: "gee", description: "Convergence/divergence horizontale de l'écoulement", inputs: IN_DEM, params: [P_ZFACTOR], outputs: { filename: "plan_curv", format: "GeoTIFF" } },
+      { id: "profile_curvature", name: "Courbure de profil", category: "Morphologie", implemented: true, engine: "gee", description: "Accélération/décélération de l'écoulement", inputs: IN_DEM, params: [P_ZFACTOR], outputs: { filename: "prof_curv", format: "GeoTIFF" } },
+      { id: "relative_position", name: "Position relative multi-échelle", category: "Morphologie", implemented: true, engine: "gee", description: "TPI normalisé sur plusieurs échelles", inputs: IN_DEM, params: [{ id: "min_radius", label: "Rayon min", type: "number", default: 3, description: "px" }, { id: "max_radius", label: "Rayon max", type: "number", default: 30, description: "px" }], outputs: { filename: "rel_pos", format: "GeoTIFF" } },
     ],
   },
 
@@ -211,10 +211,10 @@ export const WHITEBOX_TOOLS = {
     icon: "chart",
     description: "Statistiques de voisinage (focales)",
     tools: [
-      { id: "local_mean", name: "Moyenne locale", category: "Stats locales", implemented: false, engine: "gee", description: "Moyenne dans un voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_mean", format: "GeoTIFF" } },
-      { id: "local_std", name: "Écart-type local", category: "Stats locales", implemented: false, engine: "gee", description: "Variabilité dans un voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_std", format: "GeoTIFF" } },
-      { id: "local_max", name: "Maximum local", category: "Stats locales", implemented: false, engine: "gee", description: "Valeur max du voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_max", format: "GeoTIFF" } },
-      { id: "local_median", name: "Médiane locale", category: "Stats locales", implemented: false, engine: "gee", description: "Médiane du voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_median", format: "GeoTIFF" } },
+      { id: "local_mean", name: "Moyenne locale", category: "Stats locales", implemented: true, engine: "gee", description: "Moyenne dans un voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_mean", format: "GeoTIFF" } },
+      { id: "local_std", name: "Écart-type local", category: "Stats locales", implemented: true, engine: "gee", description: "Variabilité dans un voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_std", format: "GeoTIFF" } },
+      { id: "local_max", name: "Maximum local", category: "Stats locales", implemented: true, engine: "gee", description: "Valeur max du voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_max", format: "GeoTIFF" } },
+      { id: "local_median", name: "Médiane locale", category: "Stats locales", implemented: true, engine: "gee", description: "Médiane du voisinage", inputs: IN_RASTER, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "local_median", format: "GeoTIFF" } },
     ],
   },
 
@@ -226,9 +226,9 @@ export const WHITEBOX_TOOLS = {
     icon: "image",
     description: "Texture, arêtes et rehaussement",
     tools: [
-      { id: "edge_detection", name: "Détection d'arêtes", category: "Image", implemented: false, engine: "gee", description: "Contours (Canny/Sobel)", inputs: IN_RASTER, params: [{ id: "threshold", label: "Seuil", type: "number", default: 0.5, description: "Sensibilité" }], outputs: { filename: "edges", format: "GeoTIFF" } },
-      { id: "texture", name: "Texture (GLCM)", category: "Image", implemented: false, engine: "gee", description: "Contraste/homogénéité local", inputs: IN_RASTER, params: [{ id: "size", label: "Fenêtre (pixels)", type: "number", default: 3, description: "Taille" }], outputs: { filename: "texture", format: "GeoTIFF" } },
-      { id: "directional", name: "Filtre directionnel", category: "Image", implemented: false, engine: "gee", description: "Rehausse les structures selon un angle", inputs: IN_RASTER, params: [{ id: "azimuth", label: "Direction (degrés)", type: "number", default: 45, description: "Orientation" }], outputs: { filename: "directional", format: "GeoTIFF" } },
+      { id: "edge_detection", name: "Détection d'arêtes", category: "Image", implemented: true, engine: "gee", description: "Contours (Canny/Sobel)", inputs: IN_RASTER, params: [{ id: "threshold", label: "Seuil", type: "number", default: 0.5, description: "Sensibilité" }], outputs: { filename: "edges", format: "GeoTIFF" } },
+      { id: "texture", name: "Texture (GLCM)", category: "Image", implemented: true, engine: "gee", description: "Contraste/homogénéité local", inputs: IN_RASTER, params: [{ id: "size", label: "Fenêtre (pixels)", type: "number", default: 3, description: "Taille" }], outputs: { filename: "texture", format: "GeoTIFF" } },
+      { id: "directional", name: "Filtre directionnel", category: "Image", implemented: true, engine: "gee", description: "Rehausse les structures selon un angle", inputs: IN_RASTER, params: [{ id: "azimuth", label: "Direction (degrés)", type: "number", default: 45, description: "Orientation" }], outputs: { filename: "directional", format: "GeoTIFF" } },
     ],
   },
 
@@ -253,9 +253,9 @@ export const WHITEBOX_TOOLS = {
     icon: "sliders",
     description: "Seuils, classes et normalisation",
     tools: [
-      { id: "threshold", name: "Seuillage binaire", category: "Reclassification", implemented: false, engine: "gee", description: "0/1 selon un seuil", inputs: IN_RASTER, params: [{ id: "value", label: "Seuil", type: "number", default: 0, description: "Valeur de coupure" }], outputs: { filename: "threshold", format: "GeoTIFF" } },
-      { id: "slice", name: "Découpage en classes", category: "Reclassification", implemented: false, engine: "gee", description: "Classe les valeurs en tranches", inputs: IN_RASTER, params: [{ id: "n_classes", label: "Nombre de classes", type: "number", default: 5, min: 2, max: 12, description: "Tranches" }], outputs: { filename: "slices", format: "GeoTIFF" } },
-      { id: "normalize", name: "Normalisation 0-1", category: "Reclassification", implemented: false, engine: "gee", description: "Étire les valeurs entre 0 et 1", inputs: IN_RASTER, params: [], outputs: { filename: "normalized", format: "GeoTIFF" } },
+      { id: "threshold", name: "Seuillage binaire", category: "Reclassification", implemented: true, engine: "gee", description: "0/1 selon un seuil", inputs: IN_RASTER, params: [{ id: "value", label: "Seuil", type: "number", default: 0, description: "Valeur de coupure" }], outputs: { filename: "threshold", format: "GeoTIFF" } },
+      { id: "slice", name: "Découpage en classes", category: "Reclassification", implemented: true, engine: "gee", description: "Classe les valeurs en tranches", inputs: IN_RASTER, params: [{ id: "n_classes", label: "Nombre de classes", type: "number", default: 5, min: 2, max: 12, description: "Tranches" }], outputs: { filename: "slices", format: "GeoTIFF" } },
+      { id: "normalize", name: "Normalisation 0-1", category: "Reclassification", implemented: true, engine: "gee", description: "Étire les valeurs entre 0 et 1", inputs: IN_RASTER, params: [], outputs: { filename: "normalized", format: "GeoTIFF" } },
     ],
   },
 
