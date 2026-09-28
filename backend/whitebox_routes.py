@@ -72,6 +72,9 @@ VIS = {
     "stream_network":     {"min": 0, "max": 1,    "palette": ["#ffffff", "#08519c"]},
     # ── Avancé ──
     "kmeans": {"min": 0, "max": 20, "palette": ["#9e0142", "#f46d43", "#fee08b", "#66c2a5", "#5e4fa2", "#3288bd"]},
+    # ── Nettoyage MNT / Distance ──
+    "smooth_dem":         {"min": 0, "max": 3000,  "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "euclidean_distance": {"min": 0, "max": 20000, "palette": ["#08306b", "#2171b5", "#6baed6", "#c6dbef", "#f7fbff"]},
 }
 
 
@@ -239,6 +242,17 @@ def _build_image(ee, tool: str, dem, params: dict, region=None):
         training = stack.sample(region=reg, scale=90, numPixels=5000, seed=1, tileScale=4)
         clusterer = ee.Clusterer.wekaKMeans(n).train(training)
         return stack.cluster(clusterer).rename("kmeans")
+
+    # ── Nettoyage MNT : lissage (médiane focale) ──────────────
+    if tool == "smooth_dem":
+        r = int(params.get("radius", 3) or 3)
+        return demz.focal_median(radius=r, kernelType="square", units="pixels").rename("smooth_dem")
+
+    # ── Distance euclidienne au réseau hydrographique ─────────
+    if tool == "euclidean_distance":
+        streams = ee.Image("WWF/HydroSHEDS/15ACC").select(0).gte(1000)
+        # fastDistanceTransform → distance² en pixels ; ~463 m par pixel (15 arc-sec)
+        return streams.fastDistanceTransform(256).sqrt().multiply(463).rename("euclidean_distance")
 
     raise HTTPException(422, f"Outil inconnu : {tool}")
 

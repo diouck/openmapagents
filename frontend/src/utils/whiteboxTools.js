@@ -185,7 +185,7 @@ export const WHITEBOX_TOOLS = {
     tools: [
       { id: "breach_depressions", name: "Percer les dépressions", category: "Nettoyage MNT", implemented: false, engine: "whitebox", description: "Ouvre un exutoire aux cuvettes (moins destructif que remplir)", inputs: IN_DEM, params: [], outputs: { filename: "breached", format: "GeoTIFF" } },
       { id: "fill_missing_data", name: "Combler les trous", category: "Nettoyage MNT", implemented: false, engine: "whitebox", description: "Interpole les pixels NoData", inputs: IN_DEM, params: [], outputs: { filename: "filled_nodata", format: "GeoTIFF" } },
-      { id: "smooth_dem", name: "Lissage du MNT", category: "Nettoyage MNT", implemented: false, engine: "gee", description: "Réduit le bruit d'acquisition", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "smoothed", format: "GeoTIFF" } },
+      { id: "smooth_dem", name: "Lissage du MNT", category: "Nettoyage MNT", implemented: true, engine: "gee", description: "Réduit le bruit d'acquisition", inputs: IN_DEM, params: [{ id: "radius", label: "Rayon (pixels)", type: "number", default: 3, description: "Voisinage" }], outputs: { filename: "smoothed", format: "GeoTIFF" } },
     ],
   },
 
@@ -240,7 +240,7 @@ export const WHITEBOX_TOOLS = {
     icon: "navigation",
     description: "Distances euclidienne et de coût",
     tools: [
-      { id: "euclidean_distance", name: "Distance euclidienne", category: "Distance", implemented: false, engine: "gee", description: "Distance à l'objet le plus proche", inputs: IN_RASTER, params: [], outputs: { filename: "eucl_dist", format: "GeoTIFF" } },
+      { id: "euclidean_distance", name: "Distance euclidienne", category: "Distance", implemented: true, engine: "gee", description: "Distance à l'objet le plus proche", inputs: IN_RASTER, params: [], outputs: { filename: "eucl_dist", format: "GeoTIFF" } },
       { id: "cost_distance", name: "Distance de coût", category: "Distance", implemented: false, engine: "gee", description: "Coût cumulé de déplacement", inputs: [{ id: "source", label: "Sources", type: "raster", required: true, description: "Points/zones de départ" }, { id: "cost", label: "Surface de coût", type: "raster", required: true, description: "Résistance au déplacement" }], params: [], outputs: { filename: "cost_dist", format: "GeoTIFF" } },
     ],
   },
