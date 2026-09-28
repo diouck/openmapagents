@@ -27,6 +27,8 @@ scikit-image>=0.22.0
 rasterio>=1.3.0
 # Hydrologie raster locale (whitebox_local.py) : D8/accumulation/bassin versant
 # implémentés en numpy + skimage.reconstruction — aucune dépendance lourde ajoutée.
+# Krigeage (interpolation de points) — pur Python (numpy/scipy) ; repli IDW si absent.
+pykrige>=1.7.0
 # Optionnel (filtre sol CSF pour nuages NON classés) — extension C++, peut ne pas
 # s'installer partout ; le code retombe sur un MNT morphologique si absent.
 # Installer à part si besoin :  pip install cloth-simulation-filter

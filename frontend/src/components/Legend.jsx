@@ -271,7 +271,7 @@ function BivariateLegend({ bivariate }) {
 }
 
 // ── Légende principale ─────────────────────────────────────────
-export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent, onOpenTable, onOpenFilter, onSelectEntities, onOpenDashboard }) {
+export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, onRename, onRemove, onQuickAnalysis, onOpenSpatial, onZoomExtent, onOpenTable, onOpenFilter, onSelectEntities, onOpenDashboard, onInterpolate }) {
   const C = useThemeContext();
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -580,6 +580,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
               {isVec && onOpenTable && item("Ouvrir la table attributaire", () => { onOpenTable(l); setMenu(null); })}
               {isVec && onOpenFilter && item("Filtrer par attribut", () => { onOpenFilter(l); setMenu(null); })}
               {isVec && onOpenDashboard && item("Tableau de bord", () => { onOpenDashboard(l); setMenu(null); })}
+              {isVec && onInterpolate && l.geojson?.features?.some(f => f.geometry?.type === "Point") && item("Interpolation (kriging/IDW)", () => { onInterpolate(l); setMenu(null); })}
               {isVec && onSelectEntities && item("Sélectionner des entités (clic)", () => { onSelectEntities(l); setMenu(null); })}
               {isVec && <>
                 {sep("s0")}

@@ -135,6 +135,72 @@ def _catchment(receiver, outlet, shape):
     return seen.reshape(shape)
 
 
+_VIRIDIS = ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]
+
+
+def _idw(xs, ys, zs, gx, gy, power=2.0):
+    """Interpolation par pondération inverse à la distance (sans dépendance)."""
+    GX, GY = np.meshgrid(gx, gy)
+    num = np.zeros(GX.shape)
+    den = np.zeros(GX.shape)
+    for x, y, z in zip(xs, ys, zs):
+        d = np.hypot(GX - x, GY - y)
+        d = np.where(d < 1e-9, 1e-9, d)
+        w = 1.0 / d ** power
+        num += w * z
+        den += w
+    return num / den
+
+
+def interpolate_surface(points_geojson, field, bbox, resolution=120, method="kriging"):
+    """Interpole une couche de points (attribut `field`) en surface raster → overlay image."""
+    xs, ys, zs = [], [], []
+    for f in (points_geojson or {}).get("features", []):
+        g = f.get("geometry") or {}
+        if g.get("type") != "Point":
+            continue
+        try:
+            v = float(f.get("properties", {}).get(field))
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(v):
+            continue
+        c = g.get("coordinates") or []
+        if len(c) >= 2:
+            xs.append(c[0]); ys.append(c[1]); zs.append(v)
+
+    if len(zs) < 3:
+        raise HTTPException(422, "Au moins 3 points avec une valeur numérique sont requis pour l'interpolation.")
+
+    xs = np.asarray(xs); ys = np.asarray(ys); zs = np.asarray(zs)
+    w, s, e, n = bbox
+    res = int(resolution or 120)
+    gx = np.linspace(w, e, res)
+    gy = np.linspace(n, s, res)                     # haut → bas (image)
+
+    used = method
+    if method == "kriging":
+        try:
+            from pykrige.ok import OrdinaryKriging
+            ok = OrdinaryKriging(xs, ys, zs, variogram_model="spherical", enable_plotting=False)
+            z, _ = ok.execute("grid", gx, gy)
+            grid = np.asarray(z, dtype=float)
+        except Exception:
+            grid = _idw(xs, ys, zs, gx, gy); used = "idw"  # repli si pykrige absent
+    else:
+        grid = _idw(xs, ys, zs, gx, gy)
+
+    vis = {"min": float(np.nanmin(grid)), "max": float(np.nanmax(grid)), "palette": _VIRIDIS}
+    rgba = _colormap(grid, vis)
+    png = _png_b64(rgba)
+    coords = [[w, n], [e, n], [e, s], [w, s]]
+    return {
+        "status": "ok", "engine": "local", "method": used, "field": field,
+        "png_b64": png, "image_coordinates": coords,
+        "bbox": [w, s, e, n], "vis_params": vis,
+    }
+
+
 def run_local(ee, tool, region, params, dem_asset):
     """Exécute un outil hydrologique local (numpy/skimage) et renvoie un overlay image."""
     if region is None:

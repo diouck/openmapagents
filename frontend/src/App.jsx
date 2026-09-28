@@ -28,6 +28,7 @@ import SpatialPanel from "./components/SpatialPanel";
 import SpatialAnalysisPanel from "./components/SpatialAnalysisPanel";
 import AttributeTableModal from "./components/AttributeTableModal";
 import DashboardModal from "./components/DashboardModal";
+import InterpolateModal from "./components/InterpolateModal";
 import FilterModal, { applyFilter } from "./components/FilterModal";
 import { setSpatialTarget } from "./utils/spatialNav";
 import { createSelectionControl } from "./utils/selectionControl";
@@ -810,6 +811,7 @@ export default function App() {
   const openLayerSymbology = useCallback((id) => setSymbolLayerId(id), []);
   const [tableLayer, setTableLayer] = useState(null);   // couche affichée en table attributaire
   const [dashLayer, setDashLayer] = useState(null);     // couche affichée en tableau de bord
+  const [interpLayer, setInterpLayer] = useState(null); // couche points → interpolation (kriging/IDW)
   const [filterLayer, setFilterLayer] = useState(null); // couche en cours de filtre (modal)
   const [selectLayerId, setSelectLayerId] = useState(null); // couche en mode sélection
   const [selectedFeats, setSelectedFeats] = useState([]);   // entités sélectionnées (highlight + table)
@@ -3484,6 +3486,7 @@ export default function App() {
             onOpenTable={(layer) => setTableLayer(layer)}
             onOpenFilter={(layer) => setFilterLayer(layer)}
             onOpenDashboard={(layer) => setDashLayer(layer)}
+            onInterpolate={(layer) => setInterpLayer(layer)}
             onSelectEntities={(layer) => { setSelectedFeats([]); setSelectLayerId(layer.id); activateItem("pointer"); }}
           />
           {tableLayer && (
@@ -3497,6 +3500,9 @@ export default function App() {
           )}
           {dashLayer && (
             <DashboardModal layer={dashLayer} onClose={() => setDashLayer(null)} />
+          )}
+          {interpLayer && (
+            <InterpolateModal layer={interpLayer} onClose={() => setInterpLayer(null)} onResult={(info) => addRasterLayer(info)} />
           )}
           {filterLayer && (
             <FilterModal layer={filterLayer} onClose={() => setFilterLayer(null)}

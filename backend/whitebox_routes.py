@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from gee_auth import init_gee, get_ee
-from whitebox_local import run_local, LOCAL_TOOLS
+from whitebox_local import run_local, LOCAL_TOOLS, interpolate_surface
 
 router = APIRouter(prefix="/whitebox", tags=["whitebox"])
 
@@ -373,3 +373,22 @@ def whitebox_run(req: WhiteboxRunRequest):
         raise
     except Exception as e:
         raise HTTPException(500, f"Erreur calcul Whitebox/{tool} : {e}")
+
+
+class InterpolateRequest(BaseModel):
+    points_geojson: dict                       # FeatureCollection de points
+    field:          str                        # attribut numérique à interpoler
+    bbox:           List[float]                # [west, south, east, north]
+    resolution:     Optional[int] = 120        # cellules par côté
+    method:         Optional[str] = "kriging"  # kriging | idw
+
+
+@router.post("/interpolate")
+def whitebox_interpolate(req: InterpolateRequest):
+    """Interpolation d'une couche de points (kriging/IDW) → surface raster (overlay image)."""
+    try:
+        return interpolate_surface(req.points_geojson, req.field, req.bbox, req.resolution, req.method)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erreur interpolation : {e}")
