@@ -38,6 +38,14 @@ VIS = {
     "curvature": {"min": -1,  "max": 1,   "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
     "hillshade": {"min": 0,   "max": 255, "palette": ["#000000", "#ffffff"]},
     "tpi":       {"min": -50, "max": 50,  "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    # ── Filtres (VAGUE 2) ──
+    # Lissages → sortie « élévation » (palette terrain large, approximative selon la région).
+    "mean_filter":     {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "median_filter":   {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    "gaussian_filter": {"min": 0, "max": 3000, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]},
+    # Détails / contours → diverging & magnitude.
+    "highpass_filter": {"min": -40, "max": 40, "palette": ["#2166ac", "#67a9cf", "#f7f7f7", "#ef8a62", "#b2182b"]},
+    "sobel_filter":    {"min": 0, "max": 40, "palette": ["#000004", "#3b0f70", "#8c2981", "#de4968", "#fe9f6d", "#fcfdbf"]},
 }
 
 
@@ -85,6 +93,32 @@ def _build_image(ee, tool: str, dem, params: dict):
         radius = int(params.get("radius", 10) or 10)
         mean = demz.focal_mean(radius=radius, kernelType="circle", units="pixels")
         return demz.subtract(mean).rename("tpi")
+
+    # ── Filtres (VAGUE 2) ─────────────────────────────────────
+    if tool == "mean_filter":
+        radius = int(params.get("radius", 3) or 3)
+        return demz.focal_mean(radius=radius, kernelType="square", units="pixels").rename("mean")
+
+    if tool == "median_filter":
+        radius = int(params.get("radius", 3) or 3)
+        return demz.focal_median(radius=radius, kernelType="square", units="pixels").rename("median")
+
+    if tool == "gaussian_filter":
+        sigma = float(params.get("sigma", 1.0) or 1.0)
+        rad = max(1, int(round(3 * sigma)))
+        k = ee.Kernel.gaussian(radius=rad, sigma=sigma, units="pixels", normalize=True)
+        return demz.convolve(k).rename("gaussian")
+
+    if tool == "highpass_filter":
+        # Passe-haut = élévation − lissage (rehausse les détails/contours).
+        radius = int(params.get("radius", 3) or 3)
+        low = demz.focal_mean(radius=radius, kernelType="square", units="pixels")
+        return demz.subtract(low).rename("highpass")
+
+    if tool == "sobel_filter":
+        # Magnitude du gradient (Sobel-like) : sqrt(dx² + dy²).
+        grad = demz.gradient()
+        return grad.select("x").pow(2).add(grad.select("y").pow(2)).sqrt().rename("sobel")
 
     raise HTTPException(422, f"Outil inconnu : {tool}")
 
