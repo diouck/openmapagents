@@ -336,6 +336,34 @@ def whitebox_run(req: WhiteboxRunRequest):
         if not (w <= -179 and s <= -89 and e >= 179 and n >= 89):
             region = ee.Geometry.BBox(w, s, e, n)
 
+    # ── MNT importé (raster_token) → calcul LOCAL numpy/scipy sur la couche de l'utilisateur ──
+    rtok = (req.params or {}).get("raster_token")
+    if rtok:
+        try:
+            from raster_routes import _load_band
+            from whitebox_local import compute_on_array, contours_from_array, _colormap, _png_b64
+            band, meta = _load_band(str(rtok), int((req.params or {}).get("band", 1) or 1))
+            bbox4 = meta.get("bbox") or [0, 0, 1, 1]           # [w,s,e,n] en 4326
+            coords = meta.get("image_coordinates") or meta.get("coords")
+            if not coords:
+                w, s, e, n = bbox4; coords = [[w, n], [e, n], [e, s], [w, s]]
+            if tool == "contours":
+                return contours_from_array(band, bbox4, req.params or {})
+            tr = meta.get("transform") or [1, 0, 0, 0, -1, 0]
+            arr, mask = compute_on_array(tool, band, tr[0], tr[4], req.params or {})
+            vis = dict(VIS.get(tool) or {"min": float(arr[~mask].min()) if (~mask).any() else 0, "max": float(arr[~mask].max()) if (~mask).any() else 1, "palette": ["#276419", "#addd8e", "#ffffbf", "#fdae61", "#a50026", "#ffffff"]})
+            ov = req.vis_params_override or {}
+            if ov.get("palette"): vis["palette"] = ["#" + c.lstrip("#") for c in ov["palette"]]
+            if ov.get("min") is not None: vis["min"] = ov["min"]
+            if ov.get("max") is not None: vis["max"] = ov["max"]
+            import numpy as _np
+            rgba = _colormap(_np.where(mask, _np.nan, arr), vis, None)
+            return {"status": "ok", "tool": tool, "engine": "local", "png_b64": _png_b64(rgba), "image_coordinates": coords, "bbox": bbox4, "vis_params": vis}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"Erreur calcul local (MNT importé)/{tool} : {e}")
+
     # ── Courbes de niveau → sortie VECTORIELLE (GeoJSON, exportable) ──
     if tool == "contours":
         try:

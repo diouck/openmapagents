@@ -150,8 +150,16 @@ export default function SpatialAnalysisPanel({
         const layer = layers.find(l => l.id === rLayerId);
         if (layer?.bbox) bounds = layer.bbox; else if (layer?.geojson) { const bb = geojsonBbox(layer.geojson); if (bb) bounds = bb; }
       }
-      const demSource = rParams.dem || "SRTM_30m";
+      const demSel = rParams.dem || "SRTM_30m";
       const tp = { ...rParams }; delete tp.dem;
+      let demSource = demSel;
+      if (demSel.startsWith("imported:")) {
+        // MNT importé par l'utilisateur → calcul local sur sa couche (raster_token).
+        const dl = layers.find(l => l.id === demSel.slice(9));
+        if (!dl?.rasterToken) { setRErr("MNT importé introuvable — réimportez le GeoTIFF."); setRBusy(false); return; }
+        tp.raster_token = dl.rasterToken;
+        demSource = "SRTM_30m";   // ignoré côté backend quand raster_token présent
+      }
       const res = await fetch(`${API}/api/whitebox/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool: wt.id, bbox: bounds, dem_source: demSource, params: tp }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
@@ -312,7 +320,11 @@ export default function SpatialAnalysisPanel({
               <div key={input.id} style={grp}><label style={labelStyle}>{input.label} {input.required && "*"}</label>
                 <p style={{ fontSize: 11, color: C.dim, margin: "0 0 6px" }}>{input.description}</p>
                 <select style={inputStyle} value={rParams[input.id] ?? "SRTM_30m"} onChange={e => setRParams(p => ({ ...p, [input.id]: e.target.value }))}>
-                  {input.id === "dem" ? <><option value="SRTM_30m">SRTM 30 m (mondial)</option><option value="COPDEM_30m">Copernicus DEM GLO-30</option></>
+                  {input.id === "dem" ? <>
+                    <option value="SRTM_30m">SRTM 30 m (mondial)</option>
+                    <option value="COPDEM_30m">Copernicus DEM GLO-30</option>
+                    {layers.filter(l => l.isRaster && l.rasterToken).map(l => <option key={l.id} value={`imported:${l.id}`}>MNT importé — {l.name}</option>)}
+                  </>
                     : <><option value="">Sélectionner…</option>{layers.filter(l => l.isRaster).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</>}
                 </select>
               </div>

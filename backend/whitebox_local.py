@@ -201,6 +201,92 @@ def interpolate_surface(points_geojson, field, bbox, resolution=120, method="kri
     }
 
 
+def compute_on_array(tool, dem, csx, csy, params):
+    """Calcule un outil raster sur un MNT numpy (MNT importé / WMS). Retourne (arr, mask)."""
+    import numpy as _np
+    from scipy import ndimage as ndi
+    p = params or {}
+    nod = ~_np.isfinite(dem)
+    z = float(p.get("zfactor", 1.0) or 1.0)
+    d = _np.where(nod, _np.nan, dem) * (z if z != 1 else 1)
+    cs = (abs(csx) + abs(csy)) / 2.0 or 1.0
+    r = int(p.get("radius", 3) or 3)
+    filled = _np.where(nod, _np.nanmean(d[~nod]) if (~nod).any() else 0, d)
+
+    if tool == "slope":
+        gy, gx = _np.gradient(filled, abs(csy) or 1, abs(csx) or 1)
+        slp = _np.degrees(_np.arctan(_np.hypot(gx, gy)))
+        u = p.get("units", "degrees")
+        if u == "percent": slp = _np.tan(_np.radians(slp)) * 100
+        elif u == "radians": slp = _np.radians(slp)
+        return slp, nod
+    if tool == "aspect":
+        gy, gx = _np.gradient(filled, abs(csy) or 1, abs(csx) or 1)
+        asp = (_np.degrees(_np.arctan2(gy, -gx)) + 360) % 360
+        return asp, nod
+    if tool == "hillshade":
+        az = _np.radians(float(p.get("azimuth", 315) or 315)); alt = _np.radians(float(p.get("altitude", 45) or 45))
+        gy, gx = _np.gradient(filled, abs(csy) or 1, abs(csx) or 1)
+        slope = _np.arctan(_np.hypot(gx, gy)); aspect = _np.arctan2(gy, -gx)
+        hs = _np.sin(alt) * _np.cos(slope) + _np.cos(alt) * _np.sin(slope) * _np.cos(az - aspect)
+        return _np.clip(hs, 0, 1) * 255, nod
+    if tool == "curvature":
+        return ndi.laplace(filled), nod
+    if tool == "tri":
+        m = ndi.uniform_filter(filled, 2 * r + 1); m2 = ndi.uniform_filter(filled * filled, 2 * r + 1)
+        return _np.sqrt(_np.maximum(m2 - m * m, 0)), nod
+    if tool == "roughness":
+        return ndi.maximum_filter(filled, 2 * r + 1) - ndi.minimum_filter(filled, 2 * r + 1), nod
+    if tool == "mean_filter":   return ndi.uniform_filter(filled, 2 * r + 1), nod
+    if tool == "median_filter": return ndi.median_filter(filled, 2 * r + 1), nod
+    if tool == "gaussian_filter": return ndi.gaussian_filter(filled, float(p.get("sigma", 1) or 1)), nod
+    if tool == "highpass_filter": return filled - ndi.uniform_filter(filled, 2 * r + 1), nod
+    if tool == "sobel_filter":  return _np.hypot(ndi.sobel(filled, 0), ndi.sobel(filled, 1)), nod
+    if tool == "local_mean":    return ndi.uniform_filter(filled, 2 * r + 1), nod
+    if tool == "local_median":  return ndi.median_filter(filled, 2 * r + 1), nod
+    if tool == "local_max":     return ndi.maximum_filter(filled, 2 * r + 1), nod
+    if tool == "local_std":
+        m = ndi.uniform_filter(filled, 2 * r + 1); m2 = ndi.uniform_filter(filled * filled, 2 * r + 1)
+        return _np.sqrt(_np.maximum(m2 - m * m, 0)), nod
+    if tool == "threshold":     return (d > float(p.get("value", 0) or 0)).astype(float), nod
+    if tool in ("normalize", "slice"):
+        mn = _np.nanmin(d); mx = _np.nanmax(d); nn = (d - mn) / max(1e-9, (mx - mn))
+        if tool == "normalize": return nn, nod
+        n = int(p.get("n_classes", 5) or 5)
+        return _np.clip(_np.floor(nn * n), 0, n - 1), nod
+    if tool == "smooth_dem":    return ndi.median_filter(filled, 2 * r + 1), nod
+    raise HTTPException(422, f"Outil raster local non supporté sur MNT importé : {tool}")
+
+
+def contours_from_array(dem, coords_bbox, params):
+    """Courbes de niveau depuis un array MNT (MNT importé) → GeoJSON (bbox 4326)."""
+    from skimage import measure
+    w, s, e, n = coords_bbox
+    ny, nx = dem.shape
+    mask = _np_finite(dem)
+    vals = dem[mask]
+    if vals.size == 0:
+        raise HTTPException(422, "MNT vide.")
+    import numpy as _np
+    mn, mx = float(_np.min(vals)), float(_np.max(vals))
+    interval = float(params.get("interval", 100) or 100)
+    if interval <= 0 or (mx - mn) / interval > 80:
+        interval = max(1.0, (mx - mn) / 40.0)
+    demf = _np.where(mask, dem, mn)
+    feats = []
+    for lev in _np.arange(_np.ceil(mn / interval) * interval, mx, interval):
+        for c in measure.find_contours(demf, float(lev)):
+            if len(c) < 2: continue
+            coords = [[round(w + (col + 0.5) * (e - w) / nx, 6), round(n - (row + 0.5) * (n - s) / ny, 6)] for row, col in c]
+            feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords}, "properties": {"elevation": round(float(lev), 1)}})
+    return {"status": "ok", "engine": "local", "tool": "contours", "geojson": {"type": "FeatureCollection", "features": feats}, "count": len(feats), "interval": round(interval, 2)}
+
+
+def _np_finite(a):
+    import numpy as _np
+    return _np.isfinite(a)
+
+
 def extract_contours(ee, region, params, dem_asset):
     """Courbes de niveau VECTORIELLES (GeoJSON LineStrings) — sortie exportable (QGIS-like)."""
     if region is None:
