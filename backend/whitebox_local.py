@@ -269,12 +269,20 @@ def contours_from_array(dem, coords_bbox, params):
         raise HTTPException(422, "MNT vide.")
     import numpy as _np
     mn, mx = float(_np.min(vals)), float(_np.max(vals))
+    rng = mx - mn
+    if rng <= 1e-6:
+        raise HTTPException(422, "Raster quasi plat sur cette emprise — aucune courbe possible.")
     interval = float(params.get("interval", 100) or 100)
-    if interval <= 0 or (mx - mn) / interval > 80:
-        interval = max(1.0, (mx - mn) / 40.0)
+    # Intervalle robuste : si l'équidistance ne produit aucun niveau (trop grande
+    # pour l'amplitude) ou trop de niveaux, on l'ajuste automatiquement.
+    if interval <= 0 or rng / interval > 100 or rng / interval < 2:
+        interval = rng / 15.0
+    levels = _np.arange(_np.floor(mn / interval + 1) * interval, mx, interval)
+    if levels.size == 0:
+        levels = _np.linspace(mn, mx, 8)[1:-1]
     demf = _np.where(mask, dem, mn)
     feats = []
-    for lev in _np.arange(_np.ceil(mn / interval) * interval, mx, interval):
+    for lev in levels:
         for c in measure.find_contours(demf, float(lev)):
             if len(c) < 2: continue
             coords = [[round(w + (col + 0.5) * (e - w) / nx, 6), round(n - (row + 0.5) * (n - s) / ny, 6)] for row, col in c]
@@ -309,9 +317,14 @@ def extract_contours(ee, region, params, dem_asset):
         if vals.size == 0:
             raise HTTPException(422, "MNT vide sur cette emprise.")
         mn, mx = float(np.min(vals)), float(np.max(vals))
-        if interval <= 0 or (mx - mn) / interval > 80:      # borne le nombre de niveaux
-            interval = max(1.0, (mx - mn) / 40.0)
-        levels = np.arange(np.ceil(mn / interval) * interval, mx, interval)
+        rng = mx - mn
+        if rng <= 1e-6:
+            raise HTTPException(422, "MNT quasi plat sur cette emprise — aucune courbe possible.")
+        if interval <= 0 or rng / interval > 100 or rng / interval < 2:
+            interval = rng / 15.0
+        levels = np.arange(np.floor(mn / interval + 1) * interval, mx, interval)
+        if levels.size == 0:
+            levels = np.linspace(mn, mx, 8)[1:-1]
         demf = np.where(mask, dem, mn)
 
         def to_lonlat(r, c):
