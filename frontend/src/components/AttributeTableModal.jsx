@@ -108,52 +108,77 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature, onU
   const [pos, setPos] = useState(null);   // {x,y} ou null = centré
   const [size, setSize] = useState(() => ({ w: Math.min(940, window.innerWidth - 40), h: Math.min(560, Math.round(window.innerHeight * 0.8)) }));
   const move = useRef(null);
+  const MINW = 320, MINH = 200;
   useEffect(() => {
     const onMove = (e) => {
       const m = move.current; if (!m) return;
-      if (m.mode === "drag") setPos({ x: m.px + (e.clientX - m.sx), y: m.py + (e.clientY - m.sy) });
-      else setSize({ w: Math.max(360, m.pw + (e.clientX - m.sx)), h: Math.max(220, m.ph + (e.clientY - m.sy)) });
+      const dx = e.clientX - m.sx, dy = e.clientY - m.sy;
+      if (m.mode === "drag") { setPos({ x: m.px + dx, y: m.py + dy }); return; }
+      let x = m.px, y = m.py, w = m.pw, h = m.ph;
+      if (m.dir.includes("e")) w = Math.max(MINW, m.pw + dx);
+      if (m.dir.includes("s")) h = Math.max(MINH, m.ph + dy);
+      if (m.dir.includes("w")) { w = Math.max(MINW, m.pw - dx); x = m.px + (m.pw - w); }
+      if (m.dir.includes("n")) { h = Math.max(MINH, m.ph - dy); y = m.py + (m.ph - h); }
+      setSize({ w, h }); setPos({ x, y });
     };
     const onUp = () => { move.current = null; };
+    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
     window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, []);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  const anchor = (el) => {
+    const r = el.closest("[data-attrwin]").getBoundingClientRect();
+    const p = pos || { x: r.left, y: r.top };
+    if (!pos) setPos(p);
+    return { p, w: size.w, h: size.h };
+  };
   const startDrag = (e) => {
     if (e.target.closest("button, input, select")) return;   // ne pas déplacer depuis un contrôle
-    const r = e.currentTarget.closest("[data-attrwin]").getBoundingClientRect();
-    const p = pos || { x: r.left, y: r.top }; if (!pos) setPos(p);
+    const { p } = anchor(e.currentTarget);
     move.current = { mode: "drag", sx: e.clientX, sy: e.clientY, px: p.x, py: p.y };
   };
-  const startResize = (e) => {
-    const r = e.currentTarget.closest("[data-attrwin]").getBoundingClientRect();
-    if (!pos) setPos({ x: r.left, y: r.top });
-    move.current = { mode: "resize", sx: e.clientX, sy: e.clientY, pw: size.w, ph: size.h };
+  const startResize = (e, dir) => {
+    const { p, w, h } = anchor(e.currentTarget);
+    move.current = { mode: "resize", dir, sx: e.clientX, sy: e.clientY, px: p.x, py: p.y, pw: w, ph: h };
     e.preventDefault(); e.stopPropagation();
   };
+  const HANDLES = [
+    ["n", { top: -3, left: 10, right: 10, height: 6, cursor: "ns-resize" }],
+    ["s", { bottom: -3, left: 10, right: 10, height: 6, cursor: "ns-resize" }],
+    ["w", { left: -3, top: 10, bottom: 10, width: 6, cursor: "ew-resize" }],
+    ["e", { right: -3, top: 10, bottom: 10, width: 6, cursor: "ew-resize" }],
+    ["nw", { top: -3, left: -3, width: 12, height: 12, cursor: "nwse-resize" }],
+    ["ne", { top: -3, right: -3, width: 12, height: 12, cursor: "nesw-resize" }],
+    ["sw", { bottom: -3, left: -3, width: 12, height: 12, cursor: "nesw-resize" }],
+    ["se", { bottom: -3, right: -3, width: 12, height: 12, cursor: "nwse-resize" }],
+  ];
 
   return (
     <>
       <div data-attrwin style={{ position: "fixed", ...(pos ? { top: pos.y, left: pos.x } : { top: "50%", left: "50%", transform: "translate(-50%, -50%)" }), zIndex: 1201, width: size.w, height: size.h, maxWidth: "98vw", maxHeight: "94vh", display: "flex", flexDirection: "column", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", overflow: "hidden" }}>
-        {/* En-tête + barre d'outils (poignée de déplacement) */}
-        <div onMouseDown={startDrag} style={{ padding: "11px 14px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", cursor: "move", userSelect: "none" }}>
-          <div style={{ minWidth: 140 }}>
+        {/* Barre de titre (poignée de déplacement) + bouton Fermer toujours visible */}
+        <div onMouseDown={startDrag} style={{ padding: "9px 12px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 8, cursor: "move", userSelect: "none", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Table attributaire — {layer?.name}</div>
-            <div style={{ fontSize: 10.5, color: C.dim, marginTop: 1 }}>{rows.length}/{feats.length} entités{selected.size ? ` · ${selected.size} sélectionnée${selected.size > 1 ? "s" : ""}` : ""} · {cols.length} champs</div>
+            <div style={{ fontSize: 10.5, color: C.dim, marginTop: 1 }}>{rows.length}/{feats.length} entités{selected.size ? ` · ${selected.size} sél.` : ""} · {cols.length} champs</div>
           </div>
-          <div style={{ flex: 1 }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 7, padding: "5px 9px", width: 180 }}>
+          <button onClick={onClose} title="Fermer (Échap)" style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, padding: "5px 10px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: C.input, color: C.txt, fontFamily: F, fontSize: 11.5, cursor: "pointer", fontWeight: 600 }}><IcX size={14} />Fermer</button>
+        </div>
+        {/* Barre d'outils (défilement horizontal sur petit écran) */}
+        <div style={{ padding: "8px 12px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 6, overflowX: "auto", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 7, padding: "5px 9px", minWidth: 150, flexShrink: 0 }}>
             <IcSearch size={13} style={{ color: C.dim, flexShrink: 0 }} />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher…" style={{ border: "none", background: "transparent", color: C.txt, fontFamily: F, fontSize: 12, width: "100%", outline: "none" }} />
           </div>
-          {editable && <button style={toolBtn} onClick={() => { const n = window.prompt("Nom du nouveau champ :"); if (n) addField(n); }}>+ Champ</button>}
-          {editable && <button style={toolBtn} onClick={() => setPanel({ kind: "calc", col: allCols[0] || "" })}>Calculer…</button>}
-          <button style={toolBtn} onClick={() => setPanel({ kind: "stats", col: null })}><IcBarChart size={13} />Statistiques</button>
-          <button style={toolBtn} onClick={() => setPanel({ kind: "chart", col: null })}><IcBarChart size={13} />Graphiques</button>
-          {onOpenDashboard && <button style={toolBtn} onClick={onOpenDashboard}><IcBarChart size={13} />Tableau de bord</button>}
-          <button style={toolBtn} onClick={() => download(`${(layer?.name || "table").replace(/[^\w.-]+/g, "_")}.csv`, toCsv(cols, exportRows))}>
+          {editable && <button style={{ ...toolBtn, flexShrink: 0 }} onClick={() => { const n = window.prompt("Nom du nouveau champ :"); if (n) addField(n); }}>+ Champ</button>}
+          {editable && <button style={{ ...toolBtn, flexShrink: 0 }} onClick={() => setPanel({ kind: "calc", col: allCols[0] || "" })}>Calculer…</button>}
+          <button style={{ ...toolBtn, flexShrink: 0 }} onClick={() => setPanel({ kind: "stats", col: null })}><IcBarChart size={13} />Statistiques</button>
+          <button style={{ ...toolBtn, flexShrink: 0 }} onClick={() => setPanel({ kind: "chart", col: null })}><IcBarChart size={13} />Graphiques</button>
+          {onOpenDashboard && <button style={{ ...toolBtn, flexShrink: 0 }} onClick={onOpenDashboard}><IcBarChart size={13} />Tableau de bord</button>}
+          <button style={{ ...toolBtn, flexShrink: 0 }} onClick={() => download(`${(layer?.name || "table").replace(/[^\w.-]+/g, "_")}.csv`, toCsv(cols, exportRows))}>
             <IcFileDown size={13} />Exporter{selected.size ? ` (${selected.size})` : ""}
           </button>
-          <button onClick={onClose} title="Fermer" style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", display: "flex", padding: 2 }}><IcX size={17} /></button>
         </div>
 
         {/* Tableau */}
@@ -192,10 +217,10 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature, onU
             </table>
           )}
         </div>
-        {/* Poignée de redimensionnement (coin bas-droit) */}
-        <div onMouseDown={startResize} title="Redimensionner"
-          style={{ position: "absolute", right: 2, bottom: 2, width: 15, height: 15, cursor: "nwse-resize",
-            borderRight: `2px solid ${C.dim}`, borderBottom: `2px solid ${C.dim}`, borderBottomRightRadius: 6, opacity: 0.55 }} />
+        {/* Poignées de redimensionnement (8 côtés/coins) */}
+        {HANDLES.map(([dir, st]) => (
+          <div key={dir} onMouseDown={e => startResize(e, dir)} style={{ position: "absolute", zIndex: 3, ...st }} />
+        ))}
       </div>
 
       {/* Menu colonne « ⋯ » */}
