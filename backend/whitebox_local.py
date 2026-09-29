@@ -280,11 +280,24 @@ def contours_from_array(dem, coords_bbox, params):
     levels = _np.arange(_np.ceil(mn / interval) * interval, mx + 1e-9, interval)
     if levels.size == 0:                              # amplitude < 1 pas → niveaux internes
         levels = _np.linspace(mn, mx, 8)[1:-1]
-    demf = _np.where(mask, dem, mn)
+    # Remplissage des nodata par la valeur valide la plus proche (pas de "falaise"
+    # artificielle vers mn qui générerait des courbes parasites au bord des trous).
+    from scipy import ndimage as _ndi
+    if not bool(mask.all()):
+        idx = _ndi.distance_transform_edt(~mask, return_distances=False, return_indices=True)
+        demf = dem[tuple(idx)].astype("float64")
+    else:
+        demf = dem.astype("float64")
+    # Léger lissage : supprime l'effet d'escalier des pixels → courbes propres (type QGIS).
+    if bool(params.get("smooth", True)):
+        demf = _ndi.gaussian_filter(demf, sigma=float(params.get("smooth_sigma", 0.8)))
     feats = []
     for lev in levels:
         for c in measure.find_contours(demf, float(lev)):
             if len(c) < 2: continue
+            # On rejette les segments tombant intégralement dans une zone nodata comblée.
+            rr = _np.clip(c[:, 0].astype(int), 0, ny - 1); cc = _np.clip(c[:, 1].astype(int), 0, nx - 1)
+            if not bool(mask[rr, cc].any()): continue
             coords = [[round(w + (col + 0.5) * (e - w) / nx, 6), round(n - (row + 0.5) * (n - s) / ny, 6)] for row, col in c]
             feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords}, "properties": {"elevation": round(float(lev), 1)}})
     return {"status": "ok", "engine": "local", "tool": "contours", "geojson": {"type": "FeatureCollection", "features": feats}, "count": len(feats), "interval": round(interval, 2)}
