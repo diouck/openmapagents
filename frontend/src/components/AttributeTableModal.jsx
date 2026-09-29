@@ -4,7 +4,7 @@
  * lignes, menu par colonne (trier, masquer, statistiques, graphique). Ouvert
  * depuis le menu « ⋯ » de la légende / du gestionnaire de couches.
  */
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useThemeContext } from "../theme";
 import { F, M } from "../config";
 import { IcX, IcSearch, IcZoomIn, IcBarChart, IcFileDown, IcChevronDown } from "../icons";
@@ -104,12 +104,38 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature, onU
   const th = { ...cell, position: "sticky", top: 0, background: C.card, fontWeight: 600, color: C.txt, zIndex: 1, fontFamily: F };
   const toolBtn = { display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", border: `0.5px solid ${C.bdr}`, borderRadius: 7, background: "transparent", color: C.txt, fontFamily: F, fontSize: 11.5, cursor: "pointer" };
 
+  // Fenêtre déplaçable + redimensionnable (comme les autres modules, sans backdrop bloquant).
+  const [pos, setPos] = useState(null);   // {x,y} ou null = centré
+  const [size, setSize] = useState(() => ({ w: Math.min(940, window.innerWidth - 40), h: Math.min(560, Math.round(window.innerHeight * 0.8)) }));
+  const move = useRef(null);
+  useEffect(() => {
+    const onMove = (e) => {
+      const m = move.current; if (!m) return;
+      if (m.mode === "drag") setPos({ x: m.px + (e.clientX - m.sx), y: m.py + (e.clientY - m.sy) });
+      else setSize({ w: Math.max(360, m.pw + (e.clientX - m.sx)), h: Math.max(220, m.ph + (e.clientY - m.sy)) });
+    };
+    const onUp = () => { move.current = null; };
+    window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+  const startDrag = (e) => {
+    if (e.target.closest("button, input, select")) return;   // ne pas déplacer depuis un contrôle
+    const r = e.currentTarget.closest("[data-attrwin]").getBoundingClientRect();
+    const p = pos || { x: r.left, y: r.top }; if (!pos) setPos(p);
+    move.current = { mode: "drag", sx: e.clientX, sy: e.clientY, px: p.x, py: p.y };
+  };
+  const startResize = (e) => {
+    const r = e.currentTarget.closest("[data-attrwin]").getBoundingClientRect();
+    if (!pos) setPos({ x: r.left, y: r.top });
+    move.current = { mode: "resize", sx: e.clientX, sy: e.clientY, pw: size.w, ph: size.h };
+    e.preventDefault(); e.stopPropagation();
+  };
+
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1201, width: "min(940px, 96vw)", maxHeight: "86vh", display: "flex", flexDirection: "column", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", overflow: "hidden" }}>
-        {/* En-tête + barre d'outils */}
-        <div style={{ padding: "11px 14px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div data-attrwin style={{ position: "fixed", ...(pos ? { top: pos.y, left: pos.x } : { top: "50%", left: "50%", transform: "translate(-50%, -50%)" }), zIndex: 1201, width: size.w, height: size.h, maxWidth: "98vw", maxHeight: "94vh", display: "flex", flexDirection: "column", background: C.bg, borderRadius: 10, border: `0.5px solid ${C.bdr}`, boxShadow: "0 24px 64px rgba(0,0,0,0.4)", overflow: "hidden" }}>
+        {/* En-tête + barre d'outils (poignée de déplacement) */}
+        <div onMouseDown={startDrag} style={{ padding: "11px 14px", borderBottom: `0.5px solid ${C.bdr}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", cursor: "move", userSelect: "none" }}>
           <div style={{ minWidth: 140 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Table attributaire — {layer?.name}</div>
             <div style={{ fontSize: 10.5, color: C.dim, marginTop: 1 }}>{rows.length}/{feats.length} entités{selected.size ? ` · ${selected.size} sélectionnée${selected.size > 1 ? "s" : ""}` : ""} · {cols.length} champs</div>
@@ -166,6 +192,10 @@ export default function AttributeTableModal({ layer, onClose, onZoomFeature, onU
             </table>
           )}
         </div>
+        {/* Poignée de redimensionnement (coin bas-droit) */}
+        <div onMouseDown={startResize} title="Redimensionner"
+          style={{ position: "absolute", right: 2, bottom: 2, width: 15, height: 15, cursor: "nwse-resize",
+            borderRight: `2px solid ${C.dim}`, borderBottom: `2px solid ${C.dim}`, borderBottomRightRadius: 6, opacity: 0.55 }} />
       </div>
 
       {/* Menu colonne « ⋯ » */}

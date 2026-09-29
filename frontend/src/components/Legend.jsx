@@ -6,13 +6,6 @@ import { MAKI_PATHS } from "../utils/makiIcons";
 import { resolveChartColors } from "../utils/chartSprites";
 import { IcPalette, IcMove, IcEye, IcEyeOff, IcTrash, IcZoomIn } from "../icons";
 
-const QUICK_ACTIONS = [
-  { label: "Zone tampon 500 m", op: "buffer", params: { radius: 500 } },
-  { label: "Zone tampon 1 km", op: "buffer", params: { radius: 1000 } },
-  { label: "Zone tampon 5 km", op: "buffer", params: { radius: 5000 } },
-  { label: "Centroïdes", op: "centroid", params: {} },
-  { label: "Enveloppe convexe", op: "convex_hull", params: {} },
-];
 
 // ── Formatage surface ──────────────────────────────────────────────────────────
 function fmtArea(ha) {
@@ -433,7 +426,7 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
                 <IcPalette size={12} />
               </button>
               {/* Menu « ⋯ » — analyse rapide + ouvrir dans Analyse spatiale */}
-              <button onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ layer, x: r.left, y: r.bottom + 2 }); }}
+              <button onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ layer, x: r.left, y: r.bottom + 2, yUp: r.top - 2 }); }}
                 title="Plus d'actions (analyse, table…)"
                 style={{ background: menu?.layer?.id === layer.id ? C.acc + "22" : "none", border: `0.5px solid ${menu?.layer?.id === layer.id ? C.acc : C.bdr}`, borderRadius: 5, cursor: "pointer", padding: "1px 5px", color: menu?.layer?.id === layer.id ? C.acc : C.dim, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", fontWeight: 700, fontSize: 13 }}>
                 ⋯
@@ -572,20 +565,40 @@ export default function Legend({ layers, onOpenSymbology, onReorder, onToggle, o
         );
         const sep = (k) => <div key={k} style={{ height: 1, background: C.bdr, margin: "3px 0" }} />;
         const hdr = (t) => <div style={{ padding: "6px 11px 2px", fontSize: 9, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim }}>{t}</div>;
+
+        // Géométrie de la couche → outils adaptés (points / lignes / polygones).
+        const gt = (l.geojson?.features?.find(f => f.geometry)?.geometry?.type) || "";
+        const geom = /Point/.test(gt) ? "point" : /LineString/.test(gt) ? "line" : /Polygon/.test(gt) ? "polygon" : "";
+        const QUICK = {
+          point:   [{ label: "Tampon 500 m", op: "buffer", params: { radius: 500 } }, { label: "Tampon 1 km", op: "buffer", params: { radius: 1000 } }, { label: "Enveloppe convexe", op: "convex_hull", params: {} }],
+          line:    [{ label: "Tampon 500 m", op: "buffer", params: { radius: 500 } }, { label: "Enveloppe convexe", op: "convex_hull", params: {} }],
+          polygon: [{ label: "Centroïdes", op: "centroid", params: {} }, { label: "Tampon 1 km", op: "buffer", params: { radius: 1000 } }, { label: "Enveloppe convexe", op: "convex_hull", params: {} }],
+        }[geom] || [];
+        const geomLbl = { point: "Outils points", line: "Outils lignes", polygon: "Outils polygones" }[geom] || "Outils";
+
+        // Positionnement responsive : s'ouvre vers le bas si la place suffit, sinon
+        // vers le haut ; hauteur bornée + scroll pour ne jamais déborder l'écran.
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const openUp = (vh - menu.y) < 300 && menu.yUp > vh / 2;
+        const left = Math.max(6, Math.min(menu.x, vw - 246));
+        const posStyle = openUp
+          ? { bottom: vh - menu.yUp, maxHeight: menu.yUp - 12 }
+          : { top: menu.y, maxHeight: vh - menu.y - 12 };
+
         return createPortal(
           <>
             <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10060 }} />
-            <div style={{ position: "fixed", left: Math.min(menu.x, window.innerWidth - 236), top: Math.min(menu.y, window.innerHeight - 260), zIndex: 10061, minWidth: 220, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflow: "hidden" }}>
-              <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
+            <div style={{ position: "fixed", left, zIndex: 10061, minWidth: 220, maxWidth: 260, background: C.card, border: `0.5px solid ${C.bdr}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.35)", overflowY: "auto", ...posStyle }}>
+              <div style={{ padding: "7px 11px", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.dim, borderBottom: `0.5px solid ${C.bdr}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "sticky", top: 0, background: C.card }}>{l.name}</div>
               {isVec && onOpenTable && item("Ouvrir la table attributaire", () => { onOpenTable(l); setMenu(null); })}
               {isVec && onOpenFilter && item("Filtrer par attribut", () => { onOpenFilter(l); setMenu(null); })}
               {isVec && onOpenDashboard && item("Tableau de bord", () => { onOpenDashboard(l); setMenu(null); })}
-              {isVec && onInterpolate && l.geojson?.features?.some(f => f.geometry?.type === "Point") && item("Interpolation (kriging/IDW)", () => { onInterpolate(l); setMenu(null); })}
+              {isVec && onInterpolate && geom === "point" && item("Interpolation (kriging/IDW)", () => { onInterpolate(l); setMenu(null); })}
               {isVec && onSelectEntities && item("Sélectionner des entités (clic)", () => { onSelectEntities(l); setMenu(null); })}
-              {isVec && <>
+              {isVec && QUICK.length > 0 && <>
                 {sep("s0")}
-                {hdr("Analyse rapide")}
-                {QUICK_ACTIONS.map((a, i) => <div key={i}>{item(a.label, () => runQuick(a))}</div>)}
+                {hdr(geomLbl)}
+                {QUICK.map((a, i) => <div key={i}>{item(a.label, () => runQuick(a))}</div>)}
               </>}
               {onOpenSpatial && <>
                 {sep("s")}
