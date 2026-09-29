@@ -97,6 +97,7 @@ export default function SpatialAnalysisPanel({
   const [rErr, setRErr] = useState(null);
   const [rOk, setROk] = useState(null);
   const [rLayerId, setRLayerId] = useState("");
+  const [rBand, setRBand] = useState(1);   // bande pour un raster importé multibande
 
   const q = search.trim().toLowerCase();
   const toggleSection = (id) => setExpandedSections(e => ({ ...e, [id]: !e[id] }));
@@ -150,15 +151,17 @@ export default function SpatialAnalysisPanel({
         const layer = layers.find(l => l.id === rLayerId);
         if (layer?.bbox) bounds = layer.bbox; else if (layer?.geojson) { const bb = geojsonBbox(layer.geojson); if (bb) bounds = bb; }
       }
-      const demSel = rParams.dem || "SRTM_30m";
-      const tp = { ...rParams }; delete tp.dem;
-      let demSource = demSel;
-      if (demSel.startsWith("imported:")) {
-        // MNT importé par l'utilisateur → calcul local sur sa couche (raster_token).
-        const dl = layers.find(l => l.id === demSel.slice(9));
-        if (!dl?.rasterToken) { setRErr("MNT importé introuvable — réimportez le GeoTIFF."); setRBusy(false); return; }
-        tp.raster_token = dl.rasterToken;
-        demSource = "SRTM_30m";   // ignoré côté backend quand raster_token présent
+      const tp = { ...rParams }; delete tp.dem; delete tp.raster;
+      let demSource = rParams.dem || "SRTM_30m";
+      // Source raster de l'utilisateur : MNT (dem="imported:id") OU raster classé (raster="id").
+      let srcLayer = null;
+      if (String(rParams.dem || "").startsWith("imported:")) srcLayer = layers.find(l => l.id === String(rParams.dem).slice(9));
+      else if (rParams.raster) srcLayer = layers.find(l => l.id === rParams.raster);
+      if (srcLayer) {
+        if (!srcLayer.rasterToken) { setRErr("Ce raster n'est pas calculable en local (importez un GeoTIFF)."); setRBusy(false); return; }
+        tp.raster_token = srcLayer.rasterToken;
+        if (srcLayer.bands > 1) tp.band = rBand;   // bande choisie pour un raster multibande
+        demSource = "SRTM_30m";                    // ignoré côté backend quand raster_token présent
       }
       const res = await fetch(`${API}/api/whitebox/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool: wt.id, bbox: bounds, dem_source: demSource, params: tp }) });
       const data = await res.json();
@@ -319,14 +322,23 @@ export default function SpatialAnalysisPanel({
             {(wt.inputs || []).map(input => (
               <div key={input.id} style={grp}><label style={labelStyle}>{input.label} {input.required && "*"}</label>
                 <p style={{ fontSize: 11, color: C.dim, margin: "0 0 6px" }}>{input.description}</p>
-                <select style={inputStyle} value={rParams[input.id] ?? "SRTM_30m"} onChange={e => setRParams(p => ({ ...p, [input.id]: e.target.value }))}>
+                <select style={inputStyle} value={rParams[input.id] ?? (input.id === "dem" ? "SRTM_30m" : "")} onChange={e => setRParams(p => ({ ...p, [input.id]: e.target.value }))}>
                   {input.id === "dem" ? <>
                     <option value="SRTM_30m">SRTM 30 m (mondial)</option>
                     <option value="COPDEM_30m">Copernicus DEM GLO-30</option>
-                    {layers.filter(l => l.isRaster && l.rasterToken).map(l => <option key={l.id} value={`imported:${l.id}`}>MNT importé — {l.name}</option>)}
+                    {layers.filter(l => l.isRaster && l.rasterToken).map(l => <option key={l.id} value={`imported:${l.id}`}>Raster importé — {l.name}{l.bands > 1 ? ` (${l.bands} bandes)` : ""}</option>)}
                   </>
-                    : <><option value="">Sélectionner…</option>{layers.filter(l => l.isRaster).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</>}
+                    : <><option value="">Sélectionner un raster…</option>{layers.filter(l => l.isRaster && l.rasterToken).map(l => <option key={l.id} value={l.id}>{l.name}{l.bands > 1 ? ` (${l.bands} bandes)` : ""}</option>)}</>}
                 </select>
+                {(() => {
+                  const ref = input.id === "dem" ? (String(rParams.dem || "").startsWith("imported:") ? String(rParams.dem).slice(9) : null) : rParams.raster;
+                  const dl = ref ? layers.find(l => l.id === ref) : null;
+                  return dl?.bands > 1 ? (
+                    <select style={{ ...inputStyle, marginTop: 6 }} value={rBand} onChange={e => setRBand(Number(e.target.value))}>
+                      {Array.from({ length: dl.bands }, (_, i) => <option key={i} value={i + 1}>Bande {i + 1}</option>)}
+                    </select>
+                  ) : null;
+                })()}
               </div>
             ))}
             {(wt.params || []).map(param => (
