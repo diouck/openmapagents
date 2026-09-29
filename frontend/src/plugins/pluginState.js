@@ -59,10 +59,16 @@ function load() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEY) || "null");
     if (raw && Array.isArray(raw.installed)) {
-      return { installed: new Set(raw.installed), disabled: new Set(raw.disabled || []) };
+      const installed = new Set(raw.installed);
+      const uninstalled = new Set(raw.uninstalled || []);
+      // Migration : tout module du catalogue jamais vu (ni installé, ni désinstallé
+      // explicitement) est considéré installé par défaut → il n'apparaît pas à tort
+      // dans « Disponibles ». Les désinstallations explicites restent préservées.
+      ALL_IDS.forEach((id) => { if (!installed.has(id) && !uninstalled.has(id)) installed.add(id); });
+      return { installed, disabled: new Set(raw.disabled || []), uninstalled };
     }
   } catch { /* localStorage indisponible / JSON cassé : on retombe sur le défaut */ }
-  return { installed: new Set(ALL_IDS), disabled: new Set() };   // 1er lancement : tout installé
+  return { installed: new Set(ALL_IDS), disabled: new Set(), uninstalled: new Set() };   // 1er lancement : tout installé
 }
 
 let state = load();
@@ -73,6 +79,7 @@ function persist() {
     localStorage.setItem(LS_KEY, JSON.stringify({
       installed: [...state.installed],
       disabled: [...state.disabled],
+      uninstalled: [...(state.uninstalled || [])],
     }));
   } catch { /* quota / navigation privée : sans effet, l'état vit en mémoire */ }
 }
@@ -93,14 +100,16 @@ export function isVisible(id)   { return CORE_IDS.has(id) || isActive(id); }
 export function install(id) {
   const installed = new Set(state.installed); installed.add(id);
   const disabled = new Set(state.disabled);  disabled.delete(id);
-  commit({ installed, disabled });
+  const uninstalled = new Set(state.uninstalled || []); uninstalled.delete(id);
+  commit({ installed, disabled, uninstalled });
 }
 
 export function uninstall(id) {
   if (CORE_IDS.has(id)) return;                       // cœur : non désinstallable
   const installed = new Set(state.installed); installed.delete(id);
   const disabled = new Set(state.disabled);  disabled.delete(id);
-  commit({ installed, disabled });
+  const uninstalled = new Set(state.uninstalled || []); uninstalled.add(id);
+  commit({ installed, disabled, uninstalled });
 }
 
 /** Désactiver = garder installé mais masquer du menu (réversible). */
@@ -108,7 +117,7 @@ export function setDisabled(id, off) {
   if (CORE_IDS.has(id)) return;
   const disabled = new Set(state.disabled);
   if (off) disabled.add(id); else disabled.delete(id);
-  commit({ installed: state.installed, disabled });
+  commit({ installed: state.installed, disabled, uninstalled: state.uninstalled });
 }
 
 function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }

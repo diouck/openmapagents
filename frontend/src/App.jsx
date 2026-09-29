@@ -3095,7 +3095,7 @@ export default function App() {
         <PluginManager
           open={pluginsOpen}
           onClose={() => setPluginsOpen(false)}
-          onOpen={(id) => { setPluginsOpen(false); activateItem(id); }}
+          onOpen={(id, kind) => { setPluginsOpen(false); if (kind === "indicator") openModal({ type: "indicator", indKey: id }); else activateItem(id); }}
           C={C}
         />
 

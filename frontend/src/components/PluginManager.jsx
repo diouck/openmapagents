@@ -12,7 +12,7 @@ import {
   PLUGIN_CATALOG, CORE_IDS, usePluginState,
   isInstalled, isDisabled, install, uninstall, setDisabled,
 } from "../plugins/pluginState";
-import { IcSearch, IcX, IcTrash, IcEye, IcEyeOff, IcCheck } from "../icons";
+import { IcSearch, IcX, IcTrash, IcEye, IcEyeOff, IcCheck, IcBoxes } from "../icons";
 
 export default function PluginManager({ open, onClose, onOpen, C }) {
   const pstate = usePluginState();
@@ -75,9 +75,13 @@ export default function PluginManager({ open, onClose, onOpen, C }) {
             const inst = core || isInstalled(p.id);
             const off = isDisabled(p.id);
             const active = inst && !off;
-            const Icon = p.icon;
+            const Icon = p.icon || IcBoxes;
+            const openable = inst && !off;   // module installé & actif → cliquable pour l'ouvrir
             return (
-              <div key={p.id} style={{ background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 12, padding: "12px 13px" }}>
+              <div key={p.id}
+                onClick={openable ? () => onOpen?.(p.id, p.kind) : undefined}
+                title={openable ? "Ouvrir le module" : undefined}
+                style={{ background: C.input, border: `0.5px solid ${C.bdr}`, borderRadius: 12, padding: "12px 13px", cursor: openable ? "pointer" : "default" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <span style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                                  background: active ? C.acc + "1e" : C.card, color: active ? C.acc : C.mut }}>{Icon && <Icon size={19} />}</span>
@@ -91,11 +95,11 @@ export default function PluginManager({ open, onClose, onOpen, C }) {
                     <div style={{ fontSize: 11.5, color: C.dim, marginTop: 3, lineHeight: 1.4,
                                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.desc || p.category}</div>
                   </div>
-                  <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }} onClick={(e) => e.stopPropagation()}>
                     {core ? (
                       <span style={{ fontSize: 10.5, color: C.dim }}>cœur</span>
                     ) : !inst ? (
-                      <button onClick={() => { install(p.id); onOpen?.(p.id); }} style={{ fontSize: 12, fontWeight: 600, color: "#04120a", background: C.acc, border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>Installer</button>
+                      <button onClick={() => { install(p.id); onOpen?.(p.id, p.kind); }} style={{ fontSize: 12, fontWeight: 600, color: "#04120a", background: C.acc, border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>Installer</button>
                     ) : (
                       <>
                         <button onClick={() => setDisabled(p.id, !off)} title={off ? "Activer" : "Désactiver"} style={iconBtn}>{off ? <IcEyeOff size={15} /> : <IcEye size={15} />}</button>

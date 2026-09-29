@@ -211,8 +211,27 @@ export const INDICATORS = {
 
 // Thèmes d'usage → items (indicateurs satellite + outils existants, sans distinction)
 export const MENU_TREE = [
-  // Imagerie brute en tête : c'est le point de départ naturel pour constater un
-  // état, avant de basculer sur un indice calculé.
+  // Aménagement urbain et Risques & changements en tête de liste (choix produit).
+  { id: "urbain", label: "Urbain & aménagement", icon: IcBuilding, items: [
+    { kind: "indicator", id: "NDBI" }, { kind: "indicator", id: "BSI" }, { kind: "indicator", id: "WORLDCOVER" },
+    { kind: "indicator", id: "VIIRS" }, { kind: "indicator", id: "POPULATION" },
+    { kind: "indicator", id: "BUILT" }, { kind: "indicator", id: "SMOD" }, { kind: "indicator", id: "DYNWORLD" },
+    { kind: "tool", id: "isochrone", label: "Isochrone d'accès", desc: "Zones atteignables en un temps donné.", icon: IcRadar },
+    { kind: "tool", id: "route", label: "Itinéraire", desc: "Trajet et distance entre deux points.", icon: IcNavigation },
+    { kind: "tool", id: "scene3d", label: "Bâtiments 3D / Globe", desc: "Bâtiments, nuages de points, globe 3D.", icon: IcCube },
+    { kind: "tool", id: "shadow", label: "Ombres portées des bâtiments", desc: "Ombre au sol des bâtiments de la carte à une date/heure, en défilé sur la journée (sans téléchargement).", icon: IcSun },
+  ]},
+  { id: "risques", label: "Risques & changements", icon: IcFlame, items: [
+    { kind: "tool", id: "burnsev", label: "Severite d'incendie (dNBR)", desc: "Degats d'un feu par comparaison NBR avant/apres.", icon: IcFlame },
+    { kind: "tool", id: "flood", label: "Cartographie des inondations", desc: "Détection radar SAR (Sentinel-1) ou modèle hauteur d'eau ; surface, population et bâti exposés.", icon: IcDroplets },
+    { kind: "indicator", id: "NBR" }, { kind: "indicator", id: "NDSI" },
+    { kind: "indicator", id: "BURNED" }, { kind: "indicator", id: "FIRMS" },
+    { kind: "indicator", id: "SMOKE" },
+    { kind: "tool", id: "change", label: "Détection de changement", desc: "Compare deux dates et isole ce qui a changé.", icon: IcDiff },
+    { kind: "tool", id: "compare", label: "Comparateur A/B", desc: "Deux couches côte à côte, curseur de balayage.", icon: IcCompare },
+    { kind: "tool", id: "story", label: "Story map (scrollytelling)", desc: "Raconte une histoire en chapitres animés (vues + couches) et exporte un HTML autonome.", icon: IcFilm },
+  ]},
+  // Imagerie brute : point de départ naturel pour constater un état avant un indice.
   { id: "imagerie", label: "Imagerie satellite", icon: IcImage, items: [
     { kind: "indicator", id: "RGBIMG" }, { kind: "indicator", id: "IRCIMG" },
     { kind: "indicator", id: "SWIRIMG" },
@@ -264,25 +283,6 @@ export const MENU_TREE = [
   { id: "air", label: "Qualité de l'air", icon: IcWind, items: [
     { kind: "indicator", id: "NO2" }, { kind: "indicator", id: "CO" }, { kind: "indicator", id: "CH4" },
     { kind: "indicator", id: "O3" }, { kind: "indicator", id: "AER" },
-  ]},
-  { id: "urbain", label: "Urbain & aménagement", icon: IcBuilding, items: [
-    { kind: "indicator", id: "NDBI" }, { kind: "indicator", id: "BSI" }, { kind: "indicator", id: "WORLDCOVER" },
-    { kind: "indicator", id: "VIIRS" }, { kind: "indicator", id: "POPULATION" },
-    { kind: "indicator", id: "BUILT" }, { kind: "indicator", id: "SMOD" }, { kind: "indicator", id: "DYNWORLD" },
-    { kind: "tool", id: "isochrone", label: "Isochrone d'accès", desc: "Zones atteignables en un temps donné.", icon: IcRadar },
-    { kind: "tool", id: "route", label: "Itinéraire", desc: "Trajet et distance entre deux points.", icon: IcNavigation },
-    { kind: "tool", id: "scene3d", label: "Bâtiments 3D / Globe", desc: "Bâtiments, nuages de points, globe 3D.", icon: IcCube },
-    { kind: "tool", id: "shadow", label: "Ombres portées des bâtiments", desc: "Ombre au sol des bâtiments de la carte à une date/heure, en défilé sur la journée (sans téléchargement).", icon: IcSun },
-  ]},
-  { id: "risques", label: "Risques & changements", icon: IcFlame, items: [
-    { kind: "tool", id: "burnsev", label: "Severite d'incendie (dNBR)", desc: "Degats d'un feu par comparaison NBR avant/apres.", icon: IcFlame },
-    { kind: "tool", id: "flood", label: "Cartographie des inondations", desc: "Détection radar SAR (Sentinel-1) ou modèle hauteur d'eau ; surface, population et bâti exposés.", icon: IcDroplets },
-    { kind: "indicator", id: "NBR" }, { kind: "indicator", id: "NDSI" },
-    { kind: "indicator", id: "BURNED" }, { kind: "indicator", id: "FIRMS" },
-    { kind: "indicator", id: "SMOKE" },
-    { kind: "tool", id: "change", label: "Détection de changement", desc: "Compare deux dates et isole ce qui a changé.", icon: IcDiff },
-    { kind: "tool", id: "compare", label: "Comparateur A/B", desc: "Deux couches côte à côte, curseur de balayage.", icon: IcCompare },
-    { kind: "tool", id: "story", label: "Story map (scrollytelling)", desc: "Raconte une histoire en chapitres animés (vues + couches) et exporte un HTML autonome.", icon: IcFilm },
   ]},
   { id: "relief", label: "Relief & 3D / LiDAR", icon: IcMountain, items: [
     { kind: "indicator", id: "ELEV" }, { kind: "indicator", id: "SLOPE" }, { kind: "indicator", id: "HILLSHADE" },
