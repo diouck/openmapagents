@@ -65,7 +65,7 @@ function renderDefinition(text, C) {
   });
 }
 
-export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [], filterCategories = null }) {
+export default function WhiteboxPanel({ onAddRasterLayer, onAddVectorLayer, mapRef, layers = [], filterCategories = null }) {
   const C = useThemeContext();
   const allCategories = getCategories();
   const categories = filterCategories ? allCategories.filter(c => filterCategories.includes(c.key)) : allCategories;
@@ -143,6 +143,14 @@ export default function WhiteboxPanel({ onAddRasterLayer, mapRef, layers = [], f
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
 
       const zoneLabel = zoneMode === "map" ? "zone visible" : zoneMode === "monde" ? "zone mondiale" : "couche";
+      if (data.geojson) {
+        // Sortie vectorielle (courbes de niveau) → couche vecteur exportable.
+        if (!data.geojson.features?.length) { setError("Aucune courbe générée sur cette emprise."); setRunning(false); return; }
+        onAddVectorLayer?.(data.geojson, `${selectedTool.name} (${zoneLabel})`);
+        setSuccess(`✓ ${data.count ?? data.geojson.features.length} courbes · intervalle ${data.interval ?? "?"} m`);
+        setRunning(false);
+        return;
+      }
       if (data.png_b64) {
         // Résultat calculé en local (hydrologie hors GEE) → overlay image PNG
         onAddRasterLayer?.({

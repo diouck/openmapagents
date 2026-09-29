@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from gee_auth import init_gee, get_ee
-from whitebox_local import run_local, LOCAL_TOOLS, interpolate_surface
+from whitebox_local import run_local, LOCAL_TOOLS, interpolate_surface, extract_contours
 
 router = APIRouter(prefix="/whitebox", tags=["whitebox"])
 
@@ -335,6 +335,15 @@ def whitebox_run(req: WhiteboxRunRequest):
         # Emprise ~mondiale → pas de clip (inutile, plus lent)
         if not (w <= -179 and s <= -89 and e >= 179 and n >= 89):
             region = ee.Geometry.BBox(w, s, e, n)
+
+    # ── Courbes de niveau → sortie VECTORIELLE (GeoJSON, exportable) ──
+    if tool == "contours":
+        try:
+            return extract_contours(ee, region, req.params or {}, _dem_asset(req.dem_source or "SRTM_30m"))
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"Erreur courbes de niveau : {e}")
 
     # ── Outils calculés EN LOCAL (hydrologie hors GEE) → overlay image ──
     if tool in LOCAL_TOOLS:

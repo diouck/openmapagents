@@ -201,6 +201,56 @@ def interpolate_surface(points_geojson, field, bbox, resolution=120, method="kri
     }
 
 
+def extract_contours(ee, region, params, dem_asset):
+    """Courbes de niveau VECTORIELLES (GeoJSON LineStrings) — sortie exportable (QGIS-like)."""
+    if region is None:
+        raise HTTPException(422, "Une emprise (ROI) est requise pour les courbes de niveau.")
+    from skimage import measure
+    interval = float(params.get("interval", 100) or 100)
+    scale = int(params.get("scale", 90) or 90)
+    imported = params.get("dem_tif_path")
+    tif = imported or _fetch_dem_geotiff(ee, region, scale, dem_asset)
+    try:
+        with rasterio.open(tif) as src:
+            dem = src.read(1).astype(float)
+            b = src.bounds
+            nod = src.nodata
+        ny, nx = dem.shape
+        mask = np.isfinite(dem)
+        if nod is not None:
+            mask &= (dem != nod)
+        vals = dem[mask]
+        if vals.size == 0:
+            raise HTTPException(422, "MNT vide sur cette emprise.")
+        mn, mx = float(np.min(vals)), float(np.max(vals))
+        if interval <= 0 or (mx - mn) / interval > 80:      # borne le nombre de niveaux
+            interval = max(1.0, (mx - mn) / 40.0)
+        levels = np.arange(np.ceil(mn / interval) * interval, mx, interval)
+        demf = np.where(mask, dem, mn)
+
+        def to_lonlat(r, c):
+            lon = b.left + (c + 0.5) * (b.right - b.left) / nx
+            lat = b.top - (r + 0.5) * (b.top - b.bottom) / ny
+            return [round(lon, 6), round(lat, 6)]
+
+        feats = []
+        for lev in levels:
+            for contour in measure.find_contours(demf, float(lev)):
+                if len(contour) < 2:
+                    continue
+                coords = [to_lonlat(r, c) for r, c in contour]
+                feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords}, "properties": {"elevation": round(float(lev), 1)}})
+        return {
+            "status": "ok", "engine": "local", "tool": "contours",
+            "geojson": {"type": "FeatureCollection", "features": feats},
+            "count": len(feats), "interval": round(interval, 2),
+        }
+    finally:
+        if not imported:
+            try: os.remove(tif)
+            except Exception: pass
+
+
 def run_local(ee, tool, region, params, dem_asset):
     """Exécute un outil hydrologique local (numpy/skimage) et renvoie un overlay image."""
     if region is None:

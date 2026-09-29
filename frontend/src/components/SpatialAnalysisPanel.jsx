@@ -156,8 +156,19 @@ export default function SpatialAnalysisPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Erreur ${res.status}`);
       const zl = zoneMode === "map" ? "zone visible" : zoneMode === "monde" ? "zone mondiale" : "couche";
-      onAddRasterLayer?.({ id: `wbx_${wt.id}_${Date.now()}`, name: `${wt.name} (${zl})`, type: "wms", tileUrl: data.tile_url, opacity: 0.85, bbox: zoneMode === "monde" ? null : bounds, visParams: data.vis_params || null });
-      setROk(`✓ ${wt.name} calculé (${zl})`);
+      if (data.geojson) {
+        // Sortie vectorielle (courbes de niveau) → couche vecteur exportable.
+        if (!data.geojson.features?.length) { setRErr("Aucune courbe générée sur cette emprise."); setRBusy(false); return; }
+        (onAddLayer || (() => {}))(data.geojson, `${wt.name} (${zl})`, "analysis");
+        setROk(`✓ ${data.count ?? data.geojson.features.length} courbes · intervalle ${data.interval ?? "?"} m`);
+      } else if (data.png_b64) {
+        addImageLayer?.({ id: `wbx_${wt.id}_${Date.now()}`, name: `${wt.name} (${zl})`, imageUrl: `data:image/png;base64,${data.png_b64}`, coordinates: data.image_coordinates, bbox: data.bbox || bounds, visParams: data.vis_params || null, opacity: 0.85 });
+        setROk(`✓ ${wt.name} calculé (${zl})`);
+      } else {
+        onAddRasterLayer?.({ id: `wbx_${wt.id}_${Date.now()}`, name: `${wt.name} (${zl})`, type: "wms", tileUrl: data.tile_url, opacity: 0.85, bbox: zoneMode === "monde" ? null : bounds, visParams: data.vis_params || null,
+          geeParams: { _whitebox: true, tool: wt.id, bbox: bounds, dem_source: demSource, params: tp } });
+        setROk(`✓ ${wt.name} calculé (${zl})`);
+      }
     } catch (e) { setRErr(`Erreur : ${e.message}`); }
     setRBusy(false);
   };
