@@ -882,6 +882,13 @@ try:
 except Exception as e:
     log.warning(f"⚠ SQL router : {e}")
 
+try:
+    from dynamical_routes import router as dynamical_router
+    app.include_router(dynamical_router)
+    log.info("✓ Dynamical router chargé (/api/dynamical/*)")
+except Exception as e:
+    log.warning(f"⚠ Dynamical router : {e}")
+
 
 
 from osm_routes import router as osm_router

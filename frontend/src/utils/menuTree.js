@@ -279,6 +279,7 @@ export const MENU_TREE = [
   // frise passé→futur. Nature différente des indicateurs figés : voir WeatherPanel.
   { id: "meteo", label: "Météo & temps réel", icon: IcCloudRain, items: [
     { kind: "tool", id: "weather", label: "Météo temps réel", desc: "Radar de pluie, satellite IR mondial et prévision GFS, animés sur une frise passé→futur.", icon: IcCloudRain },
+    { kind: "tool", id: "dynamical", label: "Données météo ouvertes (dynamical.org)", desc: "GFS, GEFS, HRRR, ECMWF, ICON… par dataset / run / échéance / variable, en overlay colorisé + série au point.", icon: IcCloudRain },
   ]},
   { id: "air", label: "Qualité de l'air", icon: IcWind, items: [
     { kind: "indicator", id: "NO2" }, { kind: "indicator", id: "CO" }, { kind: "indicator", id: "CH4" },

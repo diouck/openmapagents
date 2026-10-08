@@ -29,6 +29,12 @@ rasterio>=1.3.0
 # implémentés en numpy + skimage.reconstruction — aucune dépendance lourde ajoutée.
 # Krigeage (interpolation de points) — pur Python (numpy/scipy) ; repli IDW si absent.
 pykrige>=1.7.0
+# Module « Données météo ouvertes » (dynamical_routes.py) : lecture des Zarr/Icechunk
+# de dynamical.org via xarray. Le router se charge sans elles (dégrade proprement en 503).
+dynamical-catalog>=0.8.0
+icechunk>=0.1.0
+xarray>=2024.0.0
+zarr>=2.17.0
 # Optionnel (filtre sol CSF pour nuages NON classés) — extension C++, peut ne pas
 # s'installer partout ; le code retombe sur un MNT morphologique si absent.
 # Installer à part si besoin :  pip install cloth-simulation-filter
