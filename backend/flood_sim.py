@@ -80,8 +80,21 @@ def simulate_flood(z, cell_m, rain_mm_h, duration_min, manning=0.05,
     frame_steps = {int(round(i * nsteps / n_frames)) for i in range(1, n_frames + 1)}
 
     frames, kpi_t, kpi_area, kpi_dmax, kpi_vol = [], [], [], [], []
-    # Voisins D4 : (shift, axis) pour np.roll ; haut, bas, gauche, droite.
+    # Voisins D4 : (shift, axis) ; haut, bas, gauche, droite.
     shifts = [(1, 0), (-1, 0), (1, 1), (-1, 1)]
+
+    def _shift(a, sh, ax, fill):
+        """Décale SANS enroulement (bords absorbants) ; les bords exposés = `fill`."""
+        out = np.full_like(a, fill)
+        if ax == 0:
+            if sh > 0:   out[sh:, :] = a[:-sh, :]
+            elif sh < 0: out[:sh, :] = a[-sh:, :]
+            else:        out[:] = a
+        else:
+            if sh > 0:   out[:, sh:] = a[:, :-sh]
+            elif sh < 0: out[:, :sh] = a[:, -sh:]
+            else:        out[:] = a
+        return out
 
     for step in range(1, nsteps + 1):
         d = d + rain_ms * dt
@@ -93,7 +106,8 @@ def simulate_flood(z, cell_m, rain_mm_h, duration_min, manning=0.05,
         dhs = []
         sum_dh = np.zeros_like(d)
         for sh, ax in shifts:
-            dh = np.clip(wl - np.roll(wl, sh, axis=ax), 0, None)
+            # Voisin hors domaine = puits bas (−1e9) → l'eau du bord s'écoule DEHORS.
+            dh = np.clip(wl - _shift(wl, sh, ax, -1e9), 0, None)
             dhs.append((dh, sh, ax))
             sum_dh += dh
 
@@ -102,8 +116,8 @@ def simulate_flood(z, cell_m, rain_mm_h, duration_min, manning=0.05,
         new_d = d - outflow
         for dh, sh, ax in dhs:
             share = outflow * dh / safe_sum
-            # Ce qui sort vers (sh,ax) arrive chez le voisin → roll inverse.
-            new_d = new_d + np.roll(share, -sh, axis=ax)
+            # Livraison au voisin ; ce qui sort du domaine est PERDU (fill=0, pas d'enroulement).
+            new_d = new_d + _shift(share, -sh, ax, 0.0)
         d = new_d
         d[wall] = 0.0
         np.maximum(dmax, d, out=dmax)
