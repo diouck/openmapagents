@@ -229,6 +229,7 @@ class FieldReq(BaseModel):
     max_px: int = 1600                # borne la taille de l'image
     # --- Style (option A) : surcharge le rendu, relance /field ---
     palette: str | None = None        # nom d'une palette (cf. PALETTES) ; None = auto/variable
+    reverse: bool = False             # inverse le sens de la rampe
     classes: int | None = None        # nb de classes discrètes ; None/0/1 = dégradé continu
     vmin: float | None = None         # borne basse imposée (None = 2e percentile)
     vmax: float | None = None         # borne haute imposée (None = 98e percentile)
@@ -258,6 +259,22 @@ def _sample_palette(palette, n):
         rgb = pal[lo] * (1 - f) + pal[hi] * f
         out.append("#%02x%02x%02x" % tuple(int(v) for v in rgb))
     return out
+
+
+def _nice_step(x):
+    """Pas « rond » (1/2/5 × 10ⁿ) le plus proche de x — pour des légendes lisibles."""
+    if x <= 0:
+        return 1.0
+    exp = np.floor(np.log10(x)); f = x / 10 ** exp
+    nf = 1 if f < 1.5 else 2 if f < 3 else 5 if f < 7 else 10
+    return float(nf * 10 ** exp)
+
+
+def _nice_bounds(mn, mx, n):
+    """Arrondit [mn,mx] à des bornes rondes avec n intervalles de pas rond (vraies cartes)."""
+    step = _nice_step((mx - mn) / max(1, n))
+    lo = np.floor(mn / step) * step
+    return float(lo), float(lo + step * n)
 
 
 def _colormap_discrete(arr, mn, mx, palette, n):
@@ -353,22 +370,27 @@ def field(req: FieldReq):
     vis = _vis_for(req.variable, str(ds[req.variable].attrs.get("units", "")))
     if vis["conv"]:
         arr = vis["conv"](arr)
-    # Palette : imposée par le style, sinon celle de la variable.
-    palette = PALETTES.get((req.palette or "").lower(), vis["palette"])
-    # Bornes : imposées par le style, sinon 2–98e percentiles (légende = couleurs carte).
+    # Palette : imposée par le style (inversable), sinon celle de la variable.
+    palette = list(PALETTES.get((req.palette or "").lower(), vis["palette"]))
+    if req.reverse:
+        palette = palette[::-1]
+    nclass = int(req.classes or 0)
+    # Bornes : imposées, sinon 2–98e percentiles arrondis à des valeurs rondes.
     finite = arr[np.isfinite(arr)]
+    auto_lo, auto_hi = req.vmin is None, req.vmax is None
     if finite.size:
-        mn = req.vmin if req.vmin is not None else float(np.percentile(finite, 2))
-        mx = req.vmax if req.vmax is not None else float(np.percentile(finite, 98))
-        if req.vmin is None and ("precipitation" in req.variable.lower() or "humidity" in req.variable.lower()):
+        mn = float(np.percentile(finite, 2)) if auto_lo else req.vmin
+        mx = float(np.percentile(finite, 98)) if auto_hi else req.vmax
+        if auto_lo and ("precipitation" in req.variable.lower() or "humidity" in req.variable.lower()):
             mn = max(0.0, mn)
     else:
-        mn = req.vmin if req.vmin is not None else (vis["min"] or 0.0)
-        mx = req.vmax if req.vmax is not None else (vis["max"] or 1.0)
+        mn = (vis["min"] or 0.0) if auto_lo else req.vmin
+        mx = (vis["max"] or 1.0) if auto_hi else req.vmax
     if mx <= mn:
         mx = mn + 1.0
+    if auto_lo and auto_hi:
+        mn, mx = _nice_bounds(mn, mx, nclass if nclass >= 2 else 8)
 
-    nclass = int(req.classes or 0)
     if nclass >= 2:
         rgba, legend = _colormap_discrete(arr, mn, mx, palette, nclass)
         for it in legend:

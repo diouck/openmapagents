@@ -44,6 +44,18 @@ function fmtRun(iso) {
   } catch { return iso; }
 }
 
+// Palettes (miroir du backend) pour afficher la rampe de couleurs dans le panneau.
+const PALETTE_COLORS = {
+  auto:      ["#313695", "#74add1", "#e0f3f8", "#ffffbf", "#fee090", "#f46d43", "#a50026"],
+  thermique: ["#313695", "#4575b4", "#74add1", "#abd9e9", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61", "#f46d43", "#d73027", "#a50026"],
+  spectral:  ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#e6f598", "#abdda4", "#66c2a5", "#3288bd", "#5e4fa2"],
+  viridis:   ["#440154", "#482878", "#3e4a89", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
+  precip:    ["#ffffff", "#c7e9c0", "#74c476", "#31a354", "#2171b5", "#6a51a3", "#ae017e", "#fcc5c0"],
+  vent:      ["#ffffff", "#c6dbef", "#6baed6", "#2171b5", "#08306b", "#54278f", "#a50f15"],
+  humidite:  ["#8c510a", "#d8b365", "#f6e8c3", "#c7eae5", "#5ab4ac", "#01665e"],
+  gris:      ["#08306b", "#4292c6", "#c6dbef", "#ffffff"],
+};
+
 export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const C = useThemeContext();
 
@@ -66,6 +78,7 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const [opacity, setOpacity] = useState(0.75);     // transparence de l'overlay
   // Style (option A) : palette / nb de classes / bornes min-max.
   const [palette, setPalette] = useState("auto");
+  const [reversed, setReversed] = useState(false);  // inverse la rampe
   const [nClasses, setNClasses] = useState(0);      // 0 = dégradé continu
   const [vmin, setVmin] = useState("");             // vide = auto (percentiles)
   const [vmax, setVmax] = useState("");
@@ -113,6 +126,7 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
         body: JSON.stringify({
           dataset: dsId, variable, init_time: run || null, lead_hours: curLead, member, bbox,
           palette: palette === "auto" ? null : palette,
+          reverse: reversed,
           classes: nClasses || null,
           vmin: vmin === "" ? null : Number(vmin),
           vmax: vmax === "" ? null : Number(vmax),
@@ -190,8 +204,11 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   cat.forEach(c => { (byModel[c.model] ||= []).push(c); });
 
   const curDs = cat.find(c => c.id === dsId);
+  // Rampe de couleurs courante (pour l'aperçu), dans le sens choisi.
+  const rampCols = (() => { const a = (PALETTE_COLORS[palette] || PALETTE_COLORS.auto).slice(); return reversed ? a.reverse() : a; })();
+  const rampCss = `linear-gradient(to right, ${rampCols.join(", ")})`;
   return (
-    <div style={{ display: "flex", flexDirection: "column", paddingBottom: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflowY: "auto", overflowX: "hidden", paddingBottom: 12 }}>
       {/* Onglets */}
       <div style={{ display: "flex", gap: 4, padding: "8px 12px 0" }}>
         {[["outil", "Réglages"], ["def", "Définition"]].map(([k, l]) => (
@@ -309,10 +326,18 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
                   ["precip", "Précipitations"], ["vent", "Vent"], ["humidite", "Humidité"], ["gris", "Gris"]].map(([k, l]) =>
                   <option key={k} value={k}>{l}</option>)}
               </select>
-              <select style={{ ...sel, width: 110 }} value={nClasses} onChange={e => setNClasses(+e.target.value)} title="Nombre de classes">
+              <select style={{ ...sel, width: 100 }} value={nClasses} onChange={e => setNClasses(+e.target.value)} title="Nombre de classes">
                 <option value={0}>Dégradé</option>
                 {[3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} classes</option>)}
               </select>
+            </div>
+            {/* Aperçu de la rampe + inversion */}
+            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+              <div style={{ flex: 1, height: 14, borderRadius: 4, border: `0.5px solid ${C.bdr}`, background: rampCss }} title="Aperçu de la palette" />
+              <button onClick={() => setReversed(v => !v)} title="Inverser la rampe" style={{
+                fontFamily: F, fontSize: 11, padding: "4px 9px", borderRadius: 6, cursor: "pointer",
+                border: `0.5px solid ${C.bdr}`, background: reversed ? C.acc : C.hover, color: reversed ? "#fff" : C.txt, whiteSpace: "nowrap",
+              }}>⇄ Inverser</button>
             </div>
             <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
               <span style={{ fontSize: 10, color: C.mut }}>Min</span>
