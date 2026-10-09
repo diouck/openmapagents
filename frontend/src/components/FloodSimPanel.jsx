@@ -53,6 +53,7 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
         buildings, flow_arrows: flowArrows,
       };
       if (demSource === "gee") { body.dem_source = "gee"; body.dem_asset = "SRTM_30m"; }
+      else if (demSource === "ign") { body.dem_source = "ign"; }
       else { body.dem_source = "imported"; body.raster_token = demSource; }
       const r = await fetch(`${API}/api/flood/simulate`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -119,10 +120,11 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
       <div style={sec}>
         <p style={lab}>MNT (modèle de terrain)</p>
         <select style={inp} value={demSource} onChange={e => setDemSource(e.target.value)}>
-          <option value="gee">GEE — SRTM 30 m (emprise de la carte)</option>
+          <option value="ign">IGN RGE ALTI — ~1–5 m (France, emprise de la carte)</option>
+          <option value="gee">GEE — SRTM 30 m (mondial, emprise de la carte)</option>
           {importedDems.map(l => <option key={l.id} value={l.rasterToken}>Raster importé — {l.name}</option>)}
         </select>
-        <p style={{ fontSize: 9.5, color: C.mut, marginTop: 4 }}>⚠ SRTM 30 m convient à l'échelle quartier/vallée ; pour la rue, importe un MNT fin.</p>
+        <p style={{ fontSize: 9.5, color: C.mut, marginTop: 4 }}>IGN RGE ALTI = fin (France). SRTM 30 m = mondial mais grossier. Tu peux aussi importer ton MNT .tif.</p>
       </div>
 
       {/* Pluie & durée */}

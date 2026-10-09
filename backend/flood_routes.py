@@ -75,6 +75,43 @@ def _load_gee_dem(bbox, asset, max_cells):
     return arr, [float(b.left), float(b.bottom), float(b.right), float(b.top)]
 
 
+IGN_WMS = "https://data.geopf.fr/wms-r/wms"
+
+
+def _load_ign_dem(bbox, max_cells):
+    """MNT IGN RGE ALTI (~1–5 m, France) via WMS Géoplateforme en BIL float32 (altitudes réelles)."""
+    w, s, e, n = bbox
+    latm = math.radians((n + s) / 2.0)
+    wm = (e - w) * 111320.0 * max(0.1, math.cos(latm))
+    hm = (n - s) * 111320.0
+    if wm >= hm:
+        width = max_cells; height = max(2, int(max_cells * hm / max(1e-9, wm)))
+    else:
+        height = max_cells; width = max(2, int(max_cells * wm / max(1e-9, hm)))
+    params = {
+        "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
+        "LAYERS": "ELEVATION.ELEVATIONGRIDCOVERAGE", "STYLES": "",
+        "CRS": "EPSG:4326", "BBOX": f"{s},{w},{n},{e}",   # 1.3.0 + EPSG:4326 = lat,lon
+        "WIDTH": str(width), "HEIGHT": str(height),
+        "FORMAT": "image/x-bil;bits=32",
+    }
+    try:
+        r = requests.get(IGN_WMS, params=params, timeout=60)
+        r.raise_for_status()
+    except Exception as ex:
+        raise HTTPException(502, f"IGN WMS injoignable : {ex}")
+    if len(r.content) != width * height * 4:
+        raise HTTPException(502, f"IGN WMS : réponse inattendue ({len(r.content)} octets, "
+                                 f"attendu {width*height*4}). Emprise hors France ? {r.text[:160]}")
+    arr = np.frombuffer(r.content, dtype="<f4").reshape(height, width).astype(float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size and float(np.nanmax(np.abs(finite))) > 1e5:   # mauvaise endianness
+        arr = np.frombuffer(r.content, dtype=">f4").reshape(height, width).astype(float)
+    arr[arr <= -99998] = np.nan
+    arr[arr < -1000] = np.nan
+    return arr, [w, s, e, n]
+
+
 def _cell_m(arr, bbox):
     w, s, e, n = bbox
     ny, nx = arr.shape
@@ -156,6 +193,8 @@ def simulate(req: FloodSimReq):
         band, meta = _load_band(req.raster_token, req.band)
         arr = np.asarray(band, dtype=float)
         bbox = meta.get("bbox") or req.bbox
+    elif req.dem_source == "ign":
+        arr, bbox = _load_ign_dem(req.bbox, req.max_cells)
     else:
         arr, bbox = _load_gee_dem(req.bbox, req.dem_asset, req.max_cells)
 
