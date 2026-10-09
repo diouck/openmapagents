@@ -48,6 +48,8 @@ class FloodSimReq(BaseModel):
     flow_arrows: bool = True          # calcule les flèches de sens d'écoulement
     sea_level_m: float = 0.5          # altitude ≤ ce seuil = plan d'eau (mer) exclu de l'inondation
     vector3d: bool = True             # vectorise la profondeur max → polygones extrudables (vue 3D)
+    water_osm: bool = True            # exclut les plans d'eau + rivières OSM
+    water_ndwi: bool = True           # exclut l'eau détectée par NDWI (Sentinel-2 / GEE)
 
 
 def _load_gee_dem(bbox, asset, max_cells):
@@ -113,6 +115,47 @@ def _load_ign_dem(bbox, max_cells):
     return arr, [w, s, e, n]
 
 
+def _water_mask_ndwi(bbox, shape):
+    """Masque d'eau par NDWI (Sentinel-2 médian récent, via GEE), aligné sur la grille."""
+    if not init_gee():
+        return None
+    ee = get_ee()
+    import datetime
+    w, s, e, n = bbox
+    ny, nx = shape
+    region = ee.Geometry.BBox(w, s, e, n)
+    end = datetime.date.today()
+    start = end - datetime.timedelta(days=150)
+    try:
+        col = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+               .filterBounds(region).filterDate(str(start), str(end))
+               .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 40)))
+        ndwi = col.median().normalizedDifference(["B3", "B8"])   # (vert − PIR)/(vert + PIR)
+        water = ndwi.gt(0.0)
+        url = water.getDownloadURL({"region": region, "dimensions": f"{nx}x{ny}",
+                                    "format": "GEO_TIFF", "crs": "EPSG:4326"})
+        rr = requests.get(url, timeout=120)
+        rr.raise_for_status()
+        import tempfile
+        import rasterio
+        fd, path = tempfile.mkstemp(suffix=".tif"); os.close(fd)
+        with open(path, "wb") as f:
+            f.write(rr.content)
+        try:
+            with rasterio.open(path) as src:
+                a = src.read(1)
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        if a.shape[0] < ny or a.shape[1] < nx:
+            return None
+        return (a[:ny, :nx] > 0)
+    except Exception:
+        return None
+
+
 def _cell_m(arr, bbox):
     w, s, e, n = bbox
     ny, nx = arr.shape
@@ -142,7 +185,8 @@ def _osm_masks(bbox, shape, want_buildings=True):
     if want_buildings:
         parts.append(f'way["building"]({bb});')
     parts += [f'way["natural"="water"]({bb});', f'way["waterway"="riverbank"]({bb});',
-              f'way["landuse"="reservoir"]({bb});', f'relation["natural"="water"]({bb});']
+              f'way["landuse"="reservoir"]({bb});', f'relation["natural"="water"]({bb});',
+              f'way["waterway"~"^(river|canal|stream|drain)$"]({bb});']
     q = f'[out:json][timeout:45];({"".join(parts)});out geom;'
     try:
         r = requests.post(OVERPASS_URL, data={"data": q}, timeout=50)
@@ -150,13 +194,28 @@ def _osm_masks(bbox, shape, want_buildings=True):
         els = r.json().get("elements", [])
     except Exception:
         return None, None, 0
-    from shapely.geometry import Polygon
+    from shapely.geometry import Polygon, LineString
+    deg = 1.0 / 111320.0  # mètre → degré (approx)
+    buf = {"river": 12, "canal": 6, "stream": 4, "drain": 3}
     b_polys, w_polys = [], []
     for el in els:
         tags = el.get("tags", {}) or {}
-        is_water = ("natural" in tags and tags.get("natural") == "water") or \
-                   tags.get("waterway") == "riverbank" or tags.get("landuse") == "reservoir" or "water" in tags
         is_building = "building" in tags
+        ww = tags.get("waterway")
+        is_linear_water = ww in buf
+        is_poly_water = (tags.get("natural") == "water") or ww == "riverbank" or \
+                        tags.get("landuse") == "reservoir" or "water" in tags
+        # Linéaires (rivières tracées en ligne) → tampon selon le type.
+        if is_linear_water and not is_poly_water:
+            g = el.get("geometry")
+            if g and len(g) >= 2:
+                try:
+                    line = LineString([(p["lon"], p["lat"]) for p in g])
+                    w_polys.append(line.buffer(buf[ww] * deg))
+                except Exception:
+                    pass
+            continue
+        # Polygones (bâtiments, plans d'eau).
         rings = []
         if el.get("type") == "relation":
             for mem in el.get("members", []):
@@ -176,7 +235,7 @@ def _osm_masks(bbox, shape, want_buildings=True):
                 continue
             if is_building:
                 b_polys.append(poly)
-            elif is_water:
+            elif is_poly_water:
                 w_polys.append(poly)
     return _rasterize(b_polys, bbox, shape), _rasterize(w_polys, bbox, shape), len(b_polys)
 
@@ -273,12 +332,19 @@ def simulate(req: FloodSimReq):
     base_mask = base_mask | (np.isfinite(arr) & (arr <= req.sea_level_m))
 
     n_buildings = n_water = 0
-    bmask, wmask, n_buildings = _osm_masks(bbox, arr.shape, want_buildings=req.buildings)
-    if req.buildings and bmask is not None:
-        base_mask = base_mask | bmask            # bâtiments = murs
-    if wmask is not None:
-        base_mask = base_mask | wmask            # plans d'eau = exclus
-        n_water = int(wmask.sum())
+    water_total = np.zeros(arr.shape, dtype=bool)
+    if req.buildings or req.water_osm:
+        bmask, wmask, n_buildings = _osm_masks(bbox, arr.shape, want_buildings=req.buildings)
+        if req.buildings and bmask is not None:
+            base_mask = base_mask | bmask        # bâtiments = murs
+        if req.water_osm and wmask is not None:
+            water_total = water_total | wmask    # plans d'eau + rivières OSM
+    if req.water_ndwi:
+        ndwi = _water_mask_ndwi(bbox, arr.shape)
+        if ndwi is not None:
+            water_total = water_total | ndwi     # eau détectée par NDWI (Sentinel-2)
+    base_mask = base_mask | water_total
+    n_water = int(water_total.sum())
 
     sim = simulate_flood(
         arr, cell, req.rainfall_mm_h, req.duration_min,
