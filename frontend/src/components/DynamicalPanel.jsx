@@ -34,6 +34,16 @@ function fmtLead(h) {
   return r ? `+${d} j ${r} h` : `+${d} j`;
 }
 
+// init_time "2026-10-09T12Z" → "jeu. 09 oct. · 12 h UTC" (sélection de date lisible).
+function fmtRun(iso) {
+  try {
+    const d = new Date(iso.replace("Z", ":00:00Z"));
+    const date = d.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    return `${date} · ${hh} h UTC`;
+  } catch { return iso; }
+}
+
 export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const C = useThemeContext();
 
@@ -50,6 +60,10 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const [picking, setPicking] = useState(false);
   const [series, setSeries] = useState(null);       // { unit, series:[{lead_h,value}] }
   const [tab, setTab]       = useState("outil");    // outil | def
+  const [scope, setScope]   = useState("view");     // view | world | roi
+  const [roiBbox, setRoiBbox] = useState(null);     // [W,S,E,N] dessiné (2 clics)
+  const [roiPicking, setRoiPicking] = useState(false);
+  const [opacity, setOpacity] = useState(0.75);     // transparence de l'overlay
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
 
@@ -82,8 +96,13 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
     if (!m) { setErr("Carte non prête."); return; }
     setBusy(true); setErr(null);
     try {
-      const b = m.getBounds();
-      const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+      // Emprise : vue carte / monde entier (bbox null) / ROI dessinée.
+      let bbox = null;
+      if (scope === "view") { const b = m.getBounds(); bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+      else if (scope === "roi") {
+        if (!roiBbox) { setErr("Dessine d'abord la ROI (bouton ci-dessous)."); setBusy(false); return; }
+        bbox = roiBbox;
+      }
       const r = await fetch(`${API}/api/dynamical/field`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataset: dsId, variable, init_time: run || null, lead_hours: curLead, member, bbox }),
@@ -95,7 +114,7 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
         id: `dyn_${dsId}_${variable}_${Date.now()}`,
         name: `${prettyVar(variable)} ${fmtLead(curLead)} — ${(cat.find(c => c.id === dsId) || {}).model || dsId}`,
         imageUrl: `data:image/png;base64,${d.png_b64}`,
-        coordinates: d.image_coordinates, bbox: d.bbox, opacity: 0.8,
+        coordinates: d.image_coordinates, bbox: d.bbox, opacity,
         legend: d.legend, unit: d.unit,
       });
     } catch (e) { setErr(String(e.message || e)); }
@@ -121,6 +140,24 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
       } catch (er) { setErr(String(er.message || er)); }
       finally { setBusy(false); }
     });
+  }
+
+  // ROI : deux clics sur la carte → emprise [W,S,E,N].
+  function drawRoi() {
+    const m = mapObj();
+    if (!m) return;
+    setRoiPicking(true); setErr(null);
+    m.getCanvas().style.cursor = "crosshair";
+    let c1 = null;
+    const onClick = (e) => {
+      if (!c1) { c1 = e.lngLat; return; }
+      const w = Math.min(c1.lng, e.lngLat.lng), ea = Math.max(c1.lng, e.lngLat.lng);
+      const s = Math.min(c1.lat, e.lngLat.lat), n = Math.max(c1.lat, e.lngLat.lat);
+      setRoiBbox([w, s, ea, n]); setScope("roi");
+      m.getCanvas().style.cursor = ""; setRoiPicking(false);
+      m.off("click", onClick);
+    };
+    m.on("click", onClick);
   }
 
   // ── styles ─────────────────────────────────────────────────────
@@ -180,12 +217,14 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
             </select>
           </div>
 
-          {/* Forecast run (init_time) */}
+          {/* Forecast run (init_time) — sélection de date/heure lisible */}
           {dims.init_times?.length > 0 && (
             <div style={sec}>
-              <p style={lab}>Forecast run (init)</p>
+              <p style={lab}>Forecast run (date & heure du run)</p>
               <select style={sel} value={run} onChange={e => setRun(e.target.value)}>
-                {dims.init_times.slice().reverse().map(t => <option key={t} value={t}>{t}</option>)}
+                {dims.init_times.slice().reverse().map((t, i) => (
+                  <option key={t} value={t}>{fmtRun(t)}{i === 0 ? " — dernier" : ""}</option>
+                ))}
               </select>
             </div>
           )}
@@ -210,6 +249,37 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
                      onChange={e => setMember(Math.max(0, Math.min(dims.members - 1, +e.target.value)))} style={sel} />
             </div>
           )}
+
+          {/* Emprise (périmètre) */}
+          <div style={sec}>
+            <p style={lab}>Emprise</p>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[["view", "Vue carte"], ["world", "Monde"], ["roi", "ROI"]].map(([k, l]) => (
+                <button key={k} onClick={() => setScope(k)} style={{
+                  flex: 1, fontFamily: F, fontSize: 10.5, fontWeight: 600, padding: "6px 4px", borderRadius: 6,
+                  cursor: "pointer", border: `0.5px solid ${C.bdr}`,
+                  background: scope === k ? C.acc : C.hover, color: scope === k ? "#fff" : C.txt,
+                }}>{l}</button>
+              ))}
+            </div>
+            {scope === "roi" && (
+              <button onClick={drawRoi} style={{
+                marginTop: 6, fontFamily: F, fontSize: 10.5, padding: "6px 8px", borderRadius: 6, width: "100%",
+                cursor: "pointer", border: `0.5px solid ${C.bdr}`, background: roiPicking ? C.amb : C.hover,
+                color: roiPicking ? "#fff" : C.txt,
+              }}>
+                {roiPicking ? "2 clics : coins opposés…" : roiBbox ? "ROI définie ✓ — redessiner" : "Dessiner l'emprise (2 clics)"}
+              </button>
+            )}
+            {scope === "world" && <p style={{ fontSize: 9.5, color: C.mut, marginTop: 4 }}>Emprise = domaine complet du dataset (peut être lourd).</p>}
+          </div>
+
+          {/* Opacité / transparence */}
+          <div style={sec}>
+            <p style={lab}>Opacité de la couche · <span style={{ color: C.acc }}>{Math.round(opacity * 100)} %</span></p>
+            <input type="range" min={0.1} max={1} step={0.05} value={opacity}
+                   onChange={e => setOpacity(+e.target.value)} style={{ width: "100%" }} />
+          </div>
 
           {/* Actions */}
           <div style={{ ...sec, display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>

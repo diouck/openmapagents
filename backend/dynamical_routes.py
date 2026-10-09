@@ -304,8 +304,10 @@ def field(req: FieldReq):
     S, N = float(np.min(sub_lat)), float(np.max(sub_lat))
     # Coins pour une source "image" Mapbox/MapLibre : TL, TR, BR, BL.
     coords = [[W, N], [E, N], [E, S], [W, S]]
-    legend = [{"color": c, "value": round(mn + (mx - mn) * i / (len(vis["palette"]) - 1), 1)}
-              for i, c in enumerate(vis["palette"])]
+    legend = []
+    for i, c in enumerate(vis["palette"]):
+        val = round(mn + (mx - mn) * i / (len(vis["palette"]) - 1), 1)
+        legend.append({"color": c, "value": val, "label": f"{val} {vis['label']}".strip()})
     return {
         "status": "ok", "dataset": req.dataset, "variable": req.variable,
         "png_b64": png, "image_coordinates": coords, "bbox": [W, S, E, N],
