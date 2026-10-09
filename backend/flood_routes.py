@@ -46,6 +46,7 @@ class FloodSimReq(BaseModel):
     max_cells: int = 220
     buildings: bool = True            # brûle les bâtiments OSM comme obstacles (murs)
     flow_arrows: bool = True          # calcule les flèches de sens d'écoulement
+    sea_level_m: float = 0.5          # altitude ≤ ce seuil = plan d'eau (mer) exclu de l'inondation
 
 
 def _load_gee_dem(bbox, asset, max_cells):
@@ -171,8 +172,13 @@ def simulate(req: FloodSimReq):
     if not np.isfinite(arr).any():
         raise HTTPException(422, "MNT vide (que des nodata) sur cette emprise.")
 
-    # Bâtiments OSM → murs (canalisent l'eau dans les rues).
+    # Plans d'eau (mer, bassins) : altitude ≤ niveau marin → exclus de l'inondation
+    # (sinon toute la mer se « remplit » de pluie et devient bleue — faux).
     base_mask = ~np.isfinite(arr)
+    sea = np.isfinite(arr) & (arr <= req.sea_level_m)
+    base_mask = base_mask | sea
+
+    # Bâtiments OSM → murs (canalisent l'eau dans les rues).
     n_buildings = 0
     if req.buildings:
         bmask, n_buildings = _building_mask(bbox, arr.shape)

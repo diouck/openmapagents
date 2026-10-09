@@ -63,7 +63,7 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
       setRes(d); setFrameIdx(d.frames.length - 1); setShowMax(false);
       // Couche flèches « sens de l'écoulement ».
       if (d.flow_geojson?.features?.length) {
-        onAddLayer?.(d.flow_geojson, "Écoulement (sens)", "analysis", { color: "#00e5ff", opacity: 0.95 });
+        onAddLayer?.(d.flow_geojson, "Écoulement (sens)", "analysis", { color: "#ffffff", opacity: 0.9 });
       }
       // Crée/replace la couche overlay.
       const id = layerIdRef.current || `flood_${Date.now()}`;
