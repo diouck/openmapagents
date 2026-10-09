@@ -15,7 +15,7 @@ import { F, M } from "../config";
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
-export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterLayer, layers = [] }) {
+export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterLayer, onAddLayer, layers = [] }) {
   const C = useThemeContext();
 
   const [demSource, setDemSource] = useState("gee");   // gee | <rasterToken>
@@ -23,6 +23,8 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
   const [dur, setDur]     = useState(60);              // min
   const [infil, setInfil] = useState(5);               // mm/h
   const [manning, setManning] = useState(0.05);
+  const [buildings, setBuildings] = useState(true);    // obstacles OSM
+  const [flowArrows, setFlowArrows] = useState(true);  // sens d'écoulement
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState(null);
   const [res, setRes]     = useState(null);            // payload simulate
@@ -48,6 +50,7 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
       const body = {
         bbox, rainfall_mm_h: Number(rain), duration_min: Number(dur),
         infiltration_mm_h: Number(infil), manning: Number(manning), n_frames: 12,
+        buildings, flow_arrows: flowArrows,
       };
       if (demSource === "gee") { body.dem_source = "gee"; body.dem_asset = "SRTM_30m"; }
       else { body.dem_source = "imported"; body.raster_token = demSource; }
@@ -58,6 +61,10 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
       if (!r.ok) throw new Error(d.detail || r.statusText);
       if (!d.frames?.length) throw new Error("Aucune frame produite.");
       setRes(d); setFrameIdx(d.frames.length - 1); setShowMax(false);
+      // Couche flèches « sens de l'écoulement ».
+      if (d.flow_geojson?.features?.length) {
+        onAddLayer?.(d.flow_geojson, "Écoulement (sens)", "analysis", { color: "#00e5ff", opacity: 0.95 });
+      }
       // Crée/replace la couche overlay.
       const id = layerIdRef.current || `flood_${Date.now()}`;
       layerIdRef.current = id;
@@ -146,6 +153,19 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
             <div style={{ fontSize: 9, color: C.mut, marginTop: 2 }}>Rugosité (Manning n)</div>
           </div>
         </div>
+      </div>
+
+      {/* Options réalisme */}
+      <div style={sec}>
+        <p style={lab}>Réalisme</p>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.txt, cursor: "pointer" }}>
+          <input type="checkbox" checked={buildings} onChange={e => setBuildings(e.target.checked)} />
+          Bâtiments OSM comme obstacles (canalise l'eau dans les rues)
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.txt, cursor: "pointer", marginTop: 5 }}>
+          <input type="checkbox" checked={flowArrows} onChange={e => setFlowArrows(e.target.checked)} />
+          Afficher le sens de l'écoulement (flèches)
+        </label>
       </div>
 
       {/* Opacité */}

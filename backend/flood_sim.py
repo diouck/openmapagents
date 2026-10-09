@@ -148,3 +148,32 @@ def frames_to_payload(sim, coords_bbox):
         "vmax": round(vmax, 2), "legend": legend,
         "frames": out_frames, "max_depth_png_b64": max_png, "kpi": sim["kpi"],
     }
+
+
+def flow_field(z, depth, cell_m, manning, wall=None, step=6):
+    """
+    Sens de l'écoulement = descente la plus raide de la surface d'eau (z+depth).
+    Vitesse ≈ Manning : v = (1/n)·h^(2/3)·√pente. Retourne une liste de flèches
+    (row, col, ux_est, uy_sud, speed) sous-échantillonnée là où il y a de l'eau.
+    """
+    ws = z + np.where(np.isfinite(depth), depth, 0.0)
+    ws = np.where(np.isfinite(ws), ws, np.nanmax(ws[np.isfinite(ws)]) if np.isfinite(ws).any() else 0.0)
+    gy, gx = np.gradient(ws, cell_m)                 # d/drow (sud+), d/dcol (est+)
+    slope = np.hypot(gx, gy)
+    h = np.clip(np.where(np.isfinite(depth), depth, 0.0), 0, None)
+    speed = (1.0 / max(1e-3, manning)) * np.power(h, 2.0 / 3.0) * np.sqrt(slope)
+
+    ny, nx = z.shape
+    arrows = []
+    for r in range(step // 2, ny, step):
+        for c in range(step // 2, nx, step):
+            if (wall is not None and wall[r, c]) or h[r, c] < DRY_M:
+                continue
+            sp = float(speed[r, c])
+            dx, dy = -gx[r, c], -gy[r, c]            # descente = -gradient
+            norm = np.hypot(dx, dy)
+            if sp <= 0 or norm < 1e-9:
+                continue
+            arrows.append((r, c, float(dx / norm), float(dy / norm), sp))
+    spd_ref = float(np.percentile([a[4] for a in arrows], 90)) if arrows else 0.0
+    return arrows, max(0.05, spd_ref)
