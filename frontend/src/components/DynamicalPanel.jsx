@@ -117,6 +117,11 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
         coordinates: d.image_coordinates, bbox: d.bbox, opacity,
         legend: d.legend, unit: d.unit,
       });
+      // Recadre sur le résultat pour qu'il soit visible (sinon « rien ne s'affiche »).
+      if (d.bbox) {
+        const [bw, bs, be, bn] = d.bbox;
+        try { m.fitBounds([[bw, bs], [be, bn]], { padding: 24, duration: 600, maxZoom: 8 }); } catch { /* noop */ }
+      }
     } catch (e) { setErr(String(e.message || e)); }
     finally { setBusy(false); }
   }

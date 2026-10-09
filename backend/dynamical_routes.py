@@ -272,6 +272,11 @@ def field(req: FieldReq):
     lat = ds[latn].values
     if req.bbox:
         w, s, e, n = req.bbox
+        # Marge d'au moins ~2 mailles : une emprise plus petite que la résolution
+        # (carte très zoomée) donnerait une tranche vide → « rien ne s'affiche ».
+        res = float(abs(lat[1] - lat[0])) if lat.size > 1 else 0.25
+        pad = res * 2.0
+        w, e, s, n = w - pad, e + pad, s - pad, n + pad
         lat_dec = lat[0] > lat[-1]
         da = da.sel({latn: slice(n, s)} if lat_dec else {latn: slice(s, n)})
         da = da.sel({lonn: slice(w, e)})
@@ -295,8 +300,17 @@ def field(req: FieldReq):
     vis = _vis_for(req.variable, str(ds[req.variable].attrs.get("units", "")))
     if vis["conv"]:
         arr = vis["conv"](arr)
-    mn = vis["min"] if vis["min"] is not None else float(np.nanmin(arr))
-    mx = vis["max"] if vis["max"] is not None else float(np.nanmax(arr))
+    # Plage DYNAMIQUE (2–98e percentiles des vraies valeurs de l'emprise) : la légende
+    # correspond alors exactement aux couleurs affichées sur la carte.
+    finite = arr[np.isfinite(arr)]
+    if finite.size:
+        mn, mx = float(np.percentile(finite, 2)), float(np.percentile(finite, 98))
+        if "precipitation" in req.variable.lower() or "humidity" in req.variable.lower():
+            mn = max(0.0, mn)
+    else:
+        mn, mx = (vis["min"] or 0.0), (vis["max"] or 1.0)
+    if mx <= mn:
+        mx = mn + 1.0
     rgba = _colormap(arr, mn, mx, vis["palette"])
     png = _png_b64(rgba)
 
