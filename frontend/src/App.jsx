@@ -2629,7 +2629,7 @@ export default function App() {
 
     if (activeTool === "floodsim") return (
       <Embed>
-        <FloodSimPanel mapRef={mapRef} onAddImageLayer={addImageLayer} onUpdateRasterLayer={updateRasterLayer} onAddLayer={addLayer} layers={layers} />
+        <FloodSimPanel mapRef={mapRef} onAddImageLayer={addImageLayer} onUpdateRasterLayer={updateRasterLayer} onAddLayer={addLayer} onAddLayerSilent={addLayerSilent} layers={layers} />
       </Embed>
     );
 

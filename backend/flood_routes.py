@@ -47,6 +47,7 @@ class FloodSimReq(BaseModel):
     buildings: bool = True            # brûle les bâtiments OSM comme obstacles (murs)
     flow_arrows: bool = True          # calcule les flèches de sens d'écoulement
     sea_level_m: float = 0.5          # altitude ≤ ce seuil = plan d'eau (mer) exclu de l'inondation
+    vector3d: bool = True             # vectorise la profondeur max → polygones extrudables (vue 3D)
 
 
 def _load_gee_dem(bbox, asset, max_cells):
@@ -182,6 +183,36 @@ def _arrows_geojson(arrows, spd_ref, bbox, shape):
     return {"type": "FeatureCollection", "features": feats}
 
 
+def _depth_polygons(depth, bbox, vmax, nbands=6, dry=0.02):
+    """Vectorise la profondeur (2D, m) en polygones classés avec attribut `depth` (m) → GeoJSON 3D extrudable."""
+    from rasterio.features import shapes
+    from rasterio.transform import from_bounds
+    from shapely.geometry import shape as shp_shape
+    ny, nx = depth.shape
+    w, s, e, n = bbox
+    edges = np.linspace(dry, max(vmax, dry + 0.1), nbands + 1)
+    cls = np.digitize(np.where(np.isfinite(depth), depth, 0.0), edges).astype("int32")
+    cls[depth < dry] = 0
+    if not (cls > 0).any():
+        return {"type": "FeatureCollection", "features": []}
+    transform = from_bounds(w, s, e, n, nx, ny)
+    tol = abs(e - w) / nx * 1.2   # simplification ~1 cellule
+    feats = []
+    for geom, val in shapes(cls, mask=cls > 0, transform=transform):
+        k = int(val)
+        d_lo = edges[min(k - 1, nbands - 1)]; d_hi = edges[min(k, nbands)]
+        dmid = float((d_lo + d_hi) / 2.0)
+        try:
+            poly = shp_shape(geom).simplify(tol)
+            if poly.is_empty:
+                continue
+        except Exception:
+            poly = shp_shape(geom)
+        feats.append({"type": "Feature", "geometry": poly.__geo_interface__,
+                      "properties": {"depth": round(dmid, 2), "depth_cm": int(round(dmid * 100))}})
+    return {"type": "FeatureCollection", "features": feats}
+
+
 @router.post("/simulate")
 def simulate(req: FloodSimReq):
     """Simulation pluviale 2D → frames de profondeur + KPI."""
@@ -242,4 +273,8 @@ def simulate(req: FloodSimReq):
                                      cell, req.manning, wall=base_mask, step=6)
         payload["flow_geojson"] = _arrows_geojson(arrows, spd_ref, bbox, arr.shape)
         payload["spd_ref"] = round(spd_ref, 2)
+
+    # Vue 3D : profondeur max vectorisée en polygones extrudables (hauteur = profondeur).
+    if req.vector3d:
+        payload["depth3d_geojson"] = _depth_polygons(sim["max_depth"], bbox, sim["vmax"])
     return payload

@@ -15,7 +15,7 @@ import { F, M } from "../config";
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
-export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterLayer, onAddLayer, layers = [] }) {
+export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterLayer, onAddLayer, onAddLayerSilent, layers = [] }) {
   const C = useThemeContext();
 
   const [demSource, setDemSource] = useState("gee");   // gee | <rasterToken>
@@ -62,9 +62,9 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
       if (!r.ok) throw new Error(d.detail || r.statusText);
       if (!d.frames?.length) throw new Error("Aucune frame produite.");
       setRes(d); setFrameIdx(d.frames.length - 1); setShowMax(false);
-      // Couche flèches « sens de l'écoulement ».
+      // Couche flèches « sens de l'écoulement » (addLayerSilent applique les overrides couleur).
       if (d.flow_geojson?.features?.length) {
-        onAddLayer?.(d.flow_geojson, "Écoulement (sens)", "analysis", { color: "#ffffff", opacity: 0.9 });
+        (onAddLayerSilent || onAddLayer)?.(d.flow_geojson, "Écoulement (sens)", "analysis", { color: "#ffffff", opacity: 0.95 });
       }
       // Crée/replace la couche overlay.
       const id = layerIdRef.current || `flood_${Date.now()}`;
@@ -203,6 +203,19 @@ export default function FloodSimPanel({ mapRef, onAddImageLayer, onUpdateRasterL
               Afficher la profondeur maximale (enveloppe)
             </label>
           </div>
+
+          {/* Vue 3D : eau extrudée + bascule caméra */}
+          {res.depth3d_geojson?.features?.length > 0 && (
+            <div style={sec}>
+              <button style={btn("#2a6fb0")} onClick={() => {
+                (onAddLayerSilent || onAddLayer)?.(res.depth3d_geojson, "Inondation 3D (eau)", "analysis",
+                  { extrude: true, extrudeAttr: "depth", extrudeScale: 8, color: "#2a6fb0", opacity: 0.8 });
+                const m = mapObj();
+                try { m?.easeTo({ pitch: 62, duration: 900 }); } catch { /* noop */ }
+              }}>Vue 3D — eau extrudée</button>
+              <p style={{ fontSize: 9, color: C.mut, marginTop: 4 }}>Active aussi <b>Relief 3D</b> (haut, moteur Mapbox) pour le terrain + bâtiments extrudés.</p>
+            </div>
+          )}
 
           {/* KPI */}
           {cur && !showMax && (
