@@ -122,38 +122,63 @@ def _cell_m(arr, bbox):
     return (dx + dy) / 2.0
 
 
-def _building_mask(bbox, shape):
-    """Masque des bâtiments OSM (Overpass) rasterisé sur la grille (True = bâti)."""
+def _rasterize(polys, bbox, shape):
+    from rasterio.features import rasterize
+    from rasterio.transform import from_bounds
+    if not polys:
+        return None
     w, s, e, n = bbox
     ny, nx = shape
-    q = f'[out:json][timeout:40];way["building"]({s},{w},{n},{e});out geom;'
+    transform = from_bounds(w, s, e, n, nx, ny)
+    return rasterize([(p, 1) for p in polys], out_shape=(ny, nx), transform=transform,
+                     fill=0, all_touched=True, dtype="uint8").astype(bool)
+
+
+def _osm_masks(bbox, shape, want_buildings=True):
+    """Récupère bâtiments + plans d'eau OSM (Overpass, 1 requête) → (mask_bati, mask_eau, n_bati)."""
+    w, s, e, n = bbox
+    bb = f"{s},{w},{n},{e}"
+    parts = []
+    if want_buildings:
+        parts.append(f'way["building"]({bb});')
+    parts += [f'way["natural"="water"]({bb});', f'way["waterway"="riverbank"]({bb});',
+              f'way["landuse"="reservoir"]({bb});', f'relation["natural"="water"]({bb});']
+    q = f'[out:json][timeout:45];({"".join(parts)});out geom;'
     try:
-        r = requests.post(OVERPASS_URL, data={"data": q}, timeout=45)
+        r = requests.post(OVERPASS_URL, data={"data": q}, timeout=50)
         r.raise_for_status()
         els = r.json().get("elements", [])
     except Exception:
-        return None, 0
+        return None, None, 0
     from shapely.geometry import Polygon
-    from rasterio.features import rasterize
-    from rasterio.transform import from_bounds
-    polys = []
+    b_polys, w_polys = [], []
     for el in els:
-        g = el.get("geometry")
-        if not g or len(g) < 3:
-            continue
-        ring = [(p["lon"], p["lat"]) for p in g]
-        try:
-            poly = Polygon(ring)
-            if poly.is_valid and poly.area > 0:
-                polys.append(poly)
-        except Exception:
-            continue
-    if not polys:
-        return None, 0
-    transform = from_bounds(w, s, e, n, nx, ny)
-    mask = rasterize([(p, 1) for p in polys], out_shape=(ny, nx), transform=transform,
-                     fill=0, all_touched=True, dtype="uint8").astype(bool)
-    return mask, len(polys)
+        tags = el.get("tags", {}) or {}
+        is_water = ("natural" in tags and tags.get("natural") == "water") or \
+                   tags.get("waterway") == "riverbank" or tags.get("landuse") == "reservoir" or "water" in tags
+        is_building = "building" in tags
+        rings = []
+        if el.get("type") == "relation":
+            for mem in el.get("members", []):
+                g = mem.get("geometry")
+                if mem.get("role") == "outer" and g and len(g) >= 3:
+                    rings.append([(p["lon"], p["lat"]) for p in g])
+        else:
+            g = el.get("geometry")
+            if g and len(g) >= 3:
+                rings.append([(p["lon"], p["lat"]) for p in g])
+        for ring in rings:
+            try:
+                poly = Polygon(ring)
+                if not poly.is_valid or poly.area <= 0:
+                    continue
+            except Exception:
+                continue
+            if is_building:
+                b_polys.append(poly)
+            elif is_water:
+                w_polys.append(poly)
+    return _rasterize(b_polys, bbox, shape), _rasterize(w_polys, bbox, shape), len(b_polys)
 
 
 def _arrows_geojson(arrows, spd_ref, bbox, shape):
@@ -242,18 +267,18 @@ def simulate(req: FloodSimReq):
     if not np.isfinite(arr).any():
         raise HTTPException(422, "MNT vide (que des nodata) sur cette emprise.")
 
-    # Plans d'eau (mer, bassins) : altitude ≤ niveau marin → exclus de l'inondation
-    # (sinon toute la mer se « remplit » de pluie et devient bleue — faux).
+    # Plans d'eau : mer (altitude ≤ niveau marin) + rivières/lacs OSM (ex. la Loire)
+    # → exclus de l'inondation (sinon ils se « remplissent » de pluie et deviennent bleus).
     base_mask = ~np.isfinite(arr)
-    sea = np.isfinite(arr) & (arr <= req.sea_level_m)
-    base_mask = base_mask | sea
+    base_mask = base_mask | (np.isfinite(arr) & (arr <= req.sea_level_m))
 
-    # Bâtiments OSM → murs (canalisent l'eau dans les rues).
-    n_buildings = 0
-    if req.buildings:
-        bmask, n_buildings = _building_mask(bbox, arr.shape)
-        if bmask is not None:
-            base_mask = base_mask | bmask
+    n_buildings = n_water = 0
+    bmask, wmask, n_buildings = _osm_masks(bbox, arr.shape, want_buildings=req.buildings)
+    if req.buildings and bmask is not None:
+        base_mask = base_mask | bmask            # bâtiments = murs
+    if wmask is not None:
+        base_mask = base_mask | wmask            # plans d'eau = exclus
+        n_water = int(wmask.sum())
 
     sim = simulate_flood(
         arr, cell, req.rainfall_mm_h, req.duration_min,
@@ -264,6 +289,7 @@ def simulate(req: FloodSimReq):
     payload["cell_m"] = round(cell, 1)
     payload["grid"] = [int(arr.shape[0]), int(arr.shape[1])]
     payload["buildings"] = n_buildings
+    payload["water_cells"] = n_water
     payload["params"] = {"rainfall_mm_h": req.rainfall_mm_h, "duration_min": req.duration_min,
                          "manning": req.manning, "infiltration_mm_h": req.infiltration_mm_h}
 
