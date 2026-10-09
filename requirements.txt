@@ -50,6 +50,12 @@ mcp>=1.0.0
 # --- Google Earth Engine ---
 earthengine-api>=0.1.400
 
+# --- Donnees meteo ouvertes (dynamical.org) : lecture Zarr/Icechunk via xarray ---
+dynamical-catalog>=0.8.0
+icechunk>=0.1.0
+xarray>=2024.0.0
+zarr>=2.17.0
+
 # Embeddings locaux (optionnel, lourd) : le RAG retombe sur LiteLLM sans eux.
 #   pip install sentence-transformers   # tire torch (~2 Go)
 #   pip install fastembed               # alternative ONNX legere
