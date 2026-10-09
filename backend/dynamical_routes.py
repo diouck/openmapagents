@@ -227,6 +227,52 @@ class FieldReq(BaseModel):
     member: int | None = None
     bbox: list[float] | None = None   # [W,S,E,N] en 4326 ; défaut = globe/domaine
     max_px: int = 1600                # borne la taille de l'image
+    # --- Style (option A) : surcharge le rendu, relance /field ---
+    palette: str | None = None        # nom d'une palette (cf. PALETTES) ; None = auto/variable
+    classes: int | None = None        # nb de classes discrètes ; None/0/1 = dégradé continu
+    vmin: float | None = None         # borne basse imposée (None = 2e percentile)
+    vmax: float | None = None         # borne haute imposée (None = 98e percentile)
+
+
+# Palettes nommées proposées dans le panneau de style.
+PALETTES = {
+    "thermique": _PAL_TEMP,
+    "precip": _PAL_PRECIP,
+    "vent": _PAL_WIND,
+    "humidite": _PAL_RH,
+    "gris": _PAL_GREY,
+    "spectral": ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#e6f598", "#abdda4", "#66c2a5", "#3288bd", "#5e4fa2"],
+    "viridis": ["#440154", "#482878", "#3e4a89", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
+}
+
+
+def _sample_palette(palette, n):
+    """Échantillonne n couleurs discrètes le long d'une palette hex."""
+    pal = np.array([_hex(c) for c in palette], dtype=float)
+    out = []
+    for i in range(n):
+        t = i / max(1, n - 1)
+        idx = t * (len(pal) - 1)
+        lo = int(np.clip(np.floor(idx), 0, len(pal) - 1)); hi = min(lo + 1, len(pal) - 1)
+        f = idx - lo
+        rgb = pal[lo] * (1 - f) + pal[hi] * f
+        out.append("#%02x%02x%02x" % tuple(int(v) for v in rgb))
+    return out
+
+
+def _colormap_discrete(arr, mn, mx, palette, n):
+    """Colorisation en n classes égales entre mn et mx → RGBA + légende de classes."""
+    colors = _sample_palette(palette, n)
+    cols = np.array([_hex(c) for c in colors], dtype=np.uint8)
+    a = np.clip((arr - mn) / max(1e-9, (mx - mn)), 0, 1)
+    idx = np.clip((a * n).astype(int), 0, n - 1)
+    rgba = np.zeros((*arr.shape, 4), np.uint8)
+    rgba[..., :3] = cols[idx]
+    rgba[..., 3] = np.where(np.isfinite(arr), 255, 0).astype(np.uint8)
+    edges = np.linspace(mn, mx, n + 1)
+    legend = [{"color": colors[i], "value": round(float(edges[i]), 1),
+               "label": f"{round(float(edges[i]),1)} – {round(float(edges[i+1]),1)}"} for i in range(n)]
+    return rgba, legend
 
 
 class PointReq(BaseModel):
@@ -296,32 +342,49 @@ def field(req: FieldReq):
     if sub_lat[0] < sub_lat[-1]:
         arr = arr[::-1, :]
         sub_lat = sub_lat[::-1]
+    # Borne Web Mercator (±85.0511°) : un overlay image atteignant les pôles rend une
+    # source "image" invalide (y → ∞ en Mercator) → blocage du rendu (ex. mode « Monde »).
+    MERC = 85.0511
+    keep = np.abs(sub_lat) <= MERC
+    if 2 <= int(keep.sum()) < sub_lat.size:
+        arr = arr[keep, :]
+        sub_lat = sub_lat[keep]
 
     vis = _vis_for(req.variable, str(ds[req.variable].attrs.get("units", "")))
     if vis["conv"]:
         arr = vis["conv"](arr)
-    # Plage DYNAMIQUE (2–98e percentiles des vraies valeurs de l'emprise) : la légende
-    # correspond alors exactement aux couleurs affichées sur la carte.
+    # Palette : imposée par le style, sinon celle de la variable.
+    palette = PALETTES.get((req.palette or "").lower(), vis["palette"])
+    # Bornes : imposées par le style, sinon 2–98e percentiles (légende = couleurs carte).
     finite = arr[np.isfinite(arr)]
     if finite.size:
-        mn, mx = float(np.percentile(finite, 2)), float(np.percentile(finite, 98))
-        if "precipitation" in req.variable.lower() or "humidity" in req.variable.lower():
+        mn = req.vmin if req.vmin is not None else float(np.percentile(finite, 2))
+        mx = req.vmax if req.vmax is not None else float(np.percentile(finite, 98))
+        if req.vmin is None and ("precipitation" in req.variable.lower() or "humidity" in req.variable.lower()):
             mn = max(0.0, mn)
     else:
-        mn, mx = (vis["min"] or 0.0), (vis["max"] or 1.0)
+        mn = req.vmin if req.vmin is not None else (vis["min"] or 0.0)
+        mx = req.vmax if req.vmax is not None else (vis["max"] or 1.0)
     if mx <= mn:
         mx = mn + 1.0
-    rgba = _colormap(arr, mn, mx, vis["palette"])
+
+    nclass = int(req.classes or 0)
+    if nclass >= 2:
+        rgba, legend = _colormap_discrete(arr, mn, mx, palette, nclass)
+        for it in legend:
+            it["label"] = f"{it['label']} {vis['label']}".strip()
+    else:
+        rgba = _colormap(arr, mn, mx, palette)
+        legend = []
+        for i, c in enumerate(palette):
+            val = round(mn + (mx - mn) * i / (len(palette) - 1), 1)
+            legend.append({"color": c, "value": val, "label": f"{val} {vis['label']}".strip()})
     png = _png_b64(rgba)
 
     W, E = float(np.min(sub_lon)), float(np.max(sub_lon))
     S, N = float(np.min(sub_lat)), float(np.max(sub_lat))
     # Coins pour une source "image" Mapbox/MapLibre : TL, TR, BR, BL.
     coords = [[W, N], [E, N], [E, S], [W, S]]
-    legend = []
-    for i, c in enumerate(vis["palette"]):
-        val = round(mn + (mx - mn) * i / (len(vis["palette"]) - 1), 1)
-        legend.append({"color": c, "value": val, "label": f"{val} {vis['label']}".strip()})
     return {
         "status": "ok", "dataset": req.dataset, "variable": req.variable,
         "png_b64": png, "image_coordinates": coords, "bbox": [W, S, E, N],

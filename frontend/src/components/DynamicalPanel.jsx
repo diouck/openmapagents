@@ -64,6 +64,11 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const [roiBbox, setRoiBbox] = useState(null);     // [W,S,E,N] dessiné (2 clics)
   const [roiPicking, setRoiPicking] = useState(false);
   const [opacity, setOpacity] = useState(0.75);     // transparence de l'overlay
+  // Style (option A) : palette / nb de classes / bornes min-max.
+  const [palette, setPalette] = useState("auto");
+  const [nClasses, setNClasses] = useState(0);      // 0 = dégradé continu
+  const [vmin, setVmin] = useState("");             // vide = auto (percentiles)
+  const [vmax, setVmax] = useState("");
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
 
@@ -105,11 +110,20 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
       }
       const r = await fetch(`${API}/api/dynamical/field`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset: dsId, variable, init_time: run || null, lead_hours: curLead, member, bbox }),
+        body: JSON.stringify({
+          dataset: dsId, variable, init_time: run || null, lead_hours: curLead, member, bbox,
+          palette: palette === "auto" ? null : palette,
+          classes: nClasses || null,
+          vmin: vmin === "" ? null : Number(vmin),
+          vmax: vmax === "" ? null : Number(vmax),
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || r.statusText);
       setLegend({ items: d.legend, unit: d.unit });
+      // Pré-remplit les bornes avec la plage réellement utilisée (ajustable ensuite).
+      if (vmin === "" && d.vmin != null) setVmin(String(Math.round(d.vmin * 10) / 10));
+      if (vmax === "" && d.vmax != null) setVmax(String(Math.round(d.vmax * 10) / 10));
       onAddImageLayer?.({
         id: `dyn_${dsId}_${variable}_${Date.now()}`,
         name: `${prettyVar(variable)} ${fmtLead(curLead)} — ${(cat.find(c => c.id === dsId) || {}).model || dsId}`,
@@ -215,7 +229,7 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
           {/* Variable */}
           <div style={sec}>
             <p style={lab}>Variable</p>
-            <select style={sel} value={variable} onChange={e => setVar(e.target.value)}>
+            <select style={sel} value={variable} onChange={e => { setVar(e.target.value); setVmin(""); setVmax(""); }}>
               {dims.variables.map(v => (
                 <option key={v.id} value={v.id}>{prettyVar(v.id)}{v.units ? ` (${v.units})` : ""}</option>
               ))}
@@ -284,6 +298,31 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
             <p style={lab}>Opacité de la couche · <span style={{ color: C.acc }}>{Math.round(opacity * 100)} %</span></p>
             <input type="range" min={0.1} max={1} step={0.05} value={opacity}
                    onChange={e => setOpacity(+e.target.value)} style={{ width: "100%" }} />
+          </div>
+
+          {/* Style : palette / classes / bornes */}
+          <div style={sec}>
+            <p style={lab}>Style</p>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select style={{ ...sel, flex: 1 }} value={palette} onChange={e => setPalette(e.target.value)} title="Palette">
+                {[["auto", "Palette auto"], ["thermique", "Thermique"], ["spectral", "Spectral"], ["viridis", "Viridis"],
+                  ["precip", "Précipitations"], ["vent", "Vent"], ["humidite", "Humidité"], ["gris", "Gris"]].map(([k, l]) =>
+                  <option key={k} value={k}>{l}</option>)}
+              </select>
+              <select style={{ ...sel, width: 110 }} value={nClasses} onChange={e => setNClasses(+e.target.value)} title="Nombre de classes">
+                <option value={0}>Dégradé</option>
+                {[3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} classes</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: C.mut }}>Min</span>
+              <input type="number" value={vmin} placeholder="auto" onChange={e => setVmin(e.target.value)} style={{ ...sel, flex: 1 }} />
+              <span style={{ fontSize: 10, color: C.mut }}>Max</span>
+              <input type="number" value={vmax} placeholder="auto" onChange={e => setVmax(e.target.value)} style={{ ...sel, flex: 1 }} />
+              <button onClick={() => { setVmin(""); setVmax(""); }} title="Réinitialiser les bornes (auto)"
+                      style={{ fontFamily: F, fontSize: 10, padding: "6px 8px", borderRadius: 6, cursor: "pointer", border: `0.5px solid ${C.bdr}`, background: C.hover, color: C.txt }}>⟲</button>
+            </div>
+            <p style={{ fontSize: 9, color: C.mut, marginTop: 4 }}>Modifie puis clique « Afficher sur la carte » pour réappliquer le style.</p>
           </div>
 
           {/* Actions */}
