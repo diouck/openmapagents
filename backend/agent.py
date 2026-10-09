@@ -889,6 +889,13 @@ try:
 except Exception as e:
     log.warning(f"⚠ Dynamical router : {e}")
 
+try:
+    from flood_routes import router as flood_router
+    app.include_router(flood_router)
+    log.info("✓ Flood-sim router chargé (/api/flood/*)")
+except Exception as e:
+    log.warning(f"⚠ Flood-sim router : {e}")
+
 
 
 from osm_routes import router as osm_router

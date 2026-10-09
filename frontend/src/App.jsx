@@ -39,6 +39,7 @@ import VectorCatalogPanel from "./components/VectorCatalogPanel";
 import FloodPanel from "./components/FloodPanel";
 import WeatherPanel from "./components/WeatherPanel";
 import DynamicalPanel from "./components/DynamicalPanel";
+import FloodSimPanel from "./components/FloodSimPanel";
 import ChartLayer from "./components/ChartLayer";
 import DBPanel from "./components/DBPanel";
 import SqlPanel from "./components/SqlPanel";
@@ -497,6 +498,7 @@ const PANEL_SIZES = {
   agri:      { w: 440, h: 640 },
   graticule: { w: 268, h: "auto" },
   dynamical: { w: 320, h: 560 },
+  floodsim:  { w: 320, h: 560 },
 };
 const DEFAULT_SIZE = { w: 340, h: 480 };
 const MIN_W = 260, MAX_W = 860, MIN_H = 120;
@@ -2622,6 +2624,12 @@ export default function App() {
     if (activeTool === "dynamical") return (
       <Embed>
         <DynamicalPanel mapRef={mapRef} onAddImageLayer={addImageLayer} />
+      </Embed>
+    );
+
+    if (activeTool === "floodsim") return (
+      <Embed>
+        <FloodSimPanel mapRef={mapRef} onAddImageLayer={addImageLayer} onUpdateRasterLayer={updateRasterLayer} layers={layers} />
       </Embed>
     );
 

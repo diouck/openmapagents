@@ -224,6 +224,7 @@ export const MENU_TREE = [
   { id: "risques", label: "Risques & changements", icon: IcFlame, items: [
     { kind: "tool", id: "burnsev", label: "Severite d'incendie (dNBR)", desc: "Degats d'un feu par comparaison NBR avant/apres.", icon: IcFlame },
     { kind: "tool", id: "flood", label: "Cartographie des inondations", desc: "Détection radar SAR (Sentinel-1) ou modèle hauteur d'eau ; surface, population et bâti exposés.", icon: IcDroplets },
+    { kind: "tool", id: "floodsim", label: "Simulation d'inondation (2D)", desc: "Simule une inondation pluviale sur le MNT (GEE/importé) : profondeur dans le temps, profondeur max, surface inondée.", icon: IcWaves, panel: true },
     { kind: "indicator", id: "NBR" }, { kind: "indicator", id: "NDSI" },
     { kind: "indicator", id: "BURNED" }, { kind: "indicator", id: "FIRMS" },
     { kind: "indicator", id: "SMOKE" },
