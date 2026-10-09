@@ -49,6 +49,7 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const [legend, setLegend] = useState(null);
   const [picking, setPicking] = useState(false);
   const [series, setSeries] = useState(null);       // { unit, series:[{lead_h,value}] }
+  const [tab, setTab]       = useState("outil");    // outil | def
 
   const mapObj = () => mapRef?.current?.getMap?.() || null;
 
@@ -132,8 +133,23 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
   const byModel = {};
   cat.forEach(c => { (byModel[c.model] ||= []).push(c); });
 
+  const curDs = cat.find(c => c.id === dsId);
   return (
     <div style={{ display: "flex", flexDirection: "column", paddingBottom: 12 }}>
+      {/* Onglets */}
+      <div style={{ display: "flex", gap: 4, padding: "8px 12px 0" }}>
+        {[["outil", "Réglages"], ["def", "Définition"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{
+            flex: 1, fontFamily: F, fontSize: 11, fontWeight: 600, padding: "6px 8px", borderRadius: 6,
+            cursor: "pointer", border: `0.5px solid ${C.bdr}`,
+            background: tab === k ? C.acc : C.hover, color: tab === k ? "#fff" : C.txt,
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "def" && <DefinitionTab C={C} ds={curDs} dims={dims} />}
+
+      {tab === "outil" && <>
       {/* Dataset */}
       <div style={sec}>
         <p style={lab}>Dataset</p>
@@ -227,6 +243,44 @@ export default function DynamicalPanel({ mapRef, onAddImageLayer }) {
       <p style={{ ...sec, color: C.mut, fontSize: 9.5, lineHeight: 1.5, marginTop: 6 }}>
         Source : dynamical.org (Zarr/Icechunk, calcul serveur). L'échéance s'ajuste à la valeur la plus proche disponible.
       </p>
+      </>}
+    </div>
+  );
+}
+
+// Onglet Définition — explique la source, la structure et le dataset courant.
+function DefinitionTab({ C, ds, dims }) {
+  const p = { fontSize: 11.5, color: C.txt, lineHeight: 1.6, margin: "0 0 8px" };
+  const h = { fontSize: 10, fontWeight: 700, color: C.dim, textTransform: "uppercase", letterSpacing: ".05em", margin: "12px 0 4px" };
+  const li = { fontSize: 11, color: C.mut, lineHeight: 1.5 };
+  return (
+    <div style={{ padding: "12px 12px 0" }}>
+      <p style={p}>
+        Accès aux jeux de données météo/climat ouverts de <b>dynamical.org</b> (Zarr/Icechunk,
+        <i> analysis-ready cloud-optimized</i>). Le calcul est fait côté serveur : extraction d'une
+        tranche 2D (dataset · run · échéance · variable) renvoyée en overlay colorisé, ou série
+        temporelle au point.
+      </p>
+      <p style={h}>Structure d'un dataset</p>
+      <p style={li}>init_time (run du modèle) × lead_time (échéance) × latitude × longitude → variables,
+        plus un membre d'ensemble pour les modèles probabilistes (GEFS, IFS-ENS, AIFS-ENS).</p>
+      <p style={h}>Modèles disponibles</p>
+      <p style={li}>NOAA GFS · GEFS · HRRR · MRMS · ECMWF AIFS / IFS-ENS · DWD ICON-EU · NASA IMERG · ECCC HRDPS.</p>
+      {ds && (
+        <>
+          <p style={h}>Dataset sélectionné</p>
+          <p style={li}>
+            <b>{ds.model}</b> — {ds.kind === "analysis" ? "analyse" : "prévision"} · résolution {ds.res} ·
+            domaine {ds.domain}{ds.members ? " · ensemble" : ""}
+            {ds.lead_h ? ` · échéance jusqu'à +${ds.lead_h} h` : ""}.
+            {dims ? ` ${dims.variables?.length || 0} variables, ${dims.init_times?.length || 0} runs récents` : ""}
+          </p>
+        </>
+      )}
+      <p style={h}>Utilisation</p>
+      <p style={li}>Onglet <b>Réglages</b> → choisir dataset, run, échéance (slider) et variable, puis
+        « Afficher sur la carte ». Le bouton « Série temporelle » trace la valeur par échéance au point cliqué.</p>
+      <p style={{ ...li, marginTop: 10, color: C.mut, fontSize: 9.5 }}>Source : dynamical.org · licence des données selon le producteur (NOAA, ECMWF, DWD, NASA, ECCC).</p>
     </div>
   );
 }
